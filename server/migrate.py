@@ -13,6 +13,16 @@ def run_db_migrations():
     if "tenders" not in inspector.get_table_names():
         return
 
+    if "saved_searches" in inspector.get_table_names():
+        s_cols = [c["name"] for c in inspector.get_columns("saved_searches")]
+        with engine.begin() as conn:
+            if "ufs" not in s_cols:
+                logger.info("Migração: adicionando coluna ufs à tabela saved_searches")
+                conn.execute(text("ALTER TABLE saved_searches ADD COLUMN ufs VARCHAR(255)"))
+            if "min_value" not in s_cols:
+                logger.info("Migração: adicionando coluna min_value à tabela saved_searches")
+                conn.execute(text("ALTER TABLE saved_searches ADD COLUMN min_value FLOAT"))
+
     cols = [c["name"] for c in inspector.get_columns("tenders")]
     with engine.begin() as conn:
         if "source_system" not in cols:

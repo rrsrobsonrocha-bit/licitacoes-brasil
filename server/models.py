@@ -189,11 +189,13 @@ class SavedSearch(Base):
     __tablename__ = "saved_searches"
 
     id = Column(String(36), primary_key=True, default=generate_uuid)
-    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    name = Column(String(255), nullable=False)
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    name = Column(String(255), nullable=True, default="Alerta")
     keywords = Column(String(500), nullable=True)
-    filters = Column(JSON, nullable=False, default=dict)
-    active = Column(Boolean, default=True)
+    ufs = Column(String(255), nullable=True)
+    min_value = Column(Float, nullable=True)
+    filters = Column(JSON, nullable=True, default=dict)
+    active = Column(Boolean, default=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -204,7 +206,7 @@ class Alert(Base):
     __tablename__ = "alerts"
 
     id = Column(String(36), primary_key=True, default=generate_uuid)
-    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     name = Column(String(255), nullable=False)
     keywords = Column(String(500), nullable=True)
     filters = Column(JSON, nullable=False, default=dict)

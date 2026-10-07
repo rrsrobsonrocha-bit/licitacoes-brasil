@@ -23,7 +23,7 @@ from server.models import (
     Favorite, UserNote, SavedSearch, Alert, AlertDelivery,
     TenderChange, DocumentExtraction, AIAnalysis, SearchHistory,
     WebhookDispatchLog, Deal, DEAL_STAGES, DEAL_STAGE_LABELS,
-    LegalDocumentTemplate, SupplierProspect
+    LegalDocumentTemplate, SupplierProspect, generate_uuid
 )
 from server.schemas import (
     UserRegisterRequest, UserLoginRequest, PasswordChangeRequest,
@@ -1557,71 +1557,185 @@ def api_toggle_favorite(
 # ----------------- Alerts API -----------------
 
 @app.get("/api/alerts", response_model=List[AlertResponse])
-def api_get_alerts(user: User = Depends(require_auth), db: Session = Depends(get_db)):
-    alerts = db.query(Alert).filter(Alert.user_id == user.id).all()
+def api_get_alerts(
+    user: Optional[User] = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    query = db.query(SavedSearch).filter(SavedSearch.active == True)
+    if user:
+        query = query.filter((SavedSearch.user_id == user.id) | (SavedSearch.user_id.is_(None)))
+    saved_items = query.order_by(SavedSearch.created_at.desc()).all()
+
     resp = []
-    for a in alerts:
-        count = db.query(AlertDelivery).filter(AlertDelivery.alert_id == a.id).count()
+    seen_ids = set()
+    for s in saved_items:
+        seen_ids.add(s.id)
+        count = db.query(AlertDelivery).filter(AlertDelivery.alert_id == s.id).count()
+        al = db.query(Alert).filter(Alert.id == s.id).first()
         resp.append(AlertResponse(
-            id=a.id,
-            name=a.name,
-            keywords=a.keywords,
-            filters=a.filters or {},
-            frequency=a.frequency,
-            channels=a.channels,
-            active=a.active,
-            last_run_at=a.last_run_at,
-            created_at=a.created_at,
+            id=s.id,
+            keywords=s.keywords,
+            ufs=s.ufs,
+            min_value=s.min_value,
+            created_at=s.created_at,
+            active=s.active,
+            name=s.name or "Alerta",
+            filters=s.filters or {},
+            frequency=al.frequency if al else "DAILY",
+            channels=al.channels if al else "IN_APP",
+            last_run_at=al.last_run_at if al else None,
             delivery_count=count
         ))
+
+    # Incorporar alertas legados da tabela Alert se houver
+    legacy_query = db.query(Alert).filter(Alert.active == True)
+    if user:
+        legacy_query = legacy_query.filter(Alert.user_id == user.id)
+    legacy_alerts = legacy_query.all()
+    for la in legacy_alerts:
+        if la.id not in seen_ids:
+            seen_ids.add(la.id)
+            count = db.query(AlertDelivery).filter(AlertDelivery.alert_id == la.id).count()
+            la_ufs = la.filters.get("state") if isinstance(la.filters, dict) else None
+            la_min = clean_float_param(la.filters.get("value_min")) if isinstance(la.filters, dict) else None
+            resp.append(AlertResponse(
+                id=la.id,
+                keywords=la.keywords,
+                ufs=la_ufs,
+                min_value=la_min,
+                created_at=la.created_at,
+                active=la.active,
+                name=la.name,
+                filters=la.filters or {},
+                frequency=la.frequency,
+                channels=la.channels,
+                last_run_at=la.last_run_at,
+                delivery_count=count
+            ))
+
     return resp
 
 @app.post("/api/alerts", response_model=AlertResponse)
 def api_create_alert(
     payload: AlertCreateRequest,
-    user: User = Depends(require_auth),
+    user: Optional[User] = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    alert = Alert(
-        user_id=user.id,
-        name=payload.name,
-        keywords=payload.keywords,
-        filters=payload.filters,
-        frequency=payload.frequency,
-        channels=payload.channels,
-        active=True
+    keywords = payload.keywords
+    filters = dict(payload.filters or {})
+    if not keywords and filters.get("q"):
+        keywords = filters.get("q")
+
+    ufs = payload.ufs or filters.get("state") or filters.get("uf")
+    min_value = payload.min_value
+    if min_value is None and filters.get("value_min") is not None:
+        min_value = clean_float_param(filters.get("value_min"))
+
+    name = payload.name or (f"Alerta: {keywords}" if keywords else (f"Alerta UF {ufs}" if ufs else "Alerta de Busca"))
+
+    if ufs and "state" not in filters:
+        filters["state"] = ufs
+    if min_value is not None and "value_min" not in filters:
+        filters["value_min"] = min_value
+    if keywords and "keywords" not in filters:
+        filters["keywords"] = keywords
+
+    alert_id = generate_uuid()
+    created_now = datetime.utcnow()
+
+    target_user_id = user.id if user else None
+    if not target_user_id:
+        demo = db.query(User).filter(User.email == "usuario@empresa.com.br").first()
+        if demo:
+            target_user_id = demo.id
+        else:
+            first_u = db.query(User).first()
+            if first_u:
+                target_user_id = first_u.id
+
+    # Guardar pesquisa/alerta no modelo SavedSearch
+    saved_search = SavedSearch(
+        id=alert_id,
+        user_id=target_user_id,
+        name=name,
+        keywords=keywords,
+        ufs=ufs,
+        min_value=min_value,
+        filters=filters,
+        active=True,
+        created_at=created_now,
+        updated_at=created_now
     )
-    db.add(alert)
+    db.add(saved_search)
+
+    # Espelhar em Alert para compatibilidade de entregas se houver usuário
+    freq = payload.frequency or "DAILY"
+    chan = payload.channels or "IN_APP"
+    if target_user_id:
+        alert = Alert(
+            id=alert_id,
+            user_id=target_user_id,
+            name=name,
+            keywords=keywords,
+            filters=filters,
+            frequency=freq,
+            channels=chan,
+            active=True,
+            created_at=created_now,
+            updated_at=created_now
+        )
+        db.add(alert)
+
     db.commit()
-    db.refresh(alert)
+    db.refresh(saved_search)
+
     return AlertResponse(
-        id=alert.id,
-        name=alert.name,
-        keywords=alert.keywords,
-        filters=alert.filters,
-        frequency=alert.frequency,
-        channels=alert.channels,
-        active=alert.active,
-        last_run_at=alert.last_run_at,
-        created_at=alert.created_at,
+        id=saved_search.id,
+        keywords=saved_search.keywords,
+        ufs=saved_search.ufs,
+        min_value=saved_search.min_value,
+        created_at=saved_search.created_at,
+        active=saved_search.active,
+        name=saved_search.name,
+        filters=saved_search.filters or {},
+        frequency=freq,
+        channels=chan,
+        last_run_at=None,
         delivery_count=0
     )
 
 @app.post("/api/alerts/{alert_id}/toggle")
-def api_toggle_alert(alert_id: str, active: bool = Query(...), user: User = Depends(require_auth), db: Session = Depends(get_db)):
-    alert = db.query(Alert).filter(Alert.id == alert_id, Alert.user_id == user.id).first()
-    if not alert:
+def api_toggle_alert(
+    alert_id: str,
+    active: bool = Query(...),
+    user: Optional[User] = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    alert = db.query(Alert).filter(Alert.id == alert_id).first()
+    saved = db.query(SavedSearch).filter(SavedSearch.id == alert_id).first()
+    if not alert and not saved:
         raise HTTPException(status_code=404, detail="Alerta não localizado.")
-    alert.active = active
+    if alert:
+        alert.active = active
+    if saved:
+        saved.active = active
     db.commit()
     return {"message": f"Alerta {'reativado' if active else 'pausado'} com sucesso."}
 
 @app.delete("/api/alerts/{alert_id}")
-def api_delete_alert(alert_id: str, user: User = Depends(require_auth), db: Session = Depends(get_db)):
-    alert = db.query(Alert).filter(Alert.id == alert_id, Alert.user_id == user.id).first()
-    if not alert:
+def api_delete_alert(
+    alert_id: str,
+    user: Optional[User] = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    alert = db.query(Alert).filter(Alert.id == alert_id).first()
+    saved = db.query(SavedSearch).filter(SavedSearch.id == alert_id).first()
+    if not alert and not saved:
         raise HTTPException(status_code=404, detail="Alerta não localizado.")
-    db.delete(alert)
+    if alert:
+        db.delete(alert)
+    if saved:
+        db.delete(saved)
     db.commit()
     return {"message": "Alerta excluído."}
 

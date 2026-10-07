@@ -60,7 +60,18 @@
 
           <!-- Palavra-chave -->
           <div>
-            <label class="block text-xs font-semibold text-slate-300 mb-1">Palavra-chave / Objeto</label>
+            <div class="flex items-center justify-between mb-1">
+              <label class="block text-xs font-semibold text-slate-300">Palavra-chave / Objeto</label>
+              <button 
+                type="button" 
+                id="btn-quick-save-alert"
+                onclick="saveSearchAlert()" 
+                class="inline-flex items-center gap-1 text-[11px] font-semibold text-sky-400 hover:text-sky-300 transition py-0.5 px-1.5 rounded hover:bg-sky-950/40 cursor-pointer"
+                title="Guardar este Alerta com as palavras-chave e filtros atuais"
+              >
+                <i class="fa-regular fa-bell"></i> Guardar este Alerta
+              </button>
+            </div>
             <div class="relative">
               <input 
                 type="text" 
@@ -224,6 +235,15 @@
               >
                 <i class="fa-solid fa-file-csv text-emerald-400"></i> Exportar CSV
               </a>
+              <button 
+                type="button"
+                id="btn-header-save-alert"
+                onclick="saveSearchAlert()"
+                class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-semibold text-sky-300 bg-sky-950/60 hover:bg-sky-900/80 hover:text-white border border-sky-800/80 transition shadow-sm cursor-pointer"
+                title="Guardar este Alerta de busca com os filtros atuais"
+              >
+                <i class="fa-regular fa-bell text-sky-400"></i> Guardar este Alerta
+              </button>
             </div>
             {% if params.q %}
               <span class="text-xs text-slate-400 block mt-1">Filtro textual: "<strong class="text-slate-200">{{ params.q }}</strong>"</span>
@@ -976,6 +996,56 @@
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#039;');
+  }
+
+  async function saveSearchAlert() {
+    const queryParams = new URLSearchParams(window.location.search);
+    const qInput = document.querySelector('input[name="q"]');
+    const stateInput = document.querySelector('select[name="state"]');
+    const valMinInput = document.querySelector('input[name="value_min"]');
+
+    const keywords = (qInput && qInput.value.trim()) ? qInput.value.trim() : (queryParams.get('q') || '');
+    const ufs = (stateInput && stateInput.value.trim()) ? stateInput.value.trim() : (queryParams.get('state') || '');
+    const rawValMin = (valMinInput && valMinInput.value.trim()) ? valMinInput.value.trim() : queryParams.get('value_min');
+    const valMin = rawValMin ? parseFloat(rawValMin.replace(',', '.')) : null;
+
+    const token = typeof AppSession !== 'undefined' ? AppSession.getToken() : null;
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const payload = {
+      keywords: keywords || null,
+      ufs: ufs || null,
+      min_value: isNaN(valMin) ? null : valMin,
+      name: keywords ? `Alerta: ${keywords}` : (ufs ? `Alerta UF ${ufs}` : 'Alerta de Licitações'),
+      filters: Object.fromEntries(queryParams.entries()),
+      frequency: 'DAILY',
+      channels: 'IN_APP'
+    };
+
+    const btns = document.querySelectorAll('#btn-quick-save-alert, #btn-header-save-alert');
+    btns.forEach(b => b.classList.add('opacity-50', 'pointer-events-none'));
+
+    try {
+      const resp = await fetch('/api/alerts', {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify(payload)
+      });
+
+      if (resp.ok) {
+        showToast('Alerta guardado com sucesso! Filtros ativos cadastrados.', 'success');
+      } else {
+        const err = await resp.json().catch(() => ({}));
+        showToast(err.detail || 'Não foi possível guardar o alerta.', 'error');
+      }
+    } catch {
+      showToast('Erro de conexão ao guardar alerta.', 'error');
+    } finally {
+      btns.forEach(b => b.classList.remove('opacity-50', 'pointer-events-none'));
+    }
   }
 
   function openSaveSearchModal() {

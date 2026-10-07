@@ -226,27 +226,33 @@ class UserNoteRequest(BaseModel):
     content: str
 
 class SavedSearchCreate(BaseModel):
-    name: str
+    name: Optional[str] = "Alerta"
     keywords: Optional[str] = None
-    filters: Dict[str, Any]
+    ufs: Optional[str] = None
+    min_value: Optional[float] = None
+    filters: Optional[Dict[str, Any]] = None
 
 class AlertCreateRequest(BaseModel):
-    name: str
+    name: Optional[str] = "Alerta"
     keywords: Optional[str] = None
-    filters: Dict[str, Any]
-    frequency: str = "DAILY" # DAILY, WEEKLY, REALTIME
-    channels: str = "IN_APP" # IN_APP, EMAIL
+    ufs: Optional[str] = None
+    min_value: Optional[float] = None
+    filters: Optional[Dict[str, Any]] = None
+    frequency: Optional[str] = "DAILY" # DAILY, WEEKLY, REALTIME
+    channels: Optional[str] = "IN_APP" # IN_APP, EMAIL
 
 class AlertResponse(BaseModel):
     id: str
-    name: str
     keywords: Optional[str] = None
-    filters: Dict[str, Any]
-    frequency: str
-    channels: str
-    active: bool
-    last_run_at: Optional[datetime] = None
+    ufs: Optional[str] = None
+    min_value: Optional[float] = None
     created_at: datetime
+    active: bool = True
+    name: Optional[str] = "Alerta"
+    filters: Optional[Dict[str, Any]] = {}
+    frequency: Optional[str] = "DAILY"
+    channels: Optional[str] = "IN_APP"
+    last_run_at: Optional[datetime] = None
     delivery_count: int = 0
 
 # ----------------- Source & Admin Schemas -----------------
