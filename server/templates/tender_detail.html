@@ -1,0 +1,604 @@
+{% extends "base.html" %}
+
+{% block title %}{{ detail.tender.title }} - Licitações Brasil{% endblock %}
+
+{% block content %}
+<!-- Top Breadcrumb & Actions Bar -->
+<div class="bg-slate-900 text-white py-6 border-b border-slate-800">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="flex flex-wrap items-center justify-between gap-4">
+      <div>
+        <nav class="flex items-center space-x-2 text-xs text-slate-400 mb-2">
+          <a href="/" class="hover:text-white">Início</a>
+          <span>/</span>
+          <a href="/search" class="hover:text-white">Pesquisa</a>
+          <span>/</span>
+          <span class="text-sky-400 font-mono">{{ detail.tender.external_id }}</span>
+        </nav>
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="px-2.5 py-0.5 rounded text-xs font-bold bg-sky-500 text-white">
+            {{ detail.tender.state }} - {{ detail.tender.city }}
+          </span>
+          <span class="px-2.5 py-0.5 rounded text-xs font-semibold bg-slate-800 text-slate-200 border border-slate-700">
+            {{ detail.tender.modality }}
+          </span>
+          <span class="px-2.5 py-0.5 rounded text-xs font-semibold bg-emerald-950 text-emerald-300 border border-emerald-800">
+            {{ detail.tender.status }}
+          </span>
+          {% if detail.tender.category %}
+          <span class="px-2.5 py-0.5 rounded text-xs font-semibold bg-purple-950 text-purple-300 border border-purple-800">
+            {{ detail.tender.category }}
+          </span>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="flex items-center gap-2">
+        <button onclick="toggleFavorite('{{ detail.tender.id }}', this)" class="bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 {% if detail.tender.is_favorite %}text-amber-400{% endif %}">
+          <i class="fa-solid fa-star {% if detail.tender.is_favorite %}text-amber-400{% else %}text-slate-400{% endif %}"></i>
+          <span class="fav-label">{% if detail.tender.is_favorite %}Favoritado{% else %}Favoritar{% endif %}</span>
+        </button>
+        <button onclick="copyTenderLink()" class="bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5">
+          <i class="fa-regular fa-copy"></i> Copiar Link
+        </button>
+        <a href="{{ detail.tender.url_disputa or detail.tender.url_pncp or detail.tender.link_comprasnet or detail.tender.official_notice_url or detail.tender.source_url }}" target="_blank" rel="noopener noreferrer" class="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow-sm">
+          <i class="fa-solid fa-gavel text-xs"></i> Acessar Edital / Disputa
+        </a>
+        <a href="{{ detail.tender.url_pncp or detail.tender.link_pncp or detail.tender.source_url }}" target="_blank" rel="noopener noreferrer" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow-sm">
+          <i class="fa-solid fa-landmark text-sky-400 text-xs"></i> PNCP Oficial
+        </a>
+      </div>
+    </div>
+
+    <!-- Title and Entity -->
+    <h1 class="text-xl sm:text-2xl font-bold mt-4 text-white leading-snug">
+      {{ detail.tender.title }}
+    </h1>
+    <p class="text-xs text-slate-400 mt-1 flex items-center gap-1">
+      <i class="fa-regular fa-building"></i> {{ detail.tender.contracting_entity }}
+      {% if detail.tender.purchasing_unit != "Não informado" %}
+        - {{ detail.tender.purchasing_unit }}
+      {% endif %}
+    </p>
+  </div>
+</div>
+
+<!-- Tabs Navigation -->
+<div class="bg-white border-b border-slate-200 sticky top-16 z-40">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <nav class="flex space-x-6 overflow-x-auto text-sm font-semibold text-slate-600" id="tender-tabs">
+      <button onclick="switchTab('overview')" id="tab-btn-overview" class="py-4 border-b-2 border-sky-600 text-sky-600 flex items-center gap-2 whitespace-nowrap">
+        <i class="fa-solid fa-file-lines"></i> Visão Geral
+      </button>
+      <button onclick="switchTab('items')" id="tab-btn-items" class="py-4 border-b-2 border-transparent hover:text-slate-900 flex items-center gap-2 whitespace-nowrap">
+        <i class="fa-solid fa-list-check"></i> Itens ({{ detail.items|length }})
+      </button>
+      <button onclick="switchTab('documents')" id="tab-btn-documents" class="py-4 border-b-2 border-transparent hover:text-slate-900 flex items-center gap-2 whitespace-nowrap">
+        <i class="fa-solid fa-paperclip"></i> Documentos ({{ detail.documents|length }})
+      </button>
+      <button onclick="switchTab('ai')" id="tab-btn-ai" class="py-4 border-b-2 border-transparent hover:text-slate-900 flex items-center gap-2 whitespace-nowrap text-emerald-600">
+        <i class="fa-solid fa-wand-magic-sparkles"></i> Análise por IA
+      </button>
+      <button onclick="switchTab('changes')" id="tab-btn-changes" class="py-4 border-b-2 border-transparent hover:text-slate-900 flex items-center gap-2 whitespace-nowrap">
+        <i class="fa-solid fa-clock-rotate-left"></i> Histórico
+      </button>
+      <button onclick="switchTab('notes')" id="tab-btn-notes" class="py-4 border-b-2 border-transparent hover:text-slate-900 flex items-center gap-2 whitespace-nowrap">
+        <i class="fa-regular fa-note-sticky"></i> Anotações
+      </button>
+    </nav>
+  </div>
+</div>
+
+<!-- Main Tabs Content -->
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+
+  <!-- TAB 1: VISÃO GERAL -->
+  <div id="tab-content-overview" class="space-y-6">
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <!-- Main Details Column -->
+      <div class="md:col-span-2 space-y-6">
+        <!-- Objeto Completo -->
+        <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+          <h2 class="text-base font-bold text-slate-900 mb-3 flex items-center gap-2">
+            <i class="fa-solid fa-align-left text-sky-600"></i> Objeto da Contratação
+          </h2>
+          <div class="text-sm text-slate-700 leading-relaxed whitespace-pre-line bg-slate-50 p-4 rounded-xl border border-slate-100">
+            {{ detail.tender.object_description }}
+          </div>
+        </div>
+
+        <!-- Critérios e Condições -->
+        <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+          <h2 class="text-base font-bold text-slate-900 flex items-center gap-2">
+            <i class="fa-solid fa-gavel text-sky-600"></i> Condições e Critérios da Disputa
+          </h2>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs text-slate-700">
+            <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+              <span class="block text-slate-400 font-semibold uppercase text-[10px] mb-1">Critério de Julgamento:</span>
+              <span class="font-medium text-slate-800">Menor Preço por Item / Global (Lei 14.133/2021)</span>
+            </div>
+            <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+              <span class="block text-slate-400 font-semibold uppercase text-[10px] mb-1">Modo de Disputa:</span>
+              <span class="font-medium text-slate-800">Aberto e Fechado (Eletrônico)</span>
+            </div>
+            <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+              <span class="block text-slate-400 font-semibold uppercase text-[10px] mb-1">Local de Entrega:</span>
+              <span class="font-medium text-slate-800">{{ detail.tender.city }} / {{ detail.tender.state }}</span>
+            </div>
+            <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+              <span class="block text-slate-400 font-semibold uppercase text-[10px] mb-1">Condições de Pagamento:</span>
+              <span class="font-medium text-slate-800">Até 30 dias após emissão da NF e ateste definitivo</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Key Dates & Financial Sidebar -->
+      <div class="md:col-span-1 space-y-6">
+        <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4">Informações Financeiras</h3>
+          <div class="mb-6">
+            <span class="text-xs text-slate-500 block">Valor Estimado Total:</span>
+            <div class="text-2xl font-black text-slate-900 mt-1">
+              {% if detail.tender.estimated_total_value %}
+                R$ {{ "{:,.2f}".format(detail.tender.estimated_total_value).replace(",", "X").replace(".", ",").replace("X", ".") }}
+              {% else %}
+                Não informado
+              {% endif %}
+            </div>
+          </div>
+
+          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Cronograma Oficial</h3>
+          <ul class="space-y-3 text-xs">
+            <li class="flex items-start justify-between pb-2 border-b border-slate-100">
+              <span class="text-slate-500">Publicação no PNCP:</span>
+              <span class="font-semibold text-slate-800">
+                {% if detail.tender.publication_date %}
+                  {{ detail.tender.publication_date.strftime('%d/%m/%Y %H:%M') }}
+                {% else %}
+                  Não informado
+                {% endif %}
+              </span>
+            </li>
+            <li class="flex items-start justify-between pb-2 border-b border-slate-100">
+              <span class="text-slate-500">Abertura de Propostas:</span>
+              <span class="font-semibold text-slate-800">
+                {% if detail.tender.opening_date %}
+                  {{ detail.tender.opening_date.strftime('%d/%m/%Y %H:%M') }}
+                {% else %}
+                  Não informado
+                {% endif %}
+              </span>
+            </li>
+            <li class="flex items-start justify-between pb-2 border-b border-slate-100">
+              <span class="text-slate-500">Prazo Limite:</span>
+              <span class="font-bold text-rose-600">
+                {% if detail.tender.proposal_deadline %}
+                  {{ detail.tender.proposal_deadline.strftime('%d/%m/%Y %H:%M') }}
+                {% else %}
+                  Não informado
+                {% endif %}
+              </span>
+            </li>
+          </ul>
+
+          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mt-6 mb-3">Identificação Oficial</h3>
+          <div class="space-y-2 text-xs">
+            <div>
+              <span class="text-slate-400 block text-[10px]">Número de Controle PNCP:</span>
+              <span class="font-mono text-slate-800 font-semibold">{{ detail.tender.external_id }}</span>
+            </div>
+            <div>
+              <span class="text-slate-400 block text-[10px]">Número do Edital:</span>
+              <span class="font-semibold text-slate-800">{{ detail.tender.notice_number }}</span>
+            </div>
+            <div>
+              <span class="text-slate-400 block text-[10px]">Número do Processo:</span>
+              <span class="font-semibold text-slate-800">{{ detail.tender.process_number }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 2: ITENS -->
+  <div id="tab-content-items" class="hidden space-y-4">
+    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-base font-bold text-slate-900">Itens e Lotes Cadastrados</h2>
+        <span class="text-xs text-slate-500 font-mono">{{ detail.items|length }} item(ns) registrado(s)</span>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs border-collapse">
+          <thead>
+            <tr class="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+              <th class="p-3">#</th>
+              <th class="p-3">Descrição do Item</th>
+              <th class="p-3">Unidade</th>
+              <th class="p-3 text-right">Qtd</th>
+              <th class="p-3 text-right">Valor Unitário</th>
+              <th class="p-3 text-right">Valor Total Estimado</th>
+              <th class="p-3">Código (CATMAT/CATSER)</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100 text-slate-700">
+            {% for item in detail.items %}
+            <tr class="hover:bg-slate-50/80 transition">
+              <td class="p-3 font-bold text-slate-900">{{ item.item_number }}</td>
+              <td class="p-3 font-medium text-slate-800 max-w-md">{{ item.description }}</td>
+              <td class="p-3">{{ item.unit or "Não informado" }}</td>
+              <td class="p-3 text-right font-mono">{{ "{:,.0f}".format(item.quantity) if item.quantity else "Não informado" }}</td>
+              <td class="p-3 text-right font-mono">
+                {% if item.estimated_unit_value %}
+                  R$ {{ "{:,.2f}".format(item.estimated_unit_value).replace(",", "X").replace(".", ",").replace("X", ".") }}
+                {% else %}
+                  Não informado
+                {% endif %}
+              </td>
+              <td class="p-3 text-right font-bold text-slate-900 font-mono">
+                {% if item.estimated_total_value %}
+                  R$ {{ "{:,.2f}".format(item.estimated_total_value).replace(",", "X").replace(".", ",").replace("X", ".") }}
+                {% else %}
+                  Não informado
+                {% endif %}
+              </td>
+              <td class="p-3 font-mono text-[11px] text-slate-500">{{ item.classification_code or "Não informado" }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 3: DOCUMENTOS -->
+  <div id="tab-content-documents" class="hidden space-y-4">
+    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+      <div class="flex justify-between items-center mb-4">
+        <div>
+          <h2 class="text-base font-bold text-slate-900">Arquivos e Anexos Oficiais</h2>
+          <p class="text-xs text-slate-500">Editais, minutas e anexos públicos disponibilizados pelo órgão licitante</p>
+        </div>
+      </div>
+
+      <div class="space-y-3">
+        {% for doc in detail.documents %}
+        <div class="p-4 rounded-xl border border-slate-200 bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div class="flex items-start gap-3">
+            <div class="w-10 h-10 rounded-lg bg-red-100 text-red-600 flex items-center justify-center text-lg flex-shrink-0">
+              <i class="fa-solid fa-file-pdf"></i>
+            </div>
+            <div>
+              <div class="font-bold text-slate-800 text-xs">{{ doc.name }}</div>
+              <div class="text-[11px] text-slate-500 flex flex-wrap items-center gap-3 mt-1">
+                <span>Tipo: <strong>{{ doc.document_type }}</strong></span>
+                <span>MIME: {{ doc.mime_type }}</span>
+                {% if doc.checksum %}
+                  <span class="font-mono text-[10px] text-slate-400">SHA256: {{ doc.checksum[:16] }}...</span>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button onclick="requestAiAnalysis('{{ detail.tender.id }}', '{{ doc.id }}')" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white flex items-center gap-1.5 transition">
+              <i class="fa-solid fa-wand-magic-sparkles"></i> Analisar com IA
+            </button>
+            <a href="{{ doc.source_url }}" target="_blank" rel="noopener noreferrer" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 flex items-center gap-1.5 transition">
+              <i class="fa-solid fa-download"></i> Baixar Oficial
+            </a>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 4: ANÁLISE POR IA -->
+  <div id="tab-content-ai" class="hidden space-y-6">
+    <!-- Action Trigger Card -->
+    <div class="bg-gradient-to-r from-slate-900 to-brand-900 p-6 rounded-2xl text-white shadow-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      <div>
+        <div class="inline-flex items-center gap-1.5 bg-emerald-500/20 text-emerald-300 px-2.5 py-0.5 rounded-full text-xs font-mono mb-2">
+          <i class="fa-solid fa-microchip"></i> Motor de IA Documental (Gemini 3.8 Flash)
+        </div>
+        <h2 class="text-lg font-bold">Auditoria e Resumo Inteligente do Edital</h2>
+        <p class="text-xs text-slate-300 max-w-xl">
+          Extrai requisitos de habilitação, dados comerciais, riscos, divergências e pontos de atenção com citações exatas de páginas.
+        </p>
+      </div>
+      <button id="run-ai-btn" onclick="requestAiAnalysis('{{ detail.tender.id }}')" class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-5 py-3 rounded-xl text-xs transition shadow-md flex items-center gap-2 whitespace-nowrap">
+        <i class="fa-solid fa-wand-magic-sparkles"></i>
+        <span>Solicitar Análise de IA</span>
+      </button>
+    </div>
+
+    <!-- AI Loading Indicator (Hidden by default) -->
+    <div id="ai-loading" class="hidden bg-white p-8 rounded-2xl border border-slate-200 text-center space-y-3">
+      <div class="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+      <div class="text-sm font-bold text-slate-800">Processando documento com IA e extraindo requisitos...</div>
+      <div class="text-xs text-slate-500">Verificando integridade, páginas e regras da Lei nº 14.133/2021</div>
+    </div>
+
+    <!-- AI Results Container -->
+    <div id="ai-results" class="{% if not detail.latest_ai_analysis %}hidden{% endif %} space-y-6">
+      <!-- Legal Disclaimer Banner -->
+      <div class="p-4 bg-amber-50 border-l-4 border-amber-500 rounded-r-xl text-amber-900 text-xs flex items-start gap-3">
+        <i class="fa-solid fa-triangle-exclamation text-amber-600 text-base mt-0.5"></i>
+        <div>
+          <span class="font-bold">Aviso Obrigatório de Conformidade:</span>
+          <span id="ai-legal-notice">
+            Esta análise foi gerada por inteligência artificial para fins de suporte à triagem rápida.
+            Não substitui a leitura obrigatória e integral do Edital Oficial nem configura parecer jurídico definitivo.
+          </span>
+        </div>
+      </div>
+
+      <!-- Resumo Executivo Grid -->
+      <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <h3 class="text-sm font-bold text-slate-900 mb-4 flex items-center gap-2">
+          <i class="fa-solid fa-briefcase text-sky-600"></i> Resumo Executivo
+        </h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-xs" id="ai-exec-summary">
+          <!-- Populated via script or server -->
+        </div>
+      </div>
+
+      <!-- Requisitos de Participação & Habilitação -->
+      <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <h3 class="text-sm font-bold text-slate-900 mb-4 flex items-center gap-2">
+          <i class="fa-solid fa-clipboard-check text-emerald-600"></i> Requisitos de Habilitação e Participação
+        </h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs" id="ai-hab-grid">
+          <!-- Populated via script -->
+        </div>
+      </div>
+
+      <!-- Pontos de Atenção & Riscos -->
+      <div class="bg-white p-6 rounded-2xl border border-rose-200 bg-rose-50/30 shadow-sm">
+        <h3 class="text-sm font-bold text-rose-800 mb-4 flex items-center gap-2">
+          <i class="fa-solid fa-shield-virus text-rose-600"></i> Pontos de Atenção e Prazos Críticos
+        </h3>
+        <div class="space-y-3 text-xs" id="ai-attention-list">
+          <!-- Populated via script -->
+        </div>
+      </div>
+
+      <!-- Citações e Trechos de Apoio -->
+      <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <h3 class="text-sm font-bold text-slate-900 mb-4 flex items-center gap-2">
+          <i class="fa-solid fa-quote-left text-sky-600"></i> Citações e Trechos Documentais de Apoio
+        </h3>
+        <div class="space-y-3 text-xs" id="ai-citations-list">
+          <!-- Populated via script -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 5: HISTÓRICO DE ALTERAÇÕES -->
+  <div id="tab-content-changes" class="hidden space-y-4">
+    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+      <h2 class="text-base font-bold text-slate-900 mb-3">Histórico e Retificações Oficiais</h2>
+      {% if detail.changes|length == 0 %}
+      <div class="text-xs text-slate-500 py-6 text-center">
+        <i class="fa-solid fa-circle-check text-emerald-500 text-lg mb-2 block"></i>
+        Nenhuma alteração, retificação ou prorrogação registrada para este certame até o momento.
+      </div>
+      {% else %}
+      <div class="space-y-3">
+        {% for ch in detail.changes %}
+        <div class="p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs">
+          <div class="flex justify-between items-center font-bold text-slate-800">
+            <span>{{ ch.change_type }} - {{ ch.field_name }}</span>
+            <span class="text-slate-400 font-normal">{{ ch.detected_at.strftime('%d/%m/%Y %H:%M') }}</span>
+          </div>
+          <div class="mt-1 text-slate-600">Valor anterior: {{ ch.old_value }} → Novo: {{ ch.newValue }}</div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- TAB 6: OBSERVAÇÕES PESSOAIS -->
+  <div id="tab-content-notes" class="hidden space-y-4">
+    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+      <h2 class="text-base font-bold text-slate-900 mb-2">Anotações Particulares da Licitação</h2>
+      <p class="text-xs text-slate-500 mb-4">Adicione observações da sua equipe para acompanhar estratégia, concorrentes e prazos internos.</p>
+      <textarea id="user-note-input" rows="5" class="w-full text-xs p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none" placeholder="Digite suas notas internas sobre este certame...">{{ detail.user_notes or '' }}</textarea>
+      <div class="mt-3 flex justify-end">
+        <button onclick="saveUserNote('{{ detail.tender.id }}')" class="bg-sky-600 hover:bg-sky-500 text-white font-semibold px-4 py-2 rounded-xl text-xs transition">
+          Salvar Anotação
+        </button>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function switchTab(tabName) {
+    const tabs = ['overview', 'items', 'documents', 'ai', 'changes', 'notes'];
+    tabs.forEach(t => {
+      const content = document.getElementById(`tab-content-${t}`);
+      const btn = document.getElementById(`tab-btn-${t}`);
+      if (content) content.classList.add('hidden');
+      if (btn) {
+        btn.classList.remove('border-sky-600', 'text-sky-600');
+        btn.classList.add('border-transparent');
+      }
+    });
+
+    const activeContent = document.getElementById(`tab-content-${tabName}`);
+    const activeBtn = document.getElementById(`tab-btn-${tabName}`);
+    if (activeContent) activeContent.classList.remove('hidden');
+    if (activeBtn) {
+      activeBtn.classList.remove('border-transparent');
+      activeBtn.classList.add('border-sky-600', 'text-sky-600');
+    }
+  }
+
+  function copyTenderLink() {
+    navigator.clipboard.writeText(window.location.href);
+    showToast('Link do certame copiado para a área de transferência!', 'success');
+  }
+
+  async function saveUserNote(tenderId) {
+    const token = AppSession.getToken();
+    if (!token) {
+      showToast('Faça login para salvar anotações particulares.', 'info');
+      setTimeout(() => window.location.href = '/login', 1000);
+      return;
+    }
+
+    const note = document.getElementById('user-note-input').value;
+    try {
+      const resp = await fetch(`/api/tenders/${tenderId}/notes`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ content: note })
+      });
+      if (resp.ok) {
+        showToast('Anotação registrada com sucesso.', 'success');
+      } else {
+        showToast('Erro ao salvar anotação.', 'error');
+      }
+    } catch {
+      showToast('Falha de conexão com o servidor.', 'error');
+    }
+  }
+
+  async function requestAiAnalysis(tenderId, documentId = null) {
+    switchTab('ai');
+    const loading = document.getElementById('ai-loading');
+    const results = document.getElementById('ai-results');
+    const runBtn = document.getElementById('run-ai-btn');
+
+    loading.classList.remove('hidden');
+    results.classList.add('hidden');
+    runBtn.disabled = true;
+
+    try {
+      const resp = await fetch(`/api/tenders/${tenderId}/ai-analyze`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ document_id: documentId })
+      });
+
+      const data = await resp.json();
+      loading.classList.add('hidden');
+      runBtn.disabled = false;
+
+      if (resp.ok && data.success) {
+        renderAiResults(data.data);
+        results.classList.remove('hidden');
+        showToast('Análise por Inteligência Artificial concluída!', 'success');
+      } else {
+        showToast(data.detail || 'Falha ao processar análise do edital.', 'error');
+      }
+    } catch (e) {
+      loading.classList.add('hidden');
+      runBtn.disabled = false;
+      showToast('Erro de comunicação com o serviço de IA.', 'error');
+    }
+  }
+
+  function renderAiResults(aiData) {
+    // 1. Resumo Executivo
+    const execGrid = document.getElementById('ai-exec-summary');
+    const ex = aiData.resumo_executivo || {};
+    execGrid.innerHTML = `
+      <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+        <span class="text-slate-400 font-semibold block text-[10px] uppercase">O que será contratado:</span>
+        <span class="font-bold text-slate-800">${ex.o_que_sera_contratado || 'Não informado'}</span>
+      </div>
+      <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+        <span class="text-slate-400 font-semibold block text-[10px] uppercase">Quem contrata:</span>
+        <span class="font-bold text-slate-800">${ex.quem_contrata || 'Não informado'}</span>
+      </div>
+      <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+        <span class="text-slate-400 font-semibold block text-[10px] uppercase">Local / Município:</span>
+        <span class="font-bold text-slate-800">${ex.onde_local || 'Não informado'}</span>
+      </div>
+      <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+        <span class="text-slate-400 font-semibold block text-[10px] uppercase">Modalidade:</span>
+        <span class="font-bold text-slate-800">${ex.modalidade || 'Não informado'}</span>
+      </div>
+      <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+        <span class="text-slate-400 font-semibold block text-[10px] uppercase">Valor Estimado:</span>
+        <span class="font-bold text-emerald-700">${ex.valor_estimado || 'Não informado'}</span>
+      </div>
+      <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+        <span class="text-slate-400 font-semibold block text-[10px] uppercase">Cronograma / Datas:</span>
+        <span class="font-bold text-slate-800">${ex.datas_relevantes || 'Não informado'}</span>
+      </div>
+    `;
+
+    // 2. Habilitação
+    const habGrid = document.getElementById('ai-hab-grid');
+    const hab = aiData.requisitos_participacao || {};
+    habGrid.innerHTML = `
+      <div class="p-4 bg-slate-50 rounded-xl border border-slate-100 space-y-2">
+        <h4 class="font-bold text-slate-800 text-xs flex items-center gap-1.5"><i class="fa-solid fa-scale-balanced text-sky-500"></i> Habilitação Jurídica e Fiscal</h4>
+        <ul class="list-disc list-inside text-slate-600 space-y-1">
+          ${(hab.habilitacao_juridica || []).concat(hab.regularidade_fiscal_trabalhista || []).map(i => `<li>${i}</li>`).join('') || '<li>Conforme edital oficial</li>'}
+        </ul>
+      </div>
+      <div class="p-4 bg-slate-50 rounded-xl border border-slate-100 space-y-2">
+        <h4 class="font-bold text-slate-800 text-xs flex items-center gap-1.5"><i class="fa-solid fa-certificate text-emerald-500"></i> Qualificação Técnica e Registros</h4>
+        <ul class="list-disc list-inside text-slate-600 space-y-1">
+          ${(hab.qualificacao_tecnica || []).map(i => `<li>${i}</li>`).join('') || '<li>Conforme edital oficial</li>'}
+          ${hab.registros_profissionais_ou_sanitarios ? `<li><strong>Registros:</strong> ${hab.registros_profissionais_ou_sanitarios}</li>` : ''}
+        </ul>
+      </div>
+    `;
+
+    // 3. Pontos de Atenção
+    const attList = document.getElementById('ai-attention-list');
+    const att = aiData.pontos_atencao || {};
+    attList.innerHTML = `
+      <div class="p-3 bg-white rounded-xl border border-rose-200">
+        <span class="font-bold text-rose-700 block mb-1"><i class="fa-solid fa-clock"></i> Prazos e Impugnações:</span>
+        <p class="text-slate-700">${att.prazos_urgentes_ou_curtos || 'Não informado'}</p>
+      </div>
+      <div class="p-3 bg-white rounded-xl border border-rose-200">
+        <span class="font-bold text-rose-700 block mb-1"><i class="fa-solid fa-circle-exclamation"></i> Penalidades e Cláusulas Críticas:</span>
+        <p class="text-slate-700">${att.penalidades_previstas || 'Conforme Lei 14.133/2021'}</p>
+      </div>
+    `;
+
+    // 4. Citações
+    const citList = document.getElementById('ai-citations-list');
+    const cits = aiData.citacoes || [];
+    citList.innerHTML = cits.map(c => `
+      <div class="p-3 bg-slate-50 rounded-xl border border-slate-200">
+        <div class="flex justify-between items-center font-bold text-slate-800 mb-1">
+          <span>${c.topico || 'Trecho Oficial'}</span>
+          <span class="text-sky-600 bg-sky-50 px-2 py-0.5 rounded text-[10px]">${c.pagina || 'Página do Edital'}</span>
+        </div>
+        <p class="italic text-slate-600">"${c.trecho || ''}"</p>
+      </div>
+    `).join('') || '<div class="text-slate-400">Nenhuma citação destacada.</div>';
+  }
+
+  // Pre-load existing AI analysis if present
+  {% if detail.latest_ai_analysis %}
+  document.addEventListener('DOMContentLoaded', () => {
+    try {
+      const preLoadedData = {{ detail.latest_ai_analysis.result_json|tojson }};
+      renderAiResults(preLoadedData);
+    } catch {}
+  });
+  {% endif %}
+</script>
+{% endblock %}
