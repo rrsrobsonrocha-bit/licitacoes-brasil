@@ -1,10 +1,14 @@
+import os
+import sys
 import json
 import logging
 import re
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional, Tuple
-from sqlalchemy.orm import Session
 
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+
+from sqlalchemy.orm import Session
 from server.models import Tender, Source, TenderItem
 from server.connectors.pncp import PNCPConnector, build_canonical_pncp_url
 
@@ -726,7 +730,8 @@ def sync_procurement_opportunities(
     days_back: int = 7,
     uf: Optional[str] = None,
     pages: int = 10,
-    limit_per_page: int = 50
+    limit_per_page: int = 50,
+    dry_run: bool = False
 ) -> Dict[str, Any]:
     """
     Pipeline unificado de sincronização em larga escala:
@@ -1137,12 +1142,18 @@ def sync_procurement_opportunities(
             db.add(new_item)
             novos_inseridos += 1
 
-    db.commit()
+    if not dry_run:
+        db.commit()
+    else:
+        db.rollback()
+        logger.info("[Sync] Execução DRY-RUN concluída com sucesso (banco preservado sem persistência).")
+
     total_geral_banco = db.query(Tender).count()
 
     return {
-        "status": "success",
-        "message": f"Sincronização concluída: {novos_inseridos} novos certames inseridos, {atualizados} atualizados ({dispensas_count} dispensas).",
+        "status": "success" if not dry_run else "dry_run_success",
+        "dry_run": dry_run,
+        "message": f"Sincronização concluída ({'DRY-RUN' if dry_run else 'PERSISTIDO'}): {novos_inseridos} novos certames, {atualizados} atualizados ({dispensas_count} dispensas).",
         "synced_at": now.isoformat(),
         "total_processados": len(records_to_process),
         "total_coletados": len(records_to_process),
@@ -1153,3 +1164,9 @@ def sync_procurement_opportunities(
         "dispensas_count": dispensas_count,
         "total_geral_banco": total_geral_banco
     }
+
+if __name__ == "__main__":
+    from server.database import SessionLocal
+    with SessionLocal() as _db_session:
+        _result = sync_procurement_opportunities(_db_session, pages=2, limit_per_page=25, dry_run=True)
+        print(json.dumps(_result, indent=2, ensure_ascii=False))
