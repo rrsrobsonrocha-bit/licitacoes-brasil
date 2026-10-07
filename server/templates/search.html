@@ -17,8 +17,18 @@
           </p>
         </div>
 
-        <!-- Quick Action: Save Search as Alert -->
+        <!-- Quick Action: Save Search as Alert & Alerts Feed Indicator -->
         <div class="flex items-center gap-2">
+          <!-- Discreto indicador de feed de alertas com contagem -->
+          <a href="/alerts" id="alerts-feed-badge" class="hidden items-center gap-1.5 bg-sky-950/70 hover:bg-sky-900/90 text-sky-300 border border-sky-800/80 font-semibold px-3 py-2 rounded-xl text-xs transition shadow-sm" title="Oportunidades recentes correspondentes aos seus alertas">
+            <span class="relative flex h-2 w-2">
+              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75"></span>
+              <span class="relative inline-flex rounded-full h-2 w-2 bg-sky-500"></span>
+            </span>
+            <i class="fa-solid fa-bell text-sky-400"></i>
+            <span id="alerts-feed-count" class="font-bold">0</span> <span class="hidden sm:inline">oportunidades</span>
+          </a>
+
           <button onclick="openSaveSearchModal()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold px-3.5 py-2 rounded-xl text-xs transition shadow-sm flex items-center gap-1.5 cursor-pointer">
             <i class="fa-regular fa-bell text-sky-400"></i> Criar Alerta desta Busca
           </button>
@@ -1046,6 +1056,34 @@
     } finally {
       btns.forEach(b => b.classList.remove('opacity-50', 'pointer-events-none'));
     }
+  }
+
+  async function loadAlertsFeedBadge() {
+    try {
+      const token = typeof AppSession !== 'undefined' ? AppSession.getToken() : null;
+      const headers = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch('/api/alerts/feed?limit=20', { headers });
+      if (!res.ok) return;
+      const data = await res.json();
+      const count = data.total ?? (Array.isArray(data) ? data.length : (data.count || 0));
+      const badge = document.getElementById('alerts-feed-badge');
+      const countEl = document.getElementById('alerts-feed-count');
+      if (badge && countEl && count > 0) {
+        countEl.textContent = count;
+        badge.classList.remove('hidden');
+        badge.classList.add('inline-flex');
+      }
+    } catch {
+      // Falha silenciosa para manter fluidez da interface
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', loadAlertsFeedBadge);
+  } else {
+    loadAlertsFeedBadge();
   }
 
   function openSaveSearchModal() {

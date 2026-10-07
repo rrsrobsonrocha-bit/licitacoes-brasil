@@ -31,7 +31,7 @@ from server.schemas import (
     SearchResultResponse, TenderDetailResponse, TenderSummaryResponse,
     TenderItemResponse, TenderDocumentResponse, TenderChangeResponse,
     AIAnalysisSummaryResponse, FavoriteToggleResponse, UserNoteRequest,
-    AlertCreateRequest, AlertResponse, SourceResponse,
+    AlertCreateRequest, AlertResponse, AlertFeedResponse, AlertFeedItem, SourceResponse,
     WebhookDispatchLogResponse, WebhookDispatchLogsListResponse, HealthMetricsResponse,
     SyncOpportunitiesResponse, AIChatRequest, AISummaryRequest
 )
@@ -1738,6 +1738,79 @@ def api_delete_alert(
         db.delete(saved)
     db.commit()
     return {"message": "Alerta excluído."}
+
+
+@app.get("/api/alerts/feed", response_model=AlertFeedResponse)
+def api_get_alerts_feed(
+    limit: int = Query(50, ge=1, le=200),
+    user: Optional[User] = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Retorna o feed de certames correspondentes aos alertas do usuário.
+    Se o usuário não estiver autenticado, retorna as entregas recentes globais.
+    """
+    query = db.query(AlertDelivery, Tender).join(
+        Tender, AlertDelivery.tender_id == Tender.id
+    )
+
+    if user:
+        user_alert_ids = [
+            r[0] for r in db.query(SavedSearch.id).filter(
+                (SavedSearch.user_id == user.id) | (SavedSearch.user_id.is_(None))
+            ).all()
+        ]
+        user_alert_ids.extend([
+            r[0] for r in db.query(Alert.id).filter(Alert.user_id == user.id).all()
+        ])
+        if user_alert_ids:
+            query = query.filter(AlertDelivery.alert_id.in_(user_alert_ids))
+
+    deliveries = query.order_by(AlertDelivery.delivered_at.desc()).limit(limit).all()
+
+    items = []
+    for delivery, tender in deliveries:
+        saved = db.query(SavedSearch).filter(SavedSearch.id == delivery.alert_id).first()
+        al = db.query(Alert).filter(Alert.id == delivery.alert_id).first()
+        alert_title = (saved.name if saved and saved.name else None) or (al.name if al else "Alerta")
+
+        items.append(AlertFeedItem(
+            id=delivery.id,
+            delivery_id=delivery.id,
+            alert_id=delivery.alert_id,
+            alert_name=alert_title,
+            tender_id=tender.id,
+            title=tender.title,
+            contracting_entity=tender.contracting_entity,
+            state=tender.state,
+            city=tender.city,
+            modality=tender.modality,
+            estimated_total_value=tender.estimated_total_value,
+            url_disputa=tender.url_disputa or tender.url_pncp,
+            url_pncp=tender.url_pncp,
+            channel=delivery.channel or "IN_APP",
+            delivered_at=delivery.delivered_at,
+            tender={
+                "id": tender.id,
+                "title": tender.title,
+                "notice_number": tender.notice_number,
+                "contracting_entity": tender.contracting_entity,
+                "state": tender.state,
+                "city": tender.city,
+                "modality": tender.modality,
+                "estimated_total_value": tender.estimated_total_value,
+                "opening_date": tender.opening_date.isoformat() if tender.opening_date else None,
+                "url_disputa": tender.url_disputa or tender.url_pncp,
+                "url_pncp": tender.url_pncp
+            }
+        ))
+
+    return AlertFeedResponse(
+        total=len(items),
+        count=len(items),
+        feed=items,
+        items=items
+    )
 
 
 # ----------------- Webhooks Audit & Logs API -----------------

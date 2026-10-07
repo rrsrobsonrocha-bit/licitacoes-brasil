@@ -1052,6 +1052,7 @@ def sync_procurement_opportunities(
     compras_gov_count = 0
     pncp_count = 0
     dispensas_count = 0
+    new_tenders: List[Tender] = []
 
     # 4. Upsert idempotente no SQLite dev_licitacoes.db por external_id
     for opp in records_to_process:
@@ -1140,10 +1141,18 @@ def sync_procurement_opportunities(
                 estimated_total_value=item_val
             )
             db.add(new_item)
+            new_tenders.append(new_tender)
             novos_inseridos += 1
 
     if not dry_run:
         db.commit()
+        if new_tenders:
+            try:
+                from server.services.alert_service import check_and_deliver_tender_alerts
+                for nt in new_tenders:
+                    check_and_deliver_tender_alerts(db, nt)
+            except Exception as alert_err:
+                logger.warning(f"[Sync] Erro no processamento de alertas automáticos: {alert_err}")
     else:
         db.rollback()
         logger.info("[Sync] Execução DRY-RUN concluída com sucesso (banco preservado sem persistência).")

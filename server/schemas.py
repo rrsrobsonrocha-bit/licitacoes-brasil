@@ -251,9 +251,32 @@ class AlertResponse(BaseModel):
     name: Optional[str] = "Alerta"
     filters: Optional[Dict[str, Any]] = {}
     frequency: Optional[str] = "DAILY"
-    channels: Optional[str] = "IN_APP"
     last_run_at: Optional[datetime] = None
     delivery_count: int = 0
+
+class AlertFeedItem(BaseModel):
+    id: str
+    delivery_id: str
+    alert_id: str
+    alert_name: Optional[str] = "Alerta"
+    tender_id: str
+    title: str
+    contracting_entity: Optional[str] = None
+    state: Optional[str] = None
+    city: Optional[str] = None
+    modality: Optional[str] = None
+    estimated_total_value: Optional[float] = None
+    url_disputa: Optional[str] = None
+    url_pncp: Optional[str] = None
+    channel: str = "IN_APP"
+    delivered_at: datetime
+    tender: Optional[Dict[str, Any]] = None
+
+class AlertFeedResponse(BaseModel):
+    total: int
+    count: int
+    feed: List[AlertFeedItem]
+    items: List[AlertFeedItem]
 
 # ----------------- Source & Admin Schemas -----------------
 class SourceResponse(BaseModel):
