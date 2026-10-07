@@ -24,6 +24,23 @@
           </button>
         </div>
       </div>
+
+      <!-- Quick Filter Pills: Estados Prioritários -->
+      <div class="mt-4 pt-3 border-t border-slate-800/80 flex items-center gap-2 flex-wrap text-xs">
+        <span class="text-slate-400 font-medium text-[11px] flex items-center gap-1.5">
+          <i class="fa-solid fa-bolt text-amber-400"></i> Estados:
+        </span>
+        {% set priority_states = [('Todos', ''), ('SP', 'SP'), ('RJ', 'RJ'), ('MG', 'MG'), ('DF', 'DF'), ('BA', 'BA'), ('AL', 'AL'), ('PR', 'PR'), ('RS', 'RS')] %}
+        {% for label, uf in priority_states %}
+          {% set is_active = (params.state == uf if uf else not params.state) %}
+          <a 
+            href="/search?{% if params.q %}q={{ params.q }}&{% endif %}{% if params.modality %}modality={{ params.modality }}&{% endif %}{% if params.status %}status={{ params.status }}&{% endif %}{% if uf %}state={{ uf }}{% endif %}"
+            class="px-2.5 py-1 rounded-lg font-semibold transition text-[11px] {% if is_active %}bg-sky-600 text-white shadow-sm shadow-sky-600/30{% else %}bg-slate-800/90 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/80{% endif %}"
+          >
+            {{ label }}
+          </a>
+        {% endfor %}
+      </div>
     </div>
   </div>
 
@@ -198,6 +215,15 @@
               <span class="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
                 {{ total_db_tenders or results.total }} sincronizadas no banco
               </span>
+              <a 
+                id="btn-export-csv"
+                href="/api/tenders/export/csv?q={{ params.q or '' }}&state={{ params.state or '' }}&modality={{ params.modality or '' }}&status={{ params.status or '' }}"
+                download
+                class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-medium text-slate-300 bg-slate-800/90 hover:bg-slate-700 hover:text-white border border-slate-700/80 transition shadow-sm"
+                title="Exportar licitações filtradas em formato CSV"
+              >
+                <i class="fa-solid fa-file-csv text-emerald-400"></i> Exportar CSV
+              </a>
             </div>
             {% if params.q %}
               <span class="text-xs text-slate-400 block mt-1">Filtro textual: "<strong class="text-slate-200">{{ params.q }}</strong>"</span>

@@ -1,10 +1,12 @@
 import os
 import sys
 import json
+import csv
+import io
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any, Union
 from fastapi import FastAPI, Depends, HTTPException, status, Query, Request, Body
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
@@ -928,6 +930,82 @@ def api_sync_tenders(
         total_coletados=result["total_coletados"],
         total_geral_banco=result["total_geral_banco"]
     )
+
+@app.get("/api/tenders/export/csv")
+def api_export_tenders_csv(
+    q: Optional[str] = None,
+    state: Optional[str] = None,
+    modality: Optional[str] = None,
+    status_filter: Optional[str] = Query(None, alias="status"),
+    db: Session = Depends(get_db)
+):
+    """Exporta oportunidades filtradas em streaming de arquivo CSV estruturado."""
+    params = SearchFilterParams(
+        q=q,
+        state=state,
+        modality=modality,
+        status=status_filter,
+        page=1,
+        page_size=100
+    )
+
+    def generate_csv():
+        output = io.StringIO()
+        writer = csv.writer(output, delimiter=";", quoting=csv.QUOTE_MINIMAL)
+        # Cabeçalho estruturado
+        writer.writerow([
+            "objeto",
+            "orgao",
+            "estado",
+            "valor_estimado",
+            "data_abertura",
+            "url_disputa",
+            "url_pncp"
+        ])
+        yield output.getvalue().encode("utf-8-sig")
+        output.seek(0)
+        output.truncate(0)
+
+        current_page = 1
+        max_export_records = 2000
+        exported = 0
+
+        while True:
+            params.page = current_page
+            search_result = search_tenders(db, params)
+            if not search_result.results:
+                break
+
+            for item in search_result.results:
+                val_str = f"{item.estimated_total_value:.2f}".replace(".", ",") if item.estimated_total_value is not None else ""
+                data_abertura = item.opening_date.strftime("%d/%m/%Y %H:%M") if item.opening_date else ""
+                url_disp = item.url_disputa or item.link_comprasnet or item.official_notice_url or item.source_url or item.url_pncp or ""
+                url_pnc = item.url_pncp or item.link_pncp or item.source_url or ""
+                writer.writerow([
+                    item.object_description or item.title or "",
+                    item.contracting_entity or "",
+                    item.state or "",
+                    val_str,
+                    data_abertura,
+                    url_disp,
+                    url_pnc
+                ])
+                yield output.getvalue().encode("utf-8-sig")
+                output.seek(0)
+                output.truncate(0)
+                exported += 1
+                if exported >= max_export_records:
+                    break
+
+            if exported >= max_export_records or current_page >= search_result.total_pages:
+                break
+            current_page += 1
+
+    filename = f"licitacoes_export_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
+    headers = {
+        "Content-Disposition": f'attachment; filename="{filename}"'
+    }
+    return StreamingResponse(generate_csv(), media_type="text/csv", headers=headers)
 
 @app.get("/api/tenders/{tender_id}")
 def api_get_tender_by_id(tender_id: str, db: Session = Depends(get_db)):
