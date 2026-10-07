@@ -14,6 +14,8 @@ pytest-cache-files-*/
 
 # Banco de dados local
 *.db
+*.db-wal
+*.db-shm
 *.sqlite
 *.sqlite3
 dev_licitacoes.db

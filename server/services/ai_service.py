@@ -76,6 +76,39 @@ def _normalize_model_name(name: str) -> str:
     return aliases.get(name, name)
 
 
+async def _execute_with_retry_and_timeout(
+    coro_fn,
+    max_retries: int = 3,
+    initial_delay: float = 1.0,
+    timeout: float = 30.0
+):
+    """
+    Executa chamada assíncrona de IA com timeout explícito de 30s
+    e retry com backoff exponencial para erros transitórios (HTTP 429 e 503).
+    """
+    delay = initial_delay
+    last_err = None
+    for attempt in range(max_retries + 1):
+        try:
+            return await asyncio.wait_for(coro_fn(), timeout=timeout)
+        except Exception as e:
+            last_err = e
+            err_str = str(e).lower()
+            is_transient = any(
+                code in err_str
+                for code in ["429", "503", "resource_exhausted", "unavailable", "rate limit", "temporarily unavailable"]
+            )
+            if is_transient and attempt < max_retries:
+                logger.warning(
+                    f"Erro transitório na chamada de IA ({type(e).__name__}: {e}). "
+                    f"Tentativa {attempt + 1}/{max_retries} em {delay:.1f}s com backoff..."
+                )
+                await asyncio.sleep(delay)
+                delay *= 2.0
+            else:
+                raise last_err
+
+
 def _build_tender_context(tender: Tender, items: List[TenderItem], docs: List[TenderDocument]) -> str:
     """Monta o extrato textual estruturado do certame para servir de contexto para a IA"""
     items_text = []
@@ -294,30 +327,39 @@ async def analyze_tender_summary(
                 for candidate in candidate_models:
                     target_model = _normalize_model_name(candidate)
                     try:
-                        response = None
-                        if hasattr(client.aio, "chats"):
-                            chat = client.aio.chats.create(
-                                model=target_model,
-                                config={
-                                    "system_instruction": SYSTEM_SUMMARY_INSTRUCTION,
-                                    "response_mime_type": "application/json"
-                                }
-                            )
-                            send_call = chat.send_message(message=user_prompt)
-                            if inspect.isawaitable(send_call):
-                                response = await asyncio.wait_for(send_call, timeout=35.0)
+                        async def _do_summary_call():
+                            if hasattr(client.aio, "chats"):
+                                chat = client.aio.chats.create(
+                                    model=target_model,
+                                    config={
+                                        "system_instruction": SYSTEM_SUMMARY_INSTRUCTION,
+                                        "response_mime_type": "application/json"
+                                    }
+                                )
+                                send_call = chat.send_message(message=user_prompt)
+                                if inspect.isawaitable(send_call):
+                                    return await send_call
 
-                        if response is None and hasattr(client.aio, "models") and hasattr(client.aio.models, "generate_content"):
-                            gen_call = client.aio.models.generate_content(
-                                model=target_model,
-                                contents=user_prompt,
-                                config={
-                                    "system_instruction": SYSTEM_SUMMARY_INSTRUCTION,
-                                    "response_mime_type": "application/json"
-                                }
-                            )
-                            if inspect.isawaitable(gen_call):
-                                response = await asyncio.wait_for(gen_call, timeout=35.0)
+                            if hasattr(client.aio, "models") and hasattr(client.aio.models, "generate_content"):
+                                gen_call = client.aio.models.generate_content(
+                                    model=target_model,
+                                    contents=user_prompt,
+                                    config={
+                                        "system_instruction": SYSTEM_SUMMARY_INSTRUCTION,
+                                        "response_mime_type": "application/json"
+                                    }
+                                )
+                                if inspect.isawaitable(gen_call):
+                                    return await gen_call
+                                return gen_call
+                            return None
+
+                        response = await _execute_with_retry_and_timeout(
+                            _do_summary_call,
+                            max_retries=2,
+                            initial_delay=1.0,
+                            timeout=30.0
+                        )
 
                         if response is not None:
                             raw_text = response.text.strip()
@@ -410,28 +452,37 @@ Pergunta do licitante:
                 for candidate in candidate_models:
                     target_model = _normalize_model_name(candidate)
                     try:
-                        response = None
-                        if hasattr(client.aio, "chats"):
-                            chat = client.aio.chats.create(
-                                model=target_model,
-                                config={
-                                    "system_instruction": SYSTEM_CHAT_INSTRUCTION
-                                }
-                            )
-                            send_call = chat.send_message(message=user_prompt)
-                            if inspect.isawaitable(send_call):
-                                response = await asyncio.wait_for(send_call, timeout=35.0)
+                        async def _do_chat_call():
+                            if hasattr(client.aio, "chats"):
+                                chat = client.aio.chats.create(
+                                    model=target_model,
+                                    config={
+                                        "system_instruction": SYSTEM_CHAT_INSTRUCTION
+                                    }
+                                )
+                                send_call = chat.send_message(message=user_prompt)
+                                if inspect.isawaitable(send_call):
+                                    return await send_call
 
-                        if response is None and hasattr(client.aio, "models") and hasattr(client.aio.models, "generate_content"):
-                            gen_call = client.aio.models.generate_content(
-                                model=target_model,
-                                contents=user_prompt,
-                                config={
-                                    "system_instruction": SYSTEM_CHAT_INSTRUCTION
-                                }
-                            )
-                            if inspect.isawaitable(gen_call):
-                                response = await asyncio.wait_for(gen_call, timeout=35.0)
+                            if hasattr(client.aio, "models") and hasattr(client.aio.models, "generate_content"):
+                                gen_call = client.aio.models.generate_content(
+                                    model=target_model,
+                                    contents=user_prompt,
+                                    config={
+                                        "system_instruction": SYSTEM_CHAT_INSTRUCTION
+                                    }
+                                )
+                                if inspect.isawaitable(gen_call):
+                                    return await gen_call
+                                return gen_call
+                            return None
+
+                        response = await _execute_with_retry_and_timeout(
+                            _do_chat_call,
+                            max_retries=2,
+                            initial_delay=1.0,
+                            timeout=30.0
+                        )
 
                         if response is not None:
                             answer_text = response.text.strip()

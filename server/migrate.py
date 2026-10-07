@@ -49,6 +49,11 @@ def run_db_migrations():
             "WHERE administrative_sphere != 'FEDERAL' AND source_system IS NULL"
         ))
 
+        # Garantir índices de alta performance
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_tenders_opening_date ON tenders (opening_date)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_tenders_status_opening ON tenders (status, opening_date)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_tenders_url_pncp ON tenders (url_pncp)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_tenders_url_disputa ON tenders (url_disputa)"))
     # Backfill canônico de URLs do PNCP e links de disputa
     from server.connectors.pncp import build_canonical_pncp_url
     with engine.begin() as conn:

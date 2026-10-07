@@ -70,7 +70,7 @@ class Tender(Base):
     category = Column(String(100), nullable=True, index=True) # Medicamentos, Materiais Hospitalares, TI, etc.
     status = Column(String(100), default="Divulgada no PNCP", index=True)
     publication_date = Column(DateTime, nullable=True, index=True)
-    opening_date = Column(DateTime, nullable=True)
+    opening_date = Column(DateTime, nullable=True, index=True)
     proposal_deadline = Column(DateTime, nullable=True, index=True)
     estimated_total_value = Column(Float, nullable=True, index=True)
     source_url = Column(String(1000), nullable=False)
@@ -80,8 +80,8 @@ class Tender(Base):
     sicaf_ready = Column(Boolean, default=False, nullable=False, index=True) # True se for do Compras.gov.br para permitir lances via SICAF
     link_comprasnet = Column(String(1000), nullable=True) # URL de acesso direto/sala de disputa
     link_pncp = Column(String(1000), nullable=True) # URL do termo/edital no PNCP
-    url_disputa = Column(String(1000), nullable=True) # URL oficial da sala de disputa / portal de origem
-    url_pncp = Column(String(1000), nullable=True) # URL canônica pública do PNCP (/{cnpj}/{ano}/{sequencial})
+    url_disputa = Column(String(1000), nullable=True, index=True) # URL oficial da sala de disputa / portal de origem
+    url_pncp = Column(String(1000), nullable=True, index=True) # URL canônica pública do PNCP (/{cnpj}/{ano}/{sequencial})
     data_completeness = Column(String(50), default="COMPLETO") # COMPLETO, PARCIAL, DADOS_AUSENTES
     raw_data_reference = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -108,6 +108,9 @@ class Tender(Base):
 
     __table_args__ = (
         UniqueConstraint("source_id", "external_id", name="uq_source_external_id"),
+        Index("ix_tenders_status_opening", "status", "opening_date"),
+        Index("ix_tenders_url_pncp", "url_pncp"),
+        Index("ix_tenders_url_disputa", "url_disputa"),
     )
 
 
