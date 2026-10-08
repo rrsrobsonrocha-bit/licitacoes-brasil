@@ -35,6 +35,7 @@
   <style>
     [x-cloak] { display: none !important; }
     .badge-status { @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium; }
+    .safe-area-bottom { padding-bottom: max(0.5rem, env(safe-area-inset-bottom)); }
   </style>
 </head>
 <body class="flex flex-col min-h-full text-slate-800 antialiased font-sans">
@@ -98,16 +99,199 @@
           <button id="auth-btn" onclick="handleAuthAction()" class="bg-sky-500 hover:bg-sky-600 text-white font-medium px-4 py-2 rounded-lg text-xs tracking-wider uppercase transition shadow-sm">
             Entrar
           </button>
+          <!-- Mobile Menu Hamburger Button -->
+          <button id="mobile-menu-toggle" onclick="toggleMobileMenu()" class="md:hidden p-2 text-slate-300 hover:text-white hover:bg-brand-800 rounded-lg transition focus:outline-none focus:ring-2 focus:ring-sky-400" aria-label="Abrir Menu">
+            <i class="fa-solid fa-bars text-xl"></i>
+          </button>
         </div>
       </div>
     </div>
   </header>
 
+  <!-- Mobile Drawer Menu & Backdrop -->
+  <div id="mobile-menu-backdrop" onclick="closeMobileMenu()" class="fixed inset-0 bg-slate-950/75 backdrop-blur-sm z-50 opacity-0 pointer-events-none transition-opacity duration-300 md:hidden" aria-hidden="true"></div>
+
+  <aside id="mobile-menu-drawer" class="fixed top-0 right-0 bottom-0 w-80 max-w-[85vw] bg-slate-900 border-l border-slate-800 shadow-2xl z-50 transform translate-x-full transition-transform duration-300 ease-in-out md:hidden flex flex-col safe-area-bottom" aria-label="Menu de Navegação Móvel">
+    <!-- Cabeçalho do Drawer -->
+    <div class="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/95">
+      <div class="flex items-center space-x-3">
+        <div class="w-9 h-9 rounded-lg bg-gradient-to-tr from-sky-400 to-emerald-400 flex items-center justify-center text-brand-900 font-black text-lg shadow-inner">
+          <i class="fa-solid fa-scale-balanced"></i>
+        </div>
+        <div>
+          <span class="text-lg font-bold tracking-tight text-white">Licitações<span class="text-sky-400">Brasil</span></span>
+          <span class="block text-[10px] text-sky-400 font-mono">PWA • Lei 14.133</span>
+        </div>
+      </div>
+      <button id="mobile-menu-close" onclick="closeMobileMenu()" class="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition focus:outline-none focus:ring-2 focus:ring-sky-400" aria-label="Fechar Menu">
+        <i class="fa-solid fa-xmark text-xl"></i>
+      </button>
+    </div>
+
+    <!-- Perfil / Usuário no Drawer -->
+    <div class="px-4 py-3 bg-slate-800/60 border-b border-slate-800 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="w-9 h-9 rounded-full bg-slate-700/80 border border-slate-600 flex items-center justify-center text-sky-400 text-base">
+          <i class="fa-regular fa-user"></i>
+        </div>
+        <div>
+          <div id="mobile-user-name" class="text-xs font-semibold text-white">Visitante</div>
+          <div id="mobile-user-role" class="text-[10px] text-slate-400">Perfil Público</div>
+        </div>
+      </div>
+      <a href="/admin" class="text-xs text-sky-400 hover:text-sky-300 font-medium py-1 px-2 rounded-md hover:bg-slate-700/50 transition">
+        Painel
+      </a>
+    </div>
+
+    <!-- Lista Completa de Módulos (11 Itens Funcionais) -->
+    <nav class="flex-1 overflow-y-auto py-3 px-3 space-y-1 text-sm font-medium">
+      <!-- 1. Pesquisar Editais -->
+      <a href="/" data-route="/search" class="flex items-center justify-between px-3 py-2.5 rounded-xl text-slate-200 hover:text-white hover:bg-slate-800/80 transition">
+        <div class="flex items-center gap-3">
+          <i class="fa-solid fa-magnifying-glass text-sky-400 w-5 text-center"></i>
+          <span>Pesquisar Editais</span>
+        </div>
+        <i class="fa-solid fa-chevron-right text-xs text-slate-500"></i>
+      </a>
+
+      <!-- 2. Dashboard -->
+      <a href="/dashboard" class="flex items-center justify-between px-3 py-2.5 rounded-xl text-slate-200 hover:text-white hover:bg-slate-800/80 transition">
+        <div class="flex items-center gap-3">
+          <i class="fa-solid fa-chart-pie text-sky-400 w-5 text-center"></i>
+          <span>Dashboard</span>
+        </div>
+        <i class="fa-solid fa-chevron-right text-xs text-slate-500"></i>
+      </a>
+
+      <!-- 3. Favoritos -->
+      <a href="/favorites" data-route="/favoritos" class="flex items-center justify-between px-3 py-2.5 rounded-xl text-slate-200 hover:text-white hover:bg-slate-800/80 transition">
+        <div class="flex items-center gap-3">
+          <i class="fa-solid fa-star text-amber-400 w-5 text-center"></i>
+          <span>Favoritos</span>
+        </div>
+        <i class="fa-solid fa-chevron-right text-xs text-slate-500"></i>
+      </a>
+
+      <!-- 4. Negócios -->
+      <a href="/negocios" class="flex items-center justify-between px-3 py-2.5 rounded-xl text-slate-200 hover:text-white hover:bg-slate-800/80 transition">
+        <div class="flex items-center gap-3">
+          <i class="fa-solid fa-table-columns text-emerald-400 w-5 text-center"></i>
+          <span>Negócios</span>
+        </div>
+        <i class="fa-solid fa-chevron-right text-xs text-slate-500"></i>
+      </a>
+
+      <!-- 5. Agenda -->
+      <a href="/agenda" class="flex items-center justify-between px-3 py-2.5 rounded-xl text-slate-200 hover:text-white hover:bg-slate-800/80 transition">
+        <div class="flex items-center gap-3">
+          <i class="fa-solid fa-calendar-days text-rose-400 w-5 text-center"></i>
+          <span>Agenda</span>
+        </div>
+        <i class="fa-solid fa-chevron-right text-xs text-slate-500"></i>
+      </a>
+
+      <!-- 6. Disputa AO VIVO com badge pulsante vermelho -->
+      <a href="/disputa" class="flex items-center justify-between px-3 py-2.5 rounded-xl text-slate-200 hover:text-white hover:bg-slate-800/80 transition font-bold">
+        <div class="flex items-center gap-3">
+          <i class="fa-solid fa-tower-broadcast text-rose-400 animate-pulse w-5 text-center"></i>
+          <span class="text-white">Disputa AO VIVO</span>
+        </div>
+        <span class="px-2 py-0.5 rounded text-[10px] font-black bg-rose-500 text-white animate-pulse tracking-wide">AO VIVO</span>
+      </a>
+
+      <!-- 7. Fornecedores -->
+      <a href="/fornecedores" class="flex items-center justify-between px-3 py-2.5 rounded-xl text-slate-200 hover:text-white hover:bg-slate-800/80 transition">
+        <div class="flex items-center gap-3">
+          <i class="fa-solid fa-building-user text-purple-400 w-5 text-center"></i>
+          <span>Fornecedores</span>
+        </div>
+        <i class="fa-solid fa-chevron-right text-xs text-slate-500"></i>
+      </a>
+
+      <!-- 8. Peças Jurídicas -->
+      <a href="/juridico" data-route="/pecas-juridicas" class="flex items-center justify-between px-3 py-2.5 rounded-xl text-slate-200 hover:text-white hover:bg-slate-800/80 transition">
+        <div class="flex items-center gap-3">
+          <i class="fa-solid fa-gavel text-amber-400 w-5 text-center"></i>
+          <span>Peças Jurídicas</span>
+        </div>
+        <i class="fa-solid fa-chevron-right text-xs text-slate-500"></i>
+      </a>
+
+      <!-- 9. Alertas -->
+      <a href="/alerts" data-route="/alertas" class="flex items-center justify-between px-3 py-2.5 rounded-xl text-slate-200 hover:text-white hover:bg-slate-800/80 transition">
+        <div class="flex items-center gap-3">
+          <i class="fa-solid fa-bell text-sky-400 w-5 text-center"></i>
+          <span>Alertas</span>
+        </div>
+        <i class="fa-solid fa-chevron-right text-xs text-slate-500"></i>
+      </a>
+
+      <!-- 10. Gestão / Perfil do Usuário / Administrador -->
+      <a href="/admin" class="flex items-center justify-between px-3 py-2.5 rounded-xl text-slate-200 hover:text-white hover:bg-slate-800/80 transition">
+        <div class="flex items-center gap-3">
+          <i class="fa-solid fa-shield-halved text-emerald-400 w-5 text-center"></i>
+          <span>Gestão / Administrador</span>
+        </div>
+        <i class="fa-solid fa-chevron-right text-xs text-slate-500"></i>
+      </a>
+    </nav>
+
+    <!-- 11. Botão Sair / Autenticação no Rodapé do Drawer -->
+    <div class="p-4 border-t border-slate-800 bg-slate-900/95">
+      <button id="mobile-auth-btn" onclick="handleAuthAction()" data-route="/logout" class="w-full bg-sky-500 hover:bg-sky-600 text-white font-medium py-2.5 px-4 rounded-xl text-xs tracking-wider uppercase transition flex items-center justify-center gap-2 shadow-sm">
+        <i id="mobile-auth-icon" class="fa-solid fa-right-to-bracket"></i>
+        <span id="mobile-auth-btn-text">Entrar</span>
+      </button>
+    </div>
+  </aside>
+
+  <!-- Barra Inferior Fixa de Aplicativo (Bottom Navigation Bar PWA) -->
+  <nav class="fixed bottom-0 left-0 right-0 z-50 bg-slate-900 border-t border-slate-800 md:hidden flex justify-around items-center py-2 px-1 safe-area-bottom shadow-2xl backdrop-blur-md bg-opacity-95" aria-label="Navegação Inferior Mobile">
+    <!-- [Busca]: Ícone de lupa -> rota de pesquisa -->
+    <a href="/search" data-route="/" class="flex flex-col items-center justify-center flex-1 py-1 text-slate-400 hover:text-sky-400 transition text-center group">
+      <i class="fa-solid fa-magnifying-glass text-lg group-hover:scale-110 transition-transform"></i>
+      <span class="text-[10px] font-medium mt-1">Busca</span>
+    </a>
+
+    <!-- [Agenda]: Ícone de calendário -> /agenda -->
+    <a href="/agenda" class="flex flex-col items-center justify-center flex-1 py-1 text-slate-400 hover:text-rose-400 transition text-center group">
+      <i class="fa-solid fa-calendar-days text-lg group-hover:scale-110 transition-transform"></i>
+      <span class="text-[10px] font-medium mt-1">Agenda</span>
+    </a>
+
+    <!-- [Disputa AO VIVO]: Ícone de transmissão com destaque colorido e badge pulsante -> /disputa -->
+    <a href="/disputa" class="flex flex-col items-center justify-center flex-1 py-1 text-white text-center relative group">
+      <div class="w-11 h-11 -mt-5 rounded-full bg-gradient-to-tr from-rose-600 to-rose-500 flex items-center justify-center text-white shadow-lg border-2 border-slate-900 group-hover:scale-110 transition-transform">
+        <i class="fa-solid fa-tower-broadcast text-base animate-pulse"></i>
+      </div>
+      <span class="text-[9px] font-bold mt-1 text-rose-400 flex items-center gap-1">
+        AO VIVO
+        <span class="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping"></span>
+      </span>
+    </a>
+
+    <!-- [Alertas]: Ícone de sino com contador/notificação -> /alertas -->
+    <a href="/alerts" data-route="/alertas" class="flex flex-col items-center justify-center flex-1 py-1 text-slate-400 hover:text-sky-400 transition text-center relative group">
+      <div class="relative">
+        <i class="fa-solid fa-bell text-lg group-hover:scale-110 transition-transform"></i>
+        <span id="bottom-alerts-badge" class="absolute -top-1.5 -right-2 w-4 h-4 bg-sky-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center ring-2 ring-slate-900">3</span>
+      </div>
+      <span class="text-[10px] font-medium mt-1">Alertas</span>
+    </a>
+
+    <!-- [Menu / Mais]: Ícone de 3 barras que abre o Drawer lateral com todas as opções restantes -->
+    <button type="button" id="bottom-menu-toggle" onclick="openMobileMenu()" class="flex flex-col items-center justify-center flex-1 py-1 text-slate-400 hover:text-white transition text-center group focus:outline-none" aria-label="Abrir Menu Completo">
+      <i class="fa-solid fa-bars text-lg group-hover:scale-110 transition-transform"></i>
+      <span class="text-[10px] font-medium mt-1">Menu</span>
+    </button>
+  </nav>
+
   <!-- Notification Bar for System Messages -->
-  <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
+  <div id="toast-container" class="fixed bottom-20 md:bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
 
   <!-- Main View Container -->
-  <main class="flex-grow">
+  <main class="flex-grow pb-20 md:pb-0">
     {% block content %}{% endblock %}
   </main>
 
@@ -153,6 +337,84 @@
 
   <!-- Global Application Scripts -->
   <script>
+    // Controle Vanilla JS do Drawer Lateral Mobile
+    function openMobileMenu() {
+      const drawer = document.getElementById('mobile-menu-drawer');
+      const backdrop = document.getElementById('mobile-menu-backdrop');
+      if (drawer) {
+        drawer.classList.remove('translate-x-full');
+        drawer.classList.add('translate-x-0');
+      }
+      if (backdrop) {
+        backdrop.classList.remove('opacity-0', 'pointer-events-none');
+        backdrop.classList.add('opacity-100', 'pointer-events-auto');
+      }
+      document.body.classList.add('overflow-hidden');
+    }
+
+    function closeMobileMenu() {
+      const drawer = document.getElementById('mobile-menu-drawer');
+      const backdrop = document.getElementById('mobile-menu-backdrop');
+      if (drawer) {
+        drawer.classList.remove('translate-x-0');
+        drawer.classList.add('translate-x-full');
+      }
+      if (backdrop) {
+        backdrop.classList.remove('opacity-100', 'pointer-events-auto');
+        backdrop.classList.add('opacity-0', 'pointer-events-none');
+      }
+      document.body.classList.remove('overflow-hidden');
+    }
+
+    function toggleMobileMenu() {
+      const drawer = document.getElementById('mobile-menu-drawer');
+      if (drawer && drawer.classList.contains('translate-x-0')) {
+        closeMobileMenu();
+      } else {
+        openMobileMenu();
+      }
+    }
+
+    // Fechar menu móvel com a tecla ESC
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeMobileMenu();
+    });
+
+    // Interceptador e normalização de navegação de rotas no frontend
+    document.addEventListener('click', (e) => {
+      const link = e.target.closest('a');
+      if (!link) return;
+      const href = link.getAttribute('href');
+      if (href === '/favoritos') {
+        e.preventDefault();
+        window.location.href = '/favorites';
+      } else if (href === '/alertas') {
+        e.preventDefault();
+        window.location.href = '/alerts';
+      } else if (href === '/pecas-juridicas') {
+        e.preventDefault();
+        window.location.href = '/juridico';
+      } else if (href === '/logout') {
+        e.preventDefault();
+        handleAuthAction();
+      }
+    });
+
+    // Atualização dinâmica do badge de alertas na bottom bar
+    function refreshAlertBadge() {
+      const badge = document.getElementById('bottom-alerts-badge');
+      if (!badge) return;
+      fetch('/api/alerts/feed?limit=5')
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (data && typeof data.total === 'number') {
+            badge.textContent = data.total > 9 ? '9+' : data.total;
+            badge.style.display = data.total > 0 ? 'flex' : 'none';
+          }
+        })
+        .catch(() => {});
+    }
+
     // Gerenciador de Sessão no Frontend
     const AppSession = {
       getToken: () => localStorage.getItem('token'),
@@ -176,13 +438,33 @@
         const authBtn = document.getElementById('auth-btn');
         const userDisplay = document.getElementById('user-display');
         const userName = document.getElementById('user-name');
+
+        // Controles de autenticação no drawer móvel
+        const mobileAuthBtn = document.getElementById('mobile-auth-btn');
+        const mobileAuthBtnText = document.getElementById('mobile-auth-btn-text');
+        const mobileAuthIcon = document.getElementById('mobile-auth-icon');
+        const mobileUserName = document.getElementById('mobile-user-name');
+        const mobileUserRole = document.getElementById('mobile-user-role');
+
         if (user && user.name) {
           if (authBtn) { authBtn.textContent = 'Sair'; authBtn.className = 'bg-rose-600 hover:bg-rose-700 text-white font-medium px-3 py-1.5 rounded-lg text-xs transition'; }
           if (userDisplay) { userDisplay.classList.remove('hidden'); }
           if (userName) { userName.textContent = user.name.split(' ')[0]; }
+
+          if (mobileAuthBtnText) { mobileAuthBtnText.textContent = 'Sair'; }
+          if (mobileAuthIcon) { mobileAuthIcon.className = 'fa-solid fa-right-from-bracket'; }
+          if (mobileAuthBtn) { mobileAuthBtn.className = 'w-full bg-rose-600 hover:bg-rose-700 text-white font-medium py-2.5 px-4 rounded-xl text-xs tracking-wider uppercase transition flex items-center justify-center gap-2 shadow-sm'; }
+          if (mobileUserName) { mobileUserName.textContent = user.name; }
+          if (mobileUserRole) { mobileUserRole.textContent = user.role === 'ADMIN' ? 'Administrador' : (user.company || 'Usuário Autenticado'); }
         } else {
           if (authBtn) { authBtn.textContent = 'Entrar'; authBtn.className = 'bg-sky-500 hover:bg-sky-600 text-white font-medium px-4 py-2 rounded-lg text-xs tracking-wider uppercase transition shadow-sm'; }
           if (userDisplay) { userDisplay.classList.add('hidden'); }
+
+          if (mobileAuthBtnText) { mobileAuthBtnText.textContent = 'Entrar'; }
+          if (mobileAuthIcon) { mobileAuthIcon.className = 'fa-solid fa-right-to-bracket'; }
+          if (mobileAuthBtn) { mobileAuthBtn.className = 'w-full bg-sky-500 hover:bg-sky-600 text-white font-medium py-2.5 px-4 rounded-xl text-xs tracking-wider uppercase transition flex items-center justify-center gap-2 shadow-sm'; }
+          if (mobileUserName) { mobileUserName.textContent = 'Visitante'; }
+          if (mobileUserRole) { mobileUserRole.textContent = 'Perfil Público'; }
         }
       }
     };
@@ -231,6 +513,13 @@
 
     document.addEventListener('DOMContentLoaded', () => {
       AppSession.refreshUI();
+      refreshAlertBadge();
+      // Fechar drawer ao clicar em qualquer link interno do drawer
+      const drawerLinks = document.querySelectorAll('#mobile-menu-drawer a');
+      drawerLinks.forEach(link => {
+        link.addEventListener('click', () => closeMobileMenu());
+      });
+
       // Registro assíncrono do Service Worker para PWA (Android e navegadores compatíveis)
       if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('/sw.js', { scope: '/' })
