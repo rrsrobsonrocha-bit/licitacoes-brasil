@@ -82,6 +82,11 @@ class Tender(Base):
     link_pncp = Column(String(1000), nullable=True) # URL do termo/edital no PNCP
     url_disputa = Column(String(1000), nullable=True, index=True) # URL oficial da sala de disputa / portal de origem
     url_pncp = Column(String(1000), nullable=True, index=True) # URL canônica pública do PNCP (/{cnpj}/{ano}/{sequencial})
+    fonte_portal = Column(String(100), default="PNCP", nullable=True, index=True) # Portal de origem: PNCP, Compras.gov.br, BNC, etc.
+    link_edital_oficial = Column(String(1000), nullable=True) # Link direto para download do edital nos portais oficiais
+    ai_resumo = Column(Text, nullable=True) # Resumo executivo estruturado gerado via IA Gemini
+    ai_pontos_atencao = Column(Text, nullable=True) # Pontos críticos e riscos extraídos pela IA
+    itens_extraidos_json = Column(JSON, nullable=True) # Lista estruturada de itens extraídos via IA
     data_completeness = Column(String(50), default="COMPLETO") # COMPLETO, PARCIAL, DADOS_AUSENTES
     raw_data_reference = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -430,3 +435,17 @@ class SupplierProspect(Base):
     ai_summary = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
+class HistoricoDisputa(Base):
+    __tablename__ = "historico_disputas"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    id_pregao = Column(String(255), nullable=False, index=True)
+    numero_item = Column(Integer, nullable=False, index=True)
+    tipo_evento = Column(String(50), nullable=False, index=True) # AUTO_BID, MANUAL_BID, STOP_LOSS, COMPETITOR_BID
+    valor_ofertado = Column(Float, nullable=False)
+    posicao = Column(Integer, default=1)
+    autor = Column(String(100), default="Robô LicitaçõesBrasil")
+    detalhes = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)

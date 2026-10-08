@@ -99,9 +99,22 @@
     </div>
 
     <form id="form-track-item" onsubmit="submitTrackItem(event)" class="space-y-4">
-      <div>
-        <label class="block text-xs font-bold text-slate-600 mb-1">ID do Pregão / Processo</label>
-        <input type="text" id="track-id-pregao" required placeholder="Ex.: PE 042/2025" class="w-full px-3 py-2 text-sm rounded-xl border border-slate-300 focus:ring-2 focus:ring-sky-500 outline-none">
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-bold text-slate-600 mb-1">ID do Pregão / Processo</label>
+          <input type="text" id="track-id-pregao" required placeholder="Ex.: PE 042/2025" class="w-full px-3 py-2 text-sm rounded-xl border border-slate-300 focus:ring-2 focus:ring-sky-500 outline-none">
+        </div>
+        <div>
+          <label class="block text-xs font-bold text-slate-600 mb-1">Portal de Origem</label>
+          <select id="track-fonte-portal" class="w-full px-3 py-2 text-sm rounded-xl border border-slate-300 focus:ring-2 focus:ring-sky-500 outline-none bg-white">
+            <option value="Compras.gov.br">Compras.gov.br</option>
+            <option value="PNCP">PNCP Oficial</option>
+            <option value="BNC">BNC Compras</option>
+            <option value="Portal de Compras Públicas">Portal de Compras Públicas</option>
+            <option value="Licitanet">Licitanet</option>
+            <option value="BEC-SP">BEC-SP</option>
+          </select>
+        </div>
       </div>
 
       <div class="grid grid-cols-2 gap-3">
@@ -473,6 +486,7 @@
                 <div class="flex flex-wrap items-center gap-2 mb-1">
                   <span class="text-xs font-extrabold text-sky-800 bg-sky-50 border border-sky-200 px-2.5 py-0.5 rounded-lg font-mono">${item.id_pregao}</span>
                   <span class="text-xs font-bold text-slate-600">Lote/Item #${item.numero_item}</span>
+                  <span class="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-md shadow-xs"><i class="fa-solid fa-globe text-[10px]"></i> ${item.fonte_portal || 'Compras.gov.br'}</span>
                   ${phaseBadge}
                   ${robotStatusBadge}
                 </div>
@@ -869,6 +883,7 @@
       meu_lance: parseFloat(document.getElementById('track-meu-lance').value),
       melhor_lance: parseFloat(document.getElementById('track-meu-lance').value),
       fase: document.getElementById('track-fase').value,
+      fonte_portal: document.getElementById('track-fonte-portal') ? document.getElementById('track-fonte-portal').value : 'Compras.gov.br',
       degrau_minimo: parseFloat(document.getElementById('track-degrau').value) || 0.01,
       valor_minimo_limite: parseFloat(document.getElementById('track-piso').value) || 0.0,
       posicao_alvo: parseInt(document.getElementById('track-pos-alvo').value) || 1,

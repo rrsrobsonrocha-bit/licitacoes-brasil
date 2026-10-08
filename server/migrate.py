@@ -46,6 +46,36 @@ def run_db_migrations():
         if "url_pncp" not in cols:
             logger.info("Migração: adicionando coluna url_pncp à tabela tenders")
             conn.execute(text("ALTER TABLE tenders ADD COLUMN url_pncp VARCHAR(1000)"))
+        if "fonte_portal" not in cols:
+            logger.info("Migração: adicionando coluna fonte_portal à tabela tenders")
+            conn.execute(text("ALTER TABLE tenders ADD COLUMN fonte_portal VARCHAR(100) DEFAULT 'PNCP'"))
+        if "link_edital_oficial" not in cols:
+            logger.info("Migração: adicionando coluna link_edital_oficial à tabela tenders")
+            conn.execute(text("ALTER TABLE tenders ADD COLUMN link_edital_oficial VARCHAR(1000)"))
+        if "ai_resumo" not in cols:
+            logger.info("Migração: adicionando coluna ai_resumo à tabela tenders")
+            conn.execute(text("ALTER TABLE tenders ADD COLUMN ai_resumo TEXT"))
+        if "ai_pontos_atencao" not in cols:
+            logger.info("Migração: adicionando coluna ai_pontos_atencao à tabela tenders")
+            conn.execute(text("ALTER TABLE tenders ADD COLUMN ai_pontos_atencao TEXT"))
+        if "itens_extraidos_json" not in cols:
+            logger.info("Migração: adicionando coluna itens_extraidos_json à tabela tenders")
+            conn.execute(text("ALTER TABLE tenders ADD COLUMN itens_extraidos_json TEXT"))
+
+        # Criação da tabela de auditoria de disputas se inexistente
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS historico_disputas (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id_pregao VARCHAR(255) NOT NULL,
+                numero_item INTEGER NOT NULL,
+                tipo_evento VARCHAR(50) NOT NULL,
+                valor_ofertado FLOAT NOT NULL,
+                posicao INTEGER DEFAULT 1,
+                autor VARCHAR(100) DEFAULT 'Robô LicitaçõesBrasil',
+                detalhes TEXT,
+                created_at DATETIME NOT NULL
+            )
+        """))
 
         # Backfill de links e identificadores para dados existentes
         conn.execute(text("UPDATE tenders SET link_pncp = source_url WHERE link_pncp IS NULL"))

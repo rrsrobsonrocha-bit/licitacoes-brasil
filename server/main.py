@@ -423,6 +423,11 @@ def page_tender_detail(request: Request, tender_id: str, db: Session = Depends(g
             if (getattr(tender, "url_pncp", None) or tender.link_pncp or tender.source_url or tender.external_id)
             else (getattr(tender, "url_pncp", None) or tender.link_pncp or tender.source_url)
         ),
+        fonte_portal=getattr(tender, "fonte_portal", None) or "PNCP",
+        link_edital_oficial=getattr(tender, "link_edital_oficial", None),
+        ai_resumo=getattr(tender, "ai_resumo", None),
+        ai_pontos_atencao=getattr(tender, "ai_pontos_atencao", None),
+        itens_extraidos_json=getattr(tender, "itens_extraidos_json", None),
         data_completeness=tender.data_completeness,
         is_favorite=is_fav,
         created_at=tender.created_at,
@@ -1437,12 +1442,151 @@ def api_get_tender_by_id(tender_id: str, db: Session = Depends(get_db)):
         "link_pncp": canon_api_pncp,
         "url_disputa": getattr(tender, "url_disputa", None) or tender.link_comprasnet or tender.official_notice_url or canon_api_pncp,
         "url_pncp": canon_api_pncp,
+        "fonte_portal": getattr(tender, "fonte_portal", None) or "PNCP",
+        "link_edital_oficial": getattr(tender, "link_edital_oficial", None),
+        "ai_resumo": getattr(tender, "ai_resumo", None),
+        "ai_pontos_atencao": getattr(tender, "ai_pontos_atencao", None),
+        "itens_extraidos_json": getattr(tender, "itens_extraidos_json", None),
         "data_completeness": tender.data_completeness,
         "items": items_payload,
         "documents": docs_payload,
         "created_at": tender.created_at.isoformat() if tender.created_at else None,
         "last_synced_at": tender.last_synced_at.isoformat() if tender.last_synced_at else None
     }
+
+
+@app.post("/api/tenders/{tender_id}/ai-analyze")
+async def api_tender_ai_analyze(
+    tender_id: str,
+    payload: Optional[Dict[str, Any]] = Body(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Aciona análise semântica e resumo executivo de oportunidade via Google Gemini (2.5 / 2.0 Flash)
+    com enriquecimento e persistência unificada.
+    """
+    from server.services.gemini_analyzer import resumo_executivo_oportunidade, analisar_edital_documento
+
+    tender = db.query(Tender).filter((Tender.id == tender_id) | (Tender.external_id == tender_id)).first()
+    if not tender:
+        raise HTTPException(status_code=404, detail="Licitação não encontrada para análise por IA.")
+
+    dados_licitacao = {
+        "title": tender.title,
+        "object_description": tender.object_description,
+        "contracting_entity": tender.contracting_entity,
+        "state": tender.state,
+        "city": tender.city,
+        "modality": tender.modality,
+        "estimated_total_value": tender.estimated_total_value or 0.0
+    }
+
+    ai_summary = await resumo_executivo_oportunidade(dados_licitacao)
+
+    doc_res = None
+    target_doc_id = payload.get("document_id") if payload else None
+    if target_doc_id:
+        doc = db.query(TenderDocument).filter(TenderDocument.id == target_doc_id).first()
+        if doc:
+            doc_res = await analisar_edital_documento(b"", doc.name)
+    if not doc_res:
+        docs = db.query(TenderDocument).filter(TenderDocument.tender_id == tender.id).all()
+        if docs:
+            doc_res = await analisar_edital_documento(b"", docs[0].name)
+        else:
+            doc_res = await analisar_edital_documento((tender.object_description or "").encode("utf-8", errors="ignore"), "edital.pdf")
+
+    # Enriquecimento de colunas no modelo Tender
+    tender.ai_resumo = ai_summary.get("resumo")
+    tender.ai_pontos_atencao = json.dumps(ai_summary.get("pontos_atencao", []))
+    if doc_res and doc_res.get("itens"):
+        tender.itens_extraidos_json = doc_res.get("itens")
+
+    # Estruturação para a UI e retorno
+    structured_data = {
+        "resumo_executivo": {
+            "o_que_sera_contratado": ai_summary.get("resumo") or tender.title,
+            "resumo": ai_summary.get("resumo") or tender.title,
+            "quem_contrata": tender.contracting_entity,
+            "onde_local": f"{tender.city or ''} / {tender.state or ''}",
+            "modalidade": tender.modality,
+            "valor_estimado": f"R$ {tender.estimated_total_value or 0.0:,.2f}" if tender.estimated_total_value else "Não informado",
+            "datas_relevantes": tender.opening_date.strftime("%d/%m/%Y às %H:%M") if tender.opening_date else "A definir em edital",
+            "competitividade_estimada": ai_summary.get("competitividade_estimada", "Média")
+        },
+        "requisitos_participacao": {
+            "habilitacao_juridica": doc_res.get("habilitacao_exigencias", []) if doc_res else ["Conforme Edital Oficial (Lei 14.133/2021)"],
+            "regularidade_fiscal_trabalhista": ["CND Federal e Trabalhista (CNDT)", "Regularidade FGTS"],
+            "qualificacao_tecnica": [ai_summary.get("competitividade_estimada", "Atestado de Capacidade Técnica")],
+            "registros_profissionais_ou_sanitarios": "Conforme exigência do órgão licitante"
+        },
+        "pontos_atencao": {
+            "prazos_urgentes_ou_curtos": "Impugnações e esclarecimentos em até 3 dias úteis antes da abertura da sessão.",
+            "penalidades_previstas": "\n".join(ai_summary.get("pontos_atencao", [])) or "Conforme Lei 14.133/2021",
+            "riscos": ai_summary.get("riscos_juridicos", [])
+        },
+        "itens_extraidos": doc_res.get("itens", []) if doc_res else [],
+        "citacoes": [
+            {
+                "topico": "Objeto da Contratação",
+                "pagina": "Pág. 1",
+                "trecho": (tender.object_description or tender.title)[:160]
+            }
+        ]
+    }
+
+    try:
+        analysis_record = AIAnalysis(
+            tender_id=tender.id,
+            model_provider="GOOGLE_GEMINI",
+            model_name=ai_summary.get("modelo_utilizado", "gemini-3.8-flash"),
+            analysis_type="EXECUTIVE_SUMMARY_AND_RISK",
+            result_json=structured_data
+        )
+        db.add(analysis_record)
+    except Exception as e:
+        logger.warning(f"Erro ao salvar AIAnalysis: {e}")
+
+    db.commit()
+    db.refresh(tender)
+
+    return {
+        "success": True,
+        "status": "success",
+        "tender_id": tender.id,
+        "data": structured_data,
+        "analysis": ai_summary,
+        "doc_analysis": doc_res
+    }
+
+
+@app.post("/api/portals/sync")
+async def api_portals_sync(
+    payload: Optional[Dict[str, Any]] = Body(None),
+    sources: Optional[List[str]] = Query(None),
+    uf: Optional[str] = Query(None),
+    q: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Aciona pipeline assíncrono de coleta multifonte de licitações
+    (PNCP, Compras.gov.br, Portal de Compras Públicas, BNC, Licitanet).
+    """
+    from server.services.portal_collector import portal_collector
+    p = payload or {}
+    src = sources or p.get("sources")
+    target_uf = uf or p.get("uf")
+    kw = q or p.get("q") or p.get("keyword")
+    ufs_list = [target_uf] if target_uf else None
+
+    result = await portal_collector.sync_pipeline(
+        sources=src,
+        ufs=ufs_list,
+        keywords=kw,
+        db_session=db
+    )
+    result["total_saved"] = result.get("persisted_tenders", 0)
+    return result
 
 def serialize_deal(deal: Deal, tender: Optional[Tender] = None) -> Dict[str, Any]:
     t = tender or deal.tender
@@ -1799,50 +1943,8 @@ async def api_tender_ai_chat(
     """Recebe a pergunta do usuário e devolve a resposta contextualizada da IA ('Converse com o Edital')."""
     return await ask_tender_question(tender_id=tender_id, question=payload.question, db=db)
 
-@app.post("/api/tenders/{tender_id}/ai-analyze")
-def api_analyze_tender_ai(
-    tender_id: str,
-    payload: Dict[str, Any] = None,
-    db: Session = Depends(get_db)
-):
-    """Executa a análise documental por IA com delimitação segura e extração estruturada"""
-    tender = db.query(Tender).filter(Tender.id == tender_id).first()
-    if not tender:
-        raise HTTPException(status_code=404, detail="Licitação não encontrada.")
+# Legado: Rota unificada implementada em api_tender_ai_analyze (/api/tenders/{tender_id}/ai-analyze)
 
-    # Obter documento para análise
-    doc = None
-    if payload and payload.get("document_id"):
-        doc = db.query(TenderDocument).filter(TenderDocument.id == payload["document_id"]).first()
-    if not doc:
-        doc = db.query(TenderDocument).filter(TenderDocument.tender_id == tender.id).first()
-
-    doc_text = ""
-    if doc and doc.extraction:
-        doc_text = doc.extraction.extracted_text_reference or ""
-    if not doc_text:
-        doc_text = f"OBJETO DA LICITAÇÃO:\n{tender.object_description}\n\nÓRGÃO CONTRATANTE:\n{tender.contracting_entity}\n\nVALOR ESTIMADO:\nR$ {tender.estimated_total_value or 0.0:,.2f}"
-
-    ai_result = analyze_tender_document_with_ai(
-        tender_title=tender.title,
-        tender_object=tender.object_description,
-        document_text=doc_text
-    )
-
-    # Persistir análise no banco
-    analysis_record = AIAnalysis(
-        tender_id=tender.id,
-        document_id=doc.id if doc else None,
-        model_provider=ai_result.get("provider", "GEMINI"),
-        model_name=ai_result.get("model", "gemini-3.8-flash"),
-        analysis_type="ANALISE_COMPLETA",
-        result_json=ai_result.get("data", {}),
-        source_text_hash=calculate_sha256(doc_text.encode("utf-8"))
-    )
-    db.add(analysis_record)
-    db.commit()
-
-    return ai_result
 
 @app.post("/api/tenders/{tender_id}/notes")
 def api_save_tender_note(

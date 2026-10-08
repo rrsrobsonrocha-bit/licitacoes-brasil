@@ -181,6 +181,11 @@ class TenderSummaryResponse(BaseModel):
     link_pncp: Optional[str] = None
     url_disputa: Optional[str] = None
     url_pncp: Optional[str] = None
+    fonte_portal: Optional[str] = "PNCP"
+    link_edital_oficial: Optional[str] = None
+    ai_resumo: Optional[str] = None
+    ai_pontos_atencao: Optional[str] = None
+    itens_extraidos_json: Optional[Any] = None
     executor_portal: Optional[str] = None
     data_completeness: str
     is_favorite: bool = False

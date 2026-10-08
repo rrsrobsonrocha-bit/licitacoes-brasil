@@ -31,6 +31,7 @@ class PregaoItem:
     posicao_alvo: int = 1
     auto_lance_ativo: bool = False
     status_automacao: str = "Aguardando"
+    fonte_portal: str = "PNCP"
     historico_concorrentes: List[dict] = field(default_factory=list)
     updated_at: datetime = field(default_factory=get_sp_now)
 
@@ -58,6 +59,7 @@ class PregaoItem:
             "posicao_alvo": int(self.posicao_alvo),
             "auto_lance_ativo": bool(self.auto_lance_ativo),
             "status_automacao": self.status_automacao,
+            "fonte_portal": self.fonte_portal,
             "posicao_atual": posicao_atual,
             "historico_concorrentes": list(self.historico_concorrentes),
             "is_losing": self.is_losing,
@@ -138,6 +140,7 @@ class DisputeMonitorService:
             pos_alvo = int(item_data.get("posicao_alvo", 1))
             auto_bid = bool(item_data.get("auto_lance_ativo", False))
             status_auto = str(item_data.get("status_automacao", "Robô Ativo" if auto_bid else "Aguardando"))
+            fonte = str(item_data.get("fonte_portal", "PNCP")).strip()
 
             hist = list(item_data.get("historico_concorrentes", []))
             if not hist and best_bid > 0:
@@ -159,6 +162,7 @@ class DisputeMonitorService:
                 posicao_alvo=pos_alvo,
                 auto_lance_ativo=auto_bid,
                 status_automacao=status_auto,
+                fonte_portal=fonte,
                 historico_concorrentes=hist,
                 updated_at=get_sp_now()
             )
@@ -282,6 +286,15 @@ class DisputeMonitorService:
                 "timestamp": get_sp_now().isoformat()
             }
             self.broadcast_sync(event)
+            self._persist_dispute_history(
+                id_pregao=item.id_pregao,
+                numero_item=item.numero_item,
+                tipo_evento="AUTO_BID",
+                valor=item.meu_lance,
+                posicao=item.posicao_alvo,
+                autor="Robô Automático (Você)",
+                detalhes={"melhor_lance": item.melhor_lance, "fonte_portal": item.fonte_portal}
+            )
         else:
             # Piso ultrapassado: desativa robô para evitar prejuízo
             item.auto_lance_ativo = False
@@ -297,6 +310,15 @@ class DisputeMonitorService:
                 "timestamp": get_sp_now().isoformat()
             }
             self.broadcast_sync(event)
+            self._persist_dispute_history(
+                id_pregao=item.id_pregao,
+                numero_item=item.numero_item,
+                tipo_evento="STOP_LOSS",
+                valor=novo_lance,
+                posicao=item.posicao_alvo,
+                autor="Robô Automático (Você)",
+                detalhes={"piso": item.valor_minimo_limite, "fonte_portal": item.fonte_portal}
+            )
 
         return item.to_dict()
 
@@ -410,6 +432,38 @@ class DisputeMonitorService:
 
         for d in dead:
             self._subscribers.discard(d)
+
+    def _persist_dispute_history(
+        self,
+        id_pregao: str,
+        numero_item: int,
+        tipo_evento: str,
+        valor: float,
+        posicao: int = 1,
+        autor: str = "Robô LicitaçõesBrasil",
+        detalhes: Optional[dict] = None
+    ):
+        """Grava telemetria e auditoria de lances no banco SQLite/Postgres de forma resiliente."""
+        try:
+            from server.database import SessionLocal
+            from server.models import HistoricoDisputa
+            db = SessionLocal()
+            try:
+                rec = HistoricoDisputa(
+                    id_pregao=id_pregao,
+                    numero_item=numero_item,
+                    tipo_evento=tipo_evento,
+                    valor_ofertado=round(float(valor), 2),
+                    posicao=int(posicao),
+                    autor=autor,
+                    detalhes=detalhes or {}
+                )
+                db.add(rec)
+                db.commit()
+            finally:
+                db.close()
+        except Exception as err:
+            logger.debug(f"Telemetria de auditoria de disputa ignorada: {err}")
 
 
 # Instância singleton global do monitor
