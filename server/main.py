@@ -7,7 +7,7 @@ from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
 from typing import Optional, List, Dict, Any, Union
 from fastapi import FastAPI, Depends, HTTPException, status, Query, Request, Body
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
@@ -50,6 +50,7 @@ from server.alerts_engine import run_alert_processing_job
 from server.seed_data import seed_database
 from server.integrations.opportunity_collector import sync_procurement_opportunities
 from server.migrate import run_db_migrations
+from server.services.dispute_monitor import dispute_monitor, PregaoItem
 
 # Fuso horário oficial para prazos e agenda
 try:
@@ -193,6 +194,11 @@ app.add_middleware(
 templates_dir = os.path.join(os.path.dirname(__file__), "templates")
 templates = Jinja2Templates(directory=templates_dir)
 
+# Arquivos Estáticos e PWA
+static_dir = os.path.join(os.path.dirname(__file__), "static")
+if os.path.exists(static_dir):
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
 # Middleware de Rate Limiting e Segurança
 @app.middleware("http")
 async def security_and_rate_limit_middleware(request: Request, call_next):
@@ -237,15 +243,52 @@ def require_admin(user: User = Depends(require_auth)) -> User:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso exclusivo a administradores.")
     return user
 
-# Startup Event: Popular sementes oficiais
+# Startup Event: Popular sementes oficiais e iniciar DisputeMonitorService
 @app.on_event("startup")
-def on_startup():
+async def on_startup():
     run_db_migrations()
     db = next(get_db())
     try:
         seed_database(db)
     finally:
         db.close()
+
+    # Inicializa monitoramento assíncrono multi-pregão
+    await dispute_monitor.start()
+
+    # Popula lotes de demonstração se estiver vazio
+    if not dispute_monitor.get_active_snapshot():
+        dispute_monitor.track_item({
+            "id_pregao": "PE 042/2025",
+            "numero_item": 1,
+            "descricao": "Servidores de Rede e Armazenamento SAN de Alta Densidade",
+            "valor_referencia": 180000.0,
+            "melhor_lance": 172500.0,
+            "meu_lance": 172500.0,
+            "fase": "ABERTO"
+        })
+        dispute_monitor.track_item({
+            "id_pregao": "PE 018/2025",
+            "numero_item": 3,
+            "descricao": "Sistema de Ultrassonografia Digital Portátil com Doppler Colorido",
+            "valor_referencia": 85000.0,
+            "melhor_lance": 79200.0,
+            "meu_lance": 81000.0,
+            "fase": "IMINENCIA"
+        })
+        dispute_monitor.track_item({
+            "id_pregao": "PE 009/2025",
+            "numero_item": 1,
+            "descricao": "Licenciamento de Software Corporativo e Nuvem Governamental",
+            "valor_referencia": 340000.0,
+            "melhor_lance": 325000.0,
+            "meu_lance": 328000.0,
+            "fase": "IMINENCIA"
+        })
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    await dispute_monitor.stop()
 
 
 # ==============================================================================
@@ -684,6 +727,28 @@ def page_agenda(
         }
     )
 
+@app.get("/disputa", response_class=HTMLResponse)
+def page_disputa(request: Request):
+    return templates.TemplateResponse(request, "disputa.html", {})
+
+@app.get("/manifest.json")
+def pwa_manifest():
+    manifest_path = os.path.join(os.path.dirname(__file__), "static", "manifest.json")
+    if os.path.exists(manifest_path):
+        return FileResponse(manifest_path, media_type="application/manifest+json")
+    raise HTTPException(status_code=404, detail="Manifest não encontrado.")
+
+@app.get("/sw.js")
+def pwa_service_worker():
+    sw_path = os.path.join(os.path.dirname(__file__), "static", "sw.js")
+    if os.path.exists(sw_path):
+        return FileResponse(
+            sw_path,
+            media_type="application/javascript",
+            headers={"Service-Worker-Allowed": "/"}
+        )
+    raise HTTPException(status_code=404, detail="Service worker não encontrado.")
+
 def get_fornecedores_data(db: Session) -> Dict[str, Any]:
     gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("AI_API_KEY") or ""
     gemini_configured = bool(gemini_key and gemini_key.strip())
@@ -849,6 +914,85 @@ def api_agenda_events(db: Session = Depends(get_db)):
             })
 
     return {"status": "success", "events": events, "total": len(events)}
+
+
+# ==============================================================================
+# DISPUTAS MULTI-PREGÃO E TRANSMISSÃO EM TEMPO REAL (SSE)
+# ==============================================================================
+
+@app.post("/api/disputes/track")
+async def api_track_dispute_item(payload: Dict[str, Any] = Body(...)):
+    """Registra ou atualiza um certame/lote na matriz de monitoramento multi-pregão."""
+    try:
+        item = dispute_monitor.track_item(payload)
+        return {
+            "status": "success",
+            "item": item.to_dict()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Erro ao registrar item na disputa: {str(e)}")
+
+
+@app.get("/api/disputes/active")
+def api_get_active_disputes():
+    """Consulta snapshot consolidado de todos os lotes e pregões em acompanhamento."""
+    items = dispute_monitor.get_active_snapshot()
+    return {
+        "status": "success",
+        "total": len(items),
+        "items": items
+    }
+
+
+@app.post("/api/disputes/pulse")
+def api_dispute_simulate_pulse(item_key: Optional[str] = Query(None)):
+    """Método de contingência/mock para certames de teste que gera atualizações e iminência."""
+    updated = dispute_monitor.simulate_pulse(item_key)
+    return {
+        "status": "success",
+        "total_updated": len(updated),
+        "items": updated
+    }
+
+
+@app.get("/api/disputes/events")
+async def api_disputes_sse_events(request: Request):
+    """
+    Endpoint Server-Sent Events (SSE) transmitindo deltas de variação
+    de melhor lance e status de iminência em tempo real.
+    """
+    queue = dispute_monitor.subscribe()
+
+    async def event_generator():
+        try:
+            # Envia snapshot inicial logo na abertura da conexão SSE
+            initial_snapshot = dispute_monitor.get_active_snapshot()
+            for it in initial_snapshot:
+                payload = json.dumps({"type": "ITEM_TRACKED", "item": it})
+                yield f"data: {payload}\n\n"
+
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=15.0)
+                    yield f"data: {json.dumps(event)}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+        except asyncio.CancelledError:
+            pass
+        finally:
+            dispute_monitor.unsubscribe(queue)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
 
 
 # ==============================================================================

@@ -1,0 +1,545 @@
+{% extends "base.html" %}
+
+{% block title %}Disputa Multi-Pregão ao Vivo | LicitaFlow{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+  <!-- Top Cockpit Header -->
+  <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8 bg-slate-900 text-white p-6 rounded-2xl shadow-xl border border-slate-800">
+    <div>
+      <div class="flex items-center gap-3 mb-2">
+        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+          SSE EM TEMPO REAL
+        </span>
+        <span id="connection-status" class="text-xs text-slate-400 font-mono">Conectado</span>
+      </div>
+      <h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight text-white flex items-center gap-3">
+        <i class="fa-solid fa-tower-broadcast text-sky-400"></i> Cockpit Multi-Pregão
+      </h1>
+      <p class="text-sm text-slate-400 mt-1">Acompanhamento concorrente de lotes, alertas sonoros com Web Audio API e vibração tátil.</p>
+    </div>
+
+    <!-- Control Actions -->
+    <div class="flex flex-wrap items-center gap-3">
+      <!-- Toggle Sound Button -->
+      <button id="btn-sound-toggle" onclick="toggleAudio()" class="px-4 py-2.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center gap-2 transition shadow-sm">
+        <i id="sound-icon" class="fa-solid fa-volume-high text-sky-400"></i>
+        <span id="sound-label">Som de Lances: Ligado</span>
+      </button>
+
+      <!-- Pulse Simulation Button (Mock/Dev) -->
+      <button onclick="triggerSimulatedPulse()" class="px-4 py-2.5 rounded-xl text-xs font-semibold bg-amber-500 hover:bg-amber-400 text-slate-950 flex items-center gap-2 transition shadow-sm font-bold">
+        <i class="fa-solid fa-bolt"></i> Simular Pulso Concorrente
+      </button>
+
+      <!-- Quick Track Modal Toggle -->
+      <button onclick="openTrackModal()" class="px-4 py-2.5 rounded-xl text-xs font-semibold bg-sky-600 hover:bg-sky-500 text-white flex items-center gap-2 transition shadow-md">
+        <i class="fa-solid fa-plus"></i> Acompanhar Novo Lote
+      </button>
+    </div>
+  </div>
+
+  <!-- Metric Counters -->
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+    <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+      <div class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Lotes Monitorados</div>
+      <div id="metric-total" class="text-2xl font-black text-slate-800">0</div>
+    </div>
+    <div class="bg-white p-5 rounded-2xl border border-amber-200 bg-amber-50/30 shadow-sm">
+      <div class="text-xs font-bold uppercase tracking-wider text-amber-600 mb-1">Fase de Iminência</div>
+      <div id="metric-imminence" class="text-2xl font-black text-amber-600">0</div>
+    </div>
+    <div class="bg-white p-5 rounded-2xl border border-emerald-200 bg-emerald-50/30 shadow-sm">
+      <div class="text-xs font-bold uppercase tracking-wider text-emerald-600 mb-1">Você Liderando (1º)</div>
+      <div id="metric-winning" class="text-2xl font-black text-emerald-600">0</div>
+    </div>
+    <div class="bg-white p-5 rounded-2xl border border-rose-200 bg-rose-50/30 shadow-sm">
+      <div class="text-xs font-bold uppercase tracking-wider text-rose-600 mb-1">Lances Superados</div>
+      <div id="metric-losing" class="text-2xl font-black text-rose-600">0</div>
+    </div>
+  </div>
+
+  <!-- Live Matrix of Concurrent Items -->
+  <div class="mb-8">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+        <i class="fa-solid fa-layer-group text-slate-500"></i> Matriz de Disputa Simultânea
+      </h2>
+      <span class="text-xs text-slate-500 font-mono" id="last-update-time">Aguardando dados...</span>
+    </div>
+
+    <!-- Items Grid Container -->
+    <div id="dispute-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <!-- Loading Skeleton State -->
+      <div class="p-8 text-center text-slate-400 bg-white rounded-2xl border border-slate-200 col-span-full">
+        <i class="fa-solid fa-circle-notch fa-spin text-2xl text-sky-500 mb-3"></i>
+        <p class="text-sm">Carregando lotes em acompanhamento...</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Acompanhar Novo Lote -->
+<div id="modal-track" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+  <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-6 animate-scaleIn">
+    <div class="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
+      <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
+        <i class="fa-solid fa-plus-circle text-sky-600"></i> Adicionar Lote à Disputa
+      </h3>
+      <button onclick="closeTrackModal()" class="text-slate-400 hover:text-slate-600 text-lg">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>
+
+    <form id="form-track-item" onsubmit="submitTrackItem(event)" class="space-y-4">
+      <div>
+        <label class="block text-xs font-bold text-slate-600 mb-1">ID do Pregão / Processo</label>
+        <input type="text" id="track-id-pregao" required placeholder="Ex.: PE 042/2025" class="w-full px-3 py-2 text-sm rounded-xl border border-slate-300 focus:ring-2 focus:ring-sky-500 outline-none">
+      </div>
+
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-bold text-slate-600 mb-1">Nº do Item/Lote</label>
+          <input type="number" id="track-num-item" required min="1" value="1" class="w-full px-3 py-2 text-sm rounded-xl border border-slate-300 focus:ring-2 focus:ring-sky-500 outline-none">
+        </div>
+        <div>
+          <label class="block text-xs font-bold text-slate-600 mb-1">Fase Inicial</label>
+          <select id="track-fase" class="w-full px-3 py-2 text-sm rounded-xl border border-slate-300 focus:ring-2 focus:ring-sky-500 outline-none bg-white">
+            <option value="ABERTO">Aberto</option>
+            <option value="IMINENCIA">Iminência</option>
+            <option value="AGUARDANDO">Aguardando</option>
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <label class="block text-xs font-bold text-slate-600 mb-1">Descrição do Item</label>
+        <input type="text" id="track-descricao" required placeholder="Ex.: Servidores de Rede e Armazenamento SAN" class="w-full px-3 py-2 text-sm rounded-xl border border-slate-300 focus:ring-2 focus:ring-sky-500 outline-none">
+      </div>
+
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-bold text-slate-600 mb-1">Valor Referência (R$)</label>
+          <input type="number" step="0.01" id="track-valor-ref" required placeholder="10000.00" class="w-full px-3 py-2 text-sm rounded-xl border border-slate-300 focus:ring-2 focus:ring-sky-500 outline-none">
+        </div>
+        <div>
+          <label class="block text-xs font-bold text-slate-600 mb-1">Meu Lance Atual (R$)</label>
+          <input type="number" step="0.01" id="track-meu-lance" required placeholder="9500.00" class="w-full px-3 py-2 text-sm rounded-xl border border-slate-300 focus:ring-2 focus:ring-sky-500 outline-none">
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
+        <button type="button" onclick="closeTrackModal()" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100">Cancelar</button>
+        <button type="submit" class="px-5 py-2 rounded-xl text-xs font-semibold bg-sky-600 hover:bg-sky-500 text-white shadow-md">Iniciar Acompanhamento</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // =========================================================================
+  // NATIVE WEB AUDIO API SYNTHESIZER (SEM BIBLIOTECAS EXTERNAS)
+  // =========================================================================
+  class DisputeAudioEngine {
+    constructor() {
+      this.ctx = null;
+      this.enabled = localStorage.getItem('dispute_audio_enabled') !== 'false';
+    }
+
+    initContext() {
+      if (!this.ctx) {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (AudioCtx) {
+          this.ctx = new AudioCtx();
+        }
+      }
+      if (this.ctx && this.ctx.state === 'suspended') {
+        this.ctx.resume();
+      }
+    }
+
+    toggle() {
+      this.enabled = !this.enabled;
+      localStorage.setItem('dispute_audio_enabled', this.enabled ? 'true' : 'false');
+      if (this.enabled) {
+        this.initContext();
+        this.playCompetitorBeep();
+      }
+      return this.enabled;
+    }
+
+    // Beep curto de atenção para "Novo Lance Concorrente" (frequência 440Hz -> 880Hz)
+    playCompetitorBeep() {
+      if (!this.enabled) return;
+      try {
+        this.initContext();
+        if (!this.ctx) return;
+        const t = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(440, t);
+        osc.frequency.exponentialRampToValueAtTime(880, t + 0.12);
+
+        gain.gain.setValueAtTime(0.2, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+
+        osc.start(t);
+        osc.stop(t + 0.16);
+
+        // Suporte tátil mobile
+        if ('vibrate' in navigator) {
+          navigator.vibrate([80]);
+        }
+      } catch (err) {
+        console.warn('[Web Audio] Erro lance concorrente:', err);
+      }
+    }
+
+    // Alerta duplo de urgência para "Fase de Iminência / Encerramento" (duplo pulso 980Hz)
+    playImminenceAlert() {
+      if (!this.enabled) return;
+      try {
+        this.initContext();
+        if (!this.ctx) return;
+        const t = this.ctx.currentTime;
+
+        // Pulso 1 (980Hz)
+        const osc1 = this.ctx.createOscillator();
+        const gain1 = this.ctx.createGain();
+        osc1.type = 'sine';
+        osc1.frequency.setValueAtTime(980, t);
+        gain1.gain.setValueAtTime(0.3, t);
+        gain1.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+        osc1.connect(gain1);
+        gain1.connect(this.ctx.destination);
+        osc1.start(t);
+        osc1.stop(t + 0.13);
+
+        // Pulso 2 (980Hz)
+        const osc2 = this.ctx.createOscillator();
+        const gain2 = this.ctx.createGain();
+        osc2.type = 'sine';
+        osc2.frequency.setValueAtTime(980, t + 0.16);
+        gain2.gain.setValueAtTime(0.3, t + 0.16);
+        gain2.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
+        osc2.connect(gain2);
+        gain2.connect(this.ctx.destination);
+        osc2.start(t + 0.16);
+        osc2.stop(t + 0.29);
+
+        // Suporte tátil: padrão [100, 50, 100]
+        if ('vibrate' in navigator) {
+          navigator.vibrate([100, 50, 100]);
+        }
+      } catch (err) {
+        console.warn('[Web Audio] Erro alerta iminência:', err);
+      }
+    }
+  }
+
+  const audioEngine = new DisputeAudioEngine();
+  let eventSource = null;
+  let activeItems = {};
+
+  function updateAudioButtonUI() {
+    const btn = document.getElementById('btn-sound-toggle');
+    const icon = document.getElementById('sound-icon');
+    const label = document.getElementById('sound-label');
+    if (audioEngine.enabled) {
+      icon.className = 'fa-solid fa-volume-high text-sky-400';
+      label.textContent = 'Som de Lances: Ligado';
+      btn.className = 'px-4 py-2.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center gap-2 transition shadow-sm';
+    } else {
+      icon.className = 'fa-solid fa-volume-xmark text-rose-400';
+      label.textContent = 'Som de Lances: Mudo';
+      btn.className = 'px-4 py-2.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-400 border border-rose-900/50 flex items-center gap-2 transition shadow-sm';
+    }
+  }
+
+  function toggleAudio() {
+    audioEngine.toggle();
+    updateAudioButtonUI();
+    showToast(audioEngine.enabled ? 'Sons de disputa habilitados.' : 'Sons de disputa silenciados.', 'info');
+  }
+
+  // =========================================================================
+  // CONTROLES DE RENDERIZAÇÃO E MATRIZ MULTI-PREGÃO
+  // =========================================================================
+  function renderDisputeGrid() {
+    const grid = document.getElementById('dispute-grid');
+    const items = Object.values(activeItems);
+
+    document.getElementById('metric-total').textContent = items.length;
+    let imminenceCount = 0;
+    let winningCount = 0;
+    let losingCount = 0;
+
+    if (items.length === 0) {
+      grid.innerHTML = `
+        <div class="p-8 text-center text-slate-400 bg-white rounded-2xl border border-slate-200 col-span-full">
+          <i class="fa-solid fa-inbox text-3xl mb-2 text-slate-300"></i>
+          <p class="text-sm font-semibold text-slate-600">Nenhum lote monitorado ativamente.</p>
+          <p class="text-xs text-slate-400 mt-1">Clique em "Acompanhar Novo Lote" ou aguarde a sincronização.</p>
+        </div>
+      `;
+      return;
+    }
+
+    grid.innerHTML = items.map(item => {
+      const isLosing = item.meu_lance > 0 && item.melhor_lance > 0 && (item.meu_lance > item.melhor_lance);
+      const isWinning = item.meu_lance > 0 && (item.meu_lance <= item.melhor_lance);
+      const isImminent = item.fase === 'IMINENCIA';
+
+      if (isImminent) imminenceCount++;
+      if (isWinning) winningCount++;
+      if (isLosing) losingCount++;
+
+      // Badges
+      let phaseBadge = '';
+      if (isImminent) {
+        phaseBadge = `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold bg-rose-600 text-white animate-pulse shadow-md"><i class="fa-solid fa-triangle-exclamation"></i> IMINÊNCIA</span>`;
+      } else if (item.fase === 'ABERTO') {
+        phaseBadge = `<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800"><i class="fa-solid fa-door-open"></i> ABERTO</span>`;
+      } else {
+        phaseBadge = `<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700">${item.fase}</span>`;
+      }
+
+      let positionBadge = '';
+      if (isLosing) {
+        positionBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200 animate-pulse"><i class="fa-solid fa-arrow-down"></i> Lance Superado!</span>`;
+      } else if (isWinning) {
+        positionBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200"><i class="fa-solid fa-crown"></i> 1º Lugar (Liderando)</span>`;
+      }
+
+      const cardBorder = isLosing ? 'border-rose-400 ring-2 ring-rose-100' : (isImminent ? 'border-amber-400' : 'border-slate-200');
+
+      return `
+        <div id="card-${item.item_key.replace(':', '-')}" class="bg-white rounded-2xl border ${cardBorder} shadow-sm hover:shadow-md transition p-5 flex flex-col justify-between">
+          <div>
+            <!-- Card Header -->
+            <div class="flex items-start justify-between gap-2 mb-3">
+              <div>
+                <span class="text-xs font-bold text-sky-700 bg-sky-50 border border-sky-200 px-2.5 py-0.5 rounded-lg font-mono">${item.id_pregao}</span>
+                <span class="text-xs font-bold text-slate-500 ml-1">Lote/Item #${item.numero_item}</span>
+              </div>
+              <div class="flex items-center gap-2">
+                ${phaseBadge}
+              </div>
+            </div>
+
+            <!-- Description -->
+            <h3 class="text-sm font-bold text-slate-800 line-clamp-2 mb-4" title="${item.descricao}">
+              ${item.descricao}
+            </h3>
+
+            <!-- Price Comparison Grid -->
+            <div class="grid grid-cols-2 gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100 mb-4">
+              <div>
+                <span class="block text-[11px] font-semibold text-slate-400 uppercase">Melhor Lance</span>
+                <span class="text-lg font-black text-slate-900">${formatCurrency(item.melhor_lance)}</span>
+              </div>
+              <div>
+                <span class="block text-[11px] font-semibold text-slate-400 uppercase">Meu Lance</span>
+                <span class="text-lg font-black ${isLosing ? 'text-rose-600' : 'text-emerald-600'}">${formatCurrency(item.meu_lance)}</span>
+              </div>
+            </div>
+
+            <div class="flex items-center justify-between text-xs text-slate-500 mb-4">
+              <span>Referência: <b>${formatCurrency(item.valor_referencia)}</b></span>
+              ${positionBadge}
+            </div>
+          </div>
+
+          <!-- Quick Outbid Action -->
+          <div class="pt-3 border-t border-slate-100 flex items-center gap-2">
+            <input type="number" step="0.01" id="bid-input-${item.item_key.replace(':', '-')}" placeholder="Novo lance" value="${Math.max(10, item.melhor_lance - 50).toFixed(2)}" class="w-full px-3 py-1.5 text-xs rounded-xl border border-slate-300 outline-none focus:border-sky-500 font-mono">
+            <button onclick="submitNewBid('${item.id_pregao}', ${item.numero_item})" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white whitespace-nowrap transition">
+              Cobrir
+            </button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    document.getElementById('metric-imminence').textContent = imminenceCount;
+    document.getElementById('metric-winning').textContent = winningCount;
+    document.getElementById('metric-losing').textContent = losingCount;
+    document.getElementById('last-update-time').textContent = 'Atualizado: ' + new Date().toLocaleTimeString('pt-BR');
+  }
+
+  // =========================================================================
+  // SERVER-SENT EVENTS (SSE) STREAM CONNECTION
+  // =========================================================================
+  function initSSE() {
+    if (eventSource) {
+      eventSource.close();
+    }
+
+    const connStatus = document.getElementById('connection-status');
+    connStatus.textContent = 'Conectando...';
+
+    eventSource = new EventSource('/api/disputes/events');
+
+    eventSource.onopen = () => {
+      connStatus.textContent = 'Ao Vivo (Conectado)';
+      connStatus.className = 'text-xs text-emerald-400 font-mono';
+    };
+
+    eventSource.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        handleStreamEvent(data);
+      } catch (err) {
+        console.warn('Erro ao decodificar evento SSE:', err);
+      }
+    };
+
+    eventSource.onerror = () => {
+      connStatus.textContent = 'Reconectando em 4s...';
+      connStatus.className = 'text-xs text-amber-400 font-mono';
+      eventSource.close();
+      setTimeout(initSSE, 4000);
+    };
+  }
+
+  function handleStreamEvent(event) {
+    if (!event || !event.type) return;
+
+    if (event.type === 'ITEM_TRACKED' || event.type === 'BID_UPDATE' || event.type === 'IMMINENCE_ALERT') {
+      const item = event.item;
+      if (item) {
+        activeItems[item.item_key] = item;
+        renderDisputeGrid();
+
+        if (event.type === 'IMMINENCE_ALERT') {
+          audioEngine.playImminenceAlert();
+          showToast(`🚨 Alerta de Iminência: ${item.id_pregao} (Item #${item.numero_item}) em reta final!`, 'error');
+        } else if (event.type === 'BID_UPDATE') {
+          audioEngine.playCompetitorBeep();
+          if (item.is_losing) {
+            showToast(`⚠️ Novo lance concorrente em ${item.id_pregao}: R$ ${item.melhor_lance.toFixed(2)}`, 'info');
+          }
+        }
+      }
+    } else if (event.type === 'HEARTBEAT') {
+      document.getElementById('last-update-time').textContent = 'Sincronizado: ' + new Date().toLocaleTimeString('pt-BR');
+    }
+  }
+
+  // =========================================================================
+  // API CALLS
+  // =========================================================================
+  async function loadInitialActiveDisputes() {
+    try {
+      const res = await fetch('/api/disputes/active');
+      const data = await res.json();
+      if (data.status === 'success' && Array.isArray(data.items)) {
+        data.items.forEach(it => {
+          activeItems[it.item_key] = it;
+        });
+        renderDisputeGrid();
+      }
+    } catch (e) {
+      console.warn('Falha ao carregar snapshot inicial:', e);
+    }
+  }
+
+  async function triggerSimulatedPulse() {
+    try {
+      const res = await fetch('/api/disputes/pulse', { method: 'POST' });
+      const data = await res.json();
+      if (data.status === 'success') {
+        showToast('Pulso concorrente simulado com sucesso!', 'success');
+      }
+    } catch (e) {
+      showToast('Erro ao simular pulso.', 'error');
+    }
+  }
+
+  async function submitNewBid(idPregao, numItem) {
+    const input = document.getElementById(`bid-input-${idPregao.replace(':', '-')}-${numItem}`);
+    const key = `${idPregao}:${numItem}`;
+    const item = activeItems[key];
+    if (!item) return;
+
+    const val = parseFloat(input.value);
+    if (!val || isNaN(val) || val <= 0) {
+      showToast('Informe um valor de lance válido.', 'error');
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/disputes/track', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id_pregao: item.id_pregao,
+          numero_item: item.numero_item,
+          descricao: item.descricao,
+          valor_referencia: item.valor_referencia,
+          melhor_lance: Math.min(val, item.melhor_lance),
+          meu_lance: val,
+          fase: item.fase
+        })
+      });
+      const data = await res.json();
+      if (data.status === 'success') {
+        showToast(`Seu lance de R$ ${val.toFixed(2)} foi registrado com sucesso!`, 'success');
+      }
+    } catch (e) {
+      showToast('Falha ao registrar novo lance.', 'error');
+    }
+  }
+
+  function openTrackModal() {
+    document.getElementById('modal-track').classList.remove('hidden');
+  }
+
+  function closeTrackModal() {
+    document.getElementById('modal-track').classList.add('hidden');
+  }
+
+  async function submitTrackItem(e) {
+    e.preventDefault();
+    const payload = {
+      id_pregao: document.getElementById('track-id-pregao').value,
+      numero_item: parseInt(document.getElementById('track-num-item').value),
+      descricao: document.getElementById('track-descricao').value,
+      valor_referencia: parseFloat(document.getElementById('track-valor-ref').value),
+      meu_lance: parseFloat(document.getElementById('track-meu-lance').value),
+      melhor_lance: parseFloat(document.getElementById('track-meu-lance').value),
+      fase: document.getElementById('track-fase').value
+    };
+
+    try {
+      const res = await fetch('/api/disputes/track', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (data.status === 'success') {
+        closeTrackModal();
+        document.getElementById('form-track-item').reset();
+        showToast('Lote adicionado com sucesso ao monitor de disputa!', 'success');
+      }
+    } catch (err) {
+      showToast('Erro ao cadastrar lote na disputa.', 'error');
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    updateAudioButtonUI();
+    loadInitialActiveDisputes();
+    initSSE();
+  });
+</script>
+{% endblock %}
