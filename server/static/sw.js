@@ -1,5 +1,5 @@
-// LicitaFlow PWA Service Worker - Cache Resiliente e Fallback Offline
-const CACHE_NAME = 'licitaflow-pwa-v1';
+// LicitaçõesBrasil PWA Service Worker - Cache Resiliente e Fallback Offline
+const CACHE_NAME = 'licitacoesbrasil-pwa-v1';
 
 const STATIC_ASSETS = [
   '/',
@@ -60,7 +60,7 @@ self.addEventListener('fetch', (event) => {
           if (event.request.mode === 'navigate') {
             return caches.match('/');
           }
-          return new Response('LicitaFlow Offline', {
+          return new Response('LicitaçõesBrasil Offline', {
             status: 503,
             statusText: 'Offline',
             headers: { 'Content-Type': 'text/plain; charset=utf-8' }

@@ -248,7 +248,7 @@ def _generate_local_fallback_answer(tender: Tender, items: List[TenderItem], que
             f"- Qualquer pessoa física ou jurídica é parte legítima para impugnar o edital ou solicitar esclarecimentos.\n"
             f"- **Prazo limite**: até **3 (três) dias úteis** antes da data fixada para abertura do certame.\n"
             f"- A resposta do Agente de Contratação/Pregoeiro deve ser divulgada no sítio oficial no prazo de até 3 dias úteis.\n\n"
-            f"💡 Nosso módulo **Jurídico** do LicitaFlow possui minutas prontas de impugnação e pedidos de esclarecimento fundamentadas!"
+            f"💡 Nosso módulo **Jurídico** do LicitaçõesBrasil possui minutas prontas de impugnação e pedidos de esclarecimento fundamentadas!"
         )
 
     return (

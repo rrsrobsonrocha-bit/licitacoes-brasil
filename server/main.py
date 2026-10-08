@@ -2354,7 +2354,7 @@ def get_dashboard_summary_data(db: Session, user: Optional[User] = None) -> Dict
         "upcoming_tenders": upcoming[:5],
         "recent_deliveries": delivs_data,
 
-        # Indicadores Executivos LicitaFlow
+        # Indicadores Executivos LicitaçõesBrasil
         "active_deals_count": deals_count,
         "deals_count": deals_count,
         "companies_identified_count": companies_count,

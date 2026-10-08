@@ -138,8 +138,8 @@ def test_pwa_manifest_and_sw_endpoints():
     res_manifest = client.get("/manifest.json")
     assert res_manifest.status_code == 200
     manifest = res_manifest.json()
-    assert manifest["name"] == "LicitaFlow - Gestão de Licitações"
-    assert manifest["short_name"] == "LicitaFlow"
+    assert manifest["name"] == "LicitaçõesBrasil - Gestão e Inteligência em Licitações"
+    assert manifest["short_name"] == "LicitaçõesBrasil"
     assert manifest["display"] == "standalone"
     assert manifest["theme_color"] == "#0f172a"
 

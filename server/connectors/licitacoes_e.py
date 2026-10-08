@@ -13,7 +13,7 @@ class LicitacoesEConnector(BaseConnector):
     """
     Conector de Integração do Licitações-e (Banco do Brasil).
     Suporta modo de desenvolvimento local via Token Mock e credenciamento oficial OAuth 2.0.
-    Normaliza todos os certames para o modelo canônico de dados do LicitaFlow.
+    Normaliza todos os certames para o modelo canônico de dados do LicitaçõesBrasil.
     """
 
     def __init__(
@@ -65,7 +65,7 @@ class LicitacoesEConnector(BaseConnector):
     def normalize_tender(self, raw: Dict[str, Any]) -> Dict[str, Any]:
         """
         Normaliza o registro bruto retornado pela API ou Mock do Licitações-e
-        para o esquema canônico da plataforma LicitaFlow / Tender.
+        para o esquema canônico da plataforma LicitaçõesBrasil / Tender.
         """
         now = datetime.utcnow()
         numero_licitacao = str(raw.get("numeroLicitacao") or raw.get("numero") or "1001").strip()
