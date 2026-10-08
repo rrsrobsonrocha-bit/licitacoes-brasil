@@ -78,3 +78,40 @@ def test_api_search_returns_canonical_and_dispute_links():
         # O link de disputa deve existir
         assert tender["url_disputa"] is not None
         assert tender["url_disputa"].startswith("http")
+
+
+def test_resolve_document_download_url_direct_binary_prioritized():
+    from server.main import resolve_document_download_url
+    # URL binária direta deve ser mantida com prioridade sobre o redirecionamento ao certame
+    direct_pdf = "https://comprasnet.gov.br/editais/anexos/12200135000180/termo_referencia.pdf"
+    assert resolve_document_download_url(direct_pdf) == direct_pdf
+
+    direct_download = "https://pncp.gov.br/api/pncp/v1/orgaos/12200135000180/compras/2025/42/arquivos/1/download"
+    assert resolve_document_download_url(direct_download) == direct_download
+
+
+def test_resolve_document_download_url_legacy_converted_to_strict_3_segments():
+    from server.main import resolve_document_download_url
+    # URL em formato legado com hífen eliminada para estrita 3 segmentos /{cnpj}/{ano}/{sequencial}
+    legacy_url = "https://pncp.gov.br/app/editais/12200135000180-1-000042/2025"
+    canon = resolve_document_download_url(legacy_url)
+    assert canon == "https://pncp.gov.br/app/editais/12200135000180/2025/42"
+
+
+def test_api_tender_detail_document_canonical_download():
+    # Valida no endpoint de detalhe da API se os documentos possuem URLs canônicas
+    resp = client.get("/api/tenders?page=1&page_size=1")
+    assert resp.status_code == 200
+    first_tender = resp.json()["results"][0]
+    tender_id = first_tender["id"]
+
+    det_resp = client.get(f"/api/tenders/{tender_id}")
+    assert det_resp.status_code == 200
+    det_data = det_resp.json()
+    assert "documents" in det_data
+    assert len(det_data["documents"]) > 0
+    for doc in det_data["documents"]:
+        assert "source_url" in doc
+        assert doc["source_url"] is not None
+        # Não deve conter formato legado com hífen composto
+        assert "-1-" not in doc["source_url"]

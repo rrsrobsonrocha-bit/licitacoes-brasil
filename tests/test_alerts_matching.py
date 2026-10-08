@@ -91,11 +91,12 @@ def test_automatic_alert_matching_and_delivery_creation():
         db.add(saved_alert)
         db.commit()
 
-        # Cria certame que atende exatamente ao alerta
+        # Cria certame que atende exatamente ao alerta com URLs canônicas
+        ext_seq = generate_uuid()[:6]
         new_tender = Tender(
             id=generate_uuid(),
             source_id="pncp-source-01",
-            external_id=f"ext-{generate_uuid()}",
+            external_id=f"12200135000180-1-{ext_seq}/2025",
             title=f"Aquisição de {unique_kw} hospitalar bifásico",
             object_description="Equipamento médico para emergência e pronto atendimento",
             contracting_entity="Hospital de Clínicas de Porto Alegre",
@@ -104,7 +105,8 @@ def test_automatic_alert_matching_and_delivery_creation():
             modality="Pregão Eletrônico",
             estimated_total_value=68000.0,
             status="Divulgada no PNCP",
-            source_url="https://pncp.gov.br/app/editais/123"
+            source_url="https://pncp.gov.br/app/editais/12200135000180/2025/42",
+            url_pncp="https://pncp.gov.br/app/editais/12200135000180/2025/42"
         )
         db.add(new_tender)
         db.commit()
@@ -125,6 +127,10 @@ def test_automatic_alert_matching_and_delivery_creation():
         assert len(duplicate_matching) == 0
 
     finally:
+        db.query(AlertDelivery).filter(AlertDelivery.tender_id == new_tender.id).delete()
+        db.query(Tender).filter(Tender.id == new_tender.id).delete()
+        db.query(SavedSearch).filter(SavedSearch.id == saved_alert.id).delete()
+        db.commit()
         db.close()
 
 
@@ -132,6 +138,8 @@ def test_api_alerts_feed_endpoint():
     """Valida o endpoint GET /api/alerts/feed retornando as notificações entregues."""
     client = TestClient(app)
     db = SessionLocal()
+    tender_id = generate_uuid()
+    saved_id = generate_uuid()
     try:
         user = db.query(User).first()
         uid = user.id if user else "usr-user-01"
@@ -139,7 +147,7 @@ def test_api_alerts_feed_endpoint():
         # Garante ao menos uma entrega registrada no banco
         feed_kw = f"ultrassom-{generate_uuid()[:8]}"
         saved = SavedSearch(
-            id=generate_uuid(),
+            id=saved_id,
             user_id=uid,
             name="Feed Alerta Ultrassom",
             keywords=feed_kw,
@@ -150,10 +158,11 @@ def test_api_alerts_feed_endpoint():
         )
         db.add(saved)
 
+        ext_feed_seq = generate_uuid()[:6]
         tender = Tender(
-            id=generate_uuid(),
+            id=tender_id,
             source_id="pncp-source-01",
-            external_id=f"ext-feed-{generate_uuid()}",
+            external_id=f"00394452000103-1-{ext_feed_seq}/2026",
             title=f"Fornecimento de sistema de {feed_kw} com doppler colorido",
             object_description="Aparelho portátil para diagnóstico por ultrassom",
             contracting_entity="Secretaria de Saúde de Curitiba",
@@ -162,7 +171,8 @@ def test_api_alerts_feed_endpoint():
             modality="Pregão Eletrônico",
             estimated_total_value=85000.0,
             status="Divulgada no PNCP",
-            source_url="https://pncp.gov.br/app/editais/feed-test"
+            source_url="https://pncp.gov.br/app/editais/00394452000103/2026/410",
+            url_pncp="https://pncp.gov.br/app/editais/00394452000103/2026/410"
         )
         db.add(tender)
         db.commit()
@@ -185,4 +195,8 @@ def test_api_alerts_feed_endpoint():
         assert feed_item["channel"] == "IN_APP"
 
     finally:
+        db.query(AlertDelivery).filter(AlertDelivery.tender_id == tender_id).delete()
+        db.query(Tender).filter(Tender.id == tender_id).delete()
+        db.query(SavedSearch).filter(SavedSearch.id == saved_id).delete()
+        db.commit()
         db.close()

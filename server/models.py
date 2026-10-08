@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, date, timedelta, timezone
 from sqlalchemy import (
     Column, String, Text, Integer, Float, Boolean, DateTime,
     ForeignKey, UniqueConstraint, Index, JSON
@@ -350,8 +350,18 @@ class Deal(Base):
         td = self.target_date
         if not td:
             return None
-        now = datetime.utcnow()
-        delta = (td.date() - now.date()).days
+        try:
+            from zoneinfo import ZoneInfo
+            SP_TZ = ZoneInfo("America/Sao_Paulo")
+        except Exception:
+            from datetime import timezone
+            SP_TZ = timezone(timedelta(hours=-3), name="America/Sao_Paulo")
+        now = datetime.now(SP_TZ)
+        if isinstance(td, datetime):
+            td_sp = td.replace(tzinfo=SP_TZ) if td.tzinfo is None else td.astimezone(SP_TZ)
+        else:
+            return None
+        delta = (td_sp.date() - now.date()).days
         return delta
 
     @property
@@ -359,11 +369,22 @@ class Deal(Base):
         td = self.target_date
         if not td:
             return "sem_data"
-        now = datetime.utcnow()
-        diff = (td - now).total_seconds()
+        try:
+            from zoneinfo import ZoneInfo
+            SP_TZ = ZoneInfo("America/Sao_Paulo")
+        except Exception:
+            from datetime import timezone
+            SP_TZ = timezone(timedelta(hours=-3), name="America/Sao_Paulo")
+        now = datetime.now(SP_TZ)
+        if isinstance(td, datetime):
+            td_sp = td.replace(tzinfo=SP_TZ) if td.tzinfo is None else td.astimezone(SP_TZ)
+        else:
+            return "sem_data"
+        diff = (td_sp - now).total_seconds()
+        hours_remaining = diff / 3600.0
         if diff < 0:
             return "vencido"
-        elif diff <= 86400 or td.date() == now.date():
+        elif 0 <= hours_remaining <= 24:
             return "critico"
         elif diff <= 7 * 86400:
             return "alerta"

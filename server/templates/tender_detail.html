@@ -286,10 +286,17 @@
             <button onclick="requestAiAnalysis('{{ detail.tender.id }}', '{{ doc.id }}')" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white flex items-center gap-1.5 transition">
               <i class="fa-solid fa-wand-magic-sparkles"></i> Analisar com IA
             </button>
-            <a href="{{ doc.source_url }}" target="_blank" rel="noopener noreferrer" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 flex items-center gap-1.5 transition">
+            <a href="{{ doc.source_url or detail.tender.url_pncp or detail.tender.source_url }}" target="_blank" rel="noopener noreferrer" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 flex items-center gap-1.5 transition">
               <i class="fa-solid fa-download"></i> Baixar Oficial
             </a>
           </div>
+        </div>
+        {% else %}
+        <div class="p-6 rounded-xl border border-slate-200 bg-slate-50 text-center">
+          <p class="text-xs text-slate-500 mb-3">Nenhum documento anexado diretamente na base local.</p>
+          <a href="{{ detail.tender.url_pncp or detail.tender.source_url }}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-sky-600 hover:bg-sky-500 text-white transition">
+            <i class="fa-solid fa-download"></i> Baixar Oficial no PNCP
+          </a>
         </div>
         {% endfor %}
       </div>

@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_, desc, asc
 from server.models import Tender, TenderItem, Source, Favorite
 from server.schemas import SearchFilterParams, TenderSummaryResponse, SearchResultResponse
+from server.connectors.pncp import build_canonical_pncp_url
 
 # Categorias oficiais de classificação
 CATEGORIES = [
@@ -285,9 +286,21 @@ def search_tenders(db: Session, params: SearchFilterParams, user_id: Optional[st
             uasg_code=t.uasg_code,
             sicaf_ready=bool(t.sicaf_ready),
             link_comprasnet=t.link_comprasnet,
-            link_pncp=getattr(t, "url_pncp", None) or t.link_pncp or t.source_url,
-            url_disputa=getattr(t, "url_disputa", None) or t.link_comprasnet or t.official_notice_url or (getattr(t, "url_pncp", None) or t.link_pncp or t.source_url),
-            url_pncp=getattr(t, "url_pncp", None) or t.link_pncp or t.source_url,
+            link_pncp=(
+                build_canonical_pncp_url(numero_controle_pncp=getattr(t, "url_pncp", None) or t.link_pncp or t.source_url or t.external_id)
+                if (getattr(t, "url_pncp", None) or t.link_pncp or t.source_url or t.external_id)
+                else (getattr(t, "url_pncp", None) or t.link_pncp or t.source_url)
+            ),
+            url_disputa=getattr(t, "url_disputa", None) or t.link_comprasnet or t.official_notice_url or (
+                build_canonical_pncp_url(numero_controle_pncp=getattr(t, "url_pncp", None) or t.link_pncp or t.source_url or t.external_id)
+                if (getattr(t, "url_pncp", None) or t.link_pncp or t.source_url or t.external_id)
+                else (getattr(t, "url_pncp", None) or t.link_pncp or t.source_url)
+            ),
+            url_pncp=(
+                build_canonical_pncp_url(numero_controle_pncp=getattr(t, "url_pncp", None) or t.link_pncp or t.source_url or t.external_id)
+                if (getattr(t, "url_pncp", None) or t.link_pncp or t.source_url or t.external_id)
+                else (getattr(t, "url_pncp", None) or t.link_pncp or t.source_url)
+            ),
             executor_portal=executor_portal,
             data_completeness=t.data_completeness,
             is_favorite=(t.id in user_fav_ids),

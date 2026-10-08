@@ -3,7 +3,8 @@ import sys
 import json
 import csv
 import io
-from datetime import datetime, timedelta
+from datetime import datetime, date, timedelta
+from zoneinfo import ZoneInfo
 from typing import Optional, List, Dict, Any, Union
 from fastapi import FastAPI, Depends, HTTPException, status, Query, Request, Body
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
@@ -44,10 +45,110 @@ from server.search_engine import search_tenders, CATEGORIES
 from server.ai_engine import analyze_tender_document_with_ai
 from server.services.ai_service import analyze_tender_summary, ask_tender_question
 from server.connectors.registry import SOURCE_CATALOG, list_all_sources, get_connector
+from server.connectors.pncp import build_canonical_pncp_url
 from server.alerts_engine import run_alert_processing_job
 from server.seed_data import seed_database
 from server.integrations.opportunity_collector import sync_procurement_opportunities
 from server.migrate import run_db_migrations
+
+# Fuso horário oficial para prazos e agenda
+try:
+    from zoneinfo import ZoneInfo
+    SP_TZ = ZoneInfo("America/Sao_Paulo")
+except Exception:
+    from datetime import timezone
+    SP_TZ = timezone(timedelta(hours=-3), name="America/Sao_Paulo")
+
+def to_sp_datetime(dt_val: Union[datetime, date, str, None]) -> Optional[datetime]:
+    """
+    Converte campos de abertura/encerramento para objetos datetime no fuso horário America/Sao_Paulo.
+    Elimina comparações literais de strings.
+    """
+    if not dt_val:
+        return None
+    if isinstance(dt_val, str):
+        try:
+            dt_clean = dt_val.strip()
+            if "T" in dt_clean:
+                dt = datetime.fromisoformat(dt_clean)
+            elif "/" in dt_clean:
+                parts = dt_clean.split(" ")
+                date_parts = [int(p) for p in parts[0].split("/")]
+                if len(date_parts) == 3:
+                    d, m, y = date_parts
+                    h, mi, s = 0, 0, 0
+                    if len(parts) > 1:
+                        time_parts = [int(p) for p in parts[1].split(":")]
+                        h = time_parts[0]
+                        mi = time_parts[1] if len(time_parts) > 1 else 0
+                        s = time_parts[2] if len(time_parts) > 2 else 0
+                    dt = datetime(y, m, d, h, mi, s)
+                else:
+                    dt = datetime.fromisoformat(dt_clean)
+            else:
+                dt = datetime.fromisoformat(dt_clean)
+        except Exception:
+            return None
+    elif isinstance(dt_val, datetime):
+        dt = dt_val
+    elif isinstance(dt_val, date):
+        dt = datetime.combine(dt_val, datetime.min.time())
+    else:
+        return None
+
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=SP_TZ)
+    else:
+        dt = dt.astimezone(SP_TZ)
+    return dt
+
+
+def resolve_document_download_url(doc_url: Optional[str], tender: Optional[Tender] = None) -> str:
+    """
+    Resolve a URL de download oficial do documento ou anexo.
+    1. Se o payload contiver URL direta do ficheiro binário/anexo (.pdf, .zip, /arquivos/, etc.),
+       atribui-a prioritariamente ao botão.
+    2. Se for URL do portal PNCP ou fallback, garante canonização estrita com build_canonical_pncp_url
+       no formato de 3 segmentos: https://pncp.gov.br/app/editais/{cnpj}/{ano}/{sequencial_inteiro}
+       eliminando o formato legado {cnpj}-{tipo}-{seq}/{ano}.
+    """
+    clean_url = (doc_url or "").strip()
+
+    # 1. Prioridade: link direto de binário/arquivo
+    is_direct_binary = (
+        bool(clean_url) and (
+            any(clean_url.lower().endswith(ext) for ext in [".pdf", ".zip", ".doc", ".docx", ".xlsx", ".csv", ".rar"]) or
+            any(token in clean_url.lower() for token in ["/arquivos/", "/anexos/", "/download/", "/documentos/download", "tipo_arquivo=binario"])
+        )
+    )
+    if is_direct_binary and not ("/app/editais/" in clean_url):
+        return clean_url
+
+    # 2. Se for URL do PNCP ou número de controle, normaliza via build_canonical_pncp_url
+    if clean_url:
+        if "pncp.gov.br/app/editais/" in clean_url or "-" in clean_url or clean_url.startswith("http"):
+            canon = build_canonical_pncp_url(numero_controle_pncp=clean_url)
+            if canon and canon != "https://pncp.gov.br/app/editais":
+                return canon
+
+    # 3. Fallback no certame (tender)
+    if tender:
+        for candidate in [
+            getattr(tender, "url_pncp", None),
+            getattr(tender, "official_notice_url", None),
+            getattr(tender, "link_pncp", None),
+            getattr(tender, "source_url", None),
+            getattr(tender, "external_id", None)
+        ]:
+            if candidate:
+                cand_str = str(candidate).strip()
+                if any(cand_str.lower().endswith(ext) for ext in [".pdf", ".zip", ".doc", ".docx"]) and not ("/app/editais/" in cand_str):
+                    return cand_str
+                canon = build_canonical_pncp_url(numero_controle_pncp=cand_str)
+                if canon and canon != "https://pncp.gov.br/app/editais":
+                    return canon
+
+    return clean_url
 
 # Inicializar tabelas e migrações no banco de dados
 Base.metadata.create_all(bind=engine)
@@ -263,9 +364,21 @@ def page_tender_detail(request: Request, tender_id: str, db: Session = Depends(g
         uasg_code=tender.uasg_code,
         sicaf_ready=bool(tender.sicaf_ready),
         link_comprasnet=tender.link_comprasnet,
-        link_pncp=getattr(tender, "url_pncp", None) or tender.link_pncp or tender.source_url,
-        url_disputa=getattr(tender, "url_disputa", None) or tender.link_comprasnet or tender.official_notice_url or (getattr(tender, "url_pncp", None) or tender.link_pncp or tender.source_url),
-        url_pncp=getattr(tender, "url_pncp", None) or tender.link_pncp or tender.source_url,
+        link_pncp=(
+            build_canonical_pncp_url(numero_controle_pncp=getattr(tender, "url_pncp", None) or tender.link_pncp or tender.source_url or tender.external_id)
+            if (getattr(tender, "url_pncp", None) or tender.link_pncp or tender.source_url or tender.external_id)
+            else (getattr(tender, "url_pncp", None) or tender.link_pncp or tender.source_url)
+        ),
+        url_disputa=getattr(tender, "url_disputa", None) or tender.link_comprasnet or tender.official_notice_url or (
+            build_canonical_pncp_url(numero_controle_pncp=getattr(tender, "url_pncp", None) or tender.link_pncp or tender.source_url or tender.external_id)
+            if (getattr(tender, "url_pncp", None) or tender.link_pncp or tender.source_url or tender.external_id)
+            else (getattr(tender, "url_pncp", None) or tender.link_pncp or tender.source_url)
+        ),
+        url_pncp=(
+            build_canonical_pncp_url(numero_controle_pncp=getattr(tender, "url_pncp", None) or tender.link_pncp or tender.source_url or tender.external_id)
+            if (getattr(tender, "url_pncp", None) or tender.link_pncp or tender.source_url or tender.external_id)
+            else (getattr(tender, "url_pncp", None) or tender.link_pncp or tender.source_url)
+        ),
         data_completeness=tender.data_completeness,
         is_favorite=is_fav,
         created_at=tender.created_at,
@@ -291,14 +404,26 @@ def page_tender_detail(request: Request, tender_id: str, db: Session = Depends(g
                 id=d.id,
                 name=d.name,
                 document_type=d.document_type,
-                source_url=d.source_url,
+                source_url=resolve_document_download_url(d.source_url, tender),
                 mime_type=d.mime_type,
                 file_size=d.file_size,
                 checksum=d.checksum,
                 published_at=d.published_at,
                 extraction_status=d.extraction_status
             ) for d in docs
-        ],
+        ] if docs else [
+            TenderDocumentResponse(
+                id=f"doc-edital-{tender.id}",
+                name=f"Edital e Termo de Referência ({tender.notice_number or tender.external_id})",
+                document_type="EDITAL",
+                source_url=resolve_document_download_url(tender.official_notice_url or summary.url_pncp or tender.source_url, tender),
+                mime_type="application/pdf",
+                file_size=None,
+                checksum=None,
+                published_at=tender.publication_date,
+                extraction_status="SUCCESS"
+            )
+        ] if (tender.official_notice_url or summary.url_pncp or tender.source_url) else [],
         changes=[
             TenderChangeResponse(
                 id=c.id,
@@ -436,7 +561,7 @@ def page_agenda(
     request: Request,
     db: Session = Depends(get_db)
 ):
-    now = datetime.utcnow()
+    now = datetime.now(SP_TZ)
     deals = db.query(Deal).all()
 
     events_raw = []
@@ -447,7 +572,8 @@ def page_agenda(
         if not t or t.id in seen_tenders:
             continue
         seen_tenders.add(t.id)
-        target_date = t.opening_date or t.proposal_deadline
+        raw_target = t.opening_date or t.proposal_deadline
+        target_date = to_sp_datetime(raw_target)
         if target_date:
             events_raw.append({
                 "deal_id": d.id,
@@ -471,7 +597,8 @@ def page_agenda(
             if t.id in seen_tenders:
                 continue
             seen_tenders.add(t.id)
-            target_date = t.opening_date or t.proposal_deadline
+            raw_target = t.opening_date or t.proposal_deadline
+            target_date = to_sp_datetime(raw_target)
             if target_date:
                 events_raw.append({
                     "deal_id": None,
@@ -494,12 +621,13 @@ def page_agenda(
     for item in events_raw:
         td = item["target_date"]
         diff_seconds = (td - now).total_seconds()
+        hours_remaining = diff_seconds / 3600.0
         days_remaining = (td.date() - now.date()).days
 
         if diff_seconds < 0:
             urgency = "vencido"
             badge_text = "Encerrado / Julgamento"
-        elif diff_seconds <= 86400 or td.date() == now.date():
+        elif 0 <= hours_remaining <= 24:
             urgency = "critico"
             badge_text = "Vence hoje / Últimas 24h"
         elif days_remaining <= 7:
@@ -523,6 +651,7 @@ def page_agenda(
             "time": td.strftime("%H:%M"),
             "estimated_value": item["estimated_value"],
             "sicaf_ready": item["sicaf_ready"],
+            "hours_remaining": hours_remaining,
             "days_remaining": days_remaining,
             "urgency": urgency,
             "badge_text": badge_text
@@ -538,22 +667,10 @@ def page_agenda(
         if diff_seconds >= 0:
             upcoming_events.append(ev_dict)
 
-    # Garantir badges presentes para demonstração caso datas cadastradas no dev sejam todas futuras
-    if not critical_events and calendar_events:
-        crit_sample = dict(calendar_events[0])
-        crit_sample["urgency"] = "critico"
-        crit_sample["badge_text"] = "Vence hoje / Últimas 24h"
-        critical_events.append(crit_sample)
-
-    if not warning_events and len(calendar_events) > 1:
-        warn_sample = dict(calendar_events[1])
-        warn_sample["urgency"] = "alerta"
-        warn_sample["badge_text"] = "Faltam 3 dias"
-        warn_sample["days_remaining"] = 3
-        warning_events.append(warn_sample)
-
     calendar_events.sort(key=lambda x: x["date"])
     upcoming_events.sort(key=lambda x: x["date"])
+    critical_events.sort(key=lambda x: x["date"])
+    warning_events.sort(key=lambda x: x["date"])
 
     return templates.TemplateResponse(
         request,
@@ -657,7 +774,7 @@ def api_fornecedores(db: Session = Depends(get_db)):
 
 @app.get("/api/agenda/events")
 def api_agenda_events(db: Session = Depends(get_db)):
-    now = datetime.utcnow()
+    now = datetime.now(SP_TZ)
     deals = db.query(Deal).all()
     events = []
     seen = set()
@@ -666,10 +783,20 @@ def api_agenda_events(db: Session = Depends(get_db)):
         t = d.tender
         if t and (t.opening_date or t.proposal_deadline):
             seen.add(t.id)
-            td = t.opening_date or t.proposal_deadline
+            td = to_sp_datetime(t.opening_date or t.proposal_deadline)
+            if not td:
+                continue
             diff_seconds = (td - now).total_seconds()
+            hours_remaining = diff_seconds / 3600.0
             days_remaining = (td.date() - now.date()).days
-            urgency = "critico" if (diff_seconds <= 86400 or td.date() == now.date()) else ("alerta" if days_remaining <= 7 else "normal")
+            if diff_seconds < 0:
+                urgency = "vencido"
+            elif 0 <= hours_remaining <= 24:
+                urgency = "critico"
+            elif days_remaining <= 7:
+                urgency = "alerta"
+            else:
+                urgency = "normal"
             events.append({
                 "deal_id": d.id,
                 "tender_id": t.id,
@@ -679,6 +806,7 @@ def api_agenda_events(db: Session = Depends(get_db)):
                 "date": td.isoformat(),
                 "formatted_date": td.strftime("%d/%m/%Y %H:%M"),
                 "urgency": urgency,
+                "hours_remaining": hours_remaining,
                 "days_remaining": days_remaining,
                 "stage": d.stage
             })
@@ -692,10 +820,20 @@ def api_agenda_events(db: Session = Depends(get_db)):
             if t.id in seen:
                 continue
             seen.add(t.id)
-            td = t.opening_date or t.proposal_deadline
+            td = to_sp_datetime(t.opening_date or t.proposal_deadline)
+            if not td:
+                continue
             diff_seconds = (td - now).total_seconds()
+            hours_remaining = diff_seconds / 3600.0
             days_remaining = (td.date() - now.date()).days
-            urgency = "critico" if (diff_seconds <= 86400 or td.date() == now.date()) else ("alerta" if days_remaining <= 7 else "normal")
+            if diff_seconds < 0:
+                urgency = "vencido"
+            elif 0 <= hours_remaining <= 24:
+                urgency = "critico"
+            elif days_remaining <= 7:
+                urgency = "alerta"
+            else:
+                urgency = "normal"
             events.append({
                 "deal_id": None,
                 "tender_id": t.id,
@@ -705,6 +843,7 @@ def api_agenda_events(db: Session = Depends(get_db)):
                 "date": td.isoformat(),
                 "formatted_date": td.strftime("%d/%m/%Y %H:%M"),
                 "urgency": urgency,
+                "hours_remaining": hours_remaining,
                 "days_remaining": days_remaining,
                 "stage": "oportunidades"
             })
@@ -1040,22 +1179,28 @@ def api_get_tender_by_id(tender_id: str, db: Session = Depends(get_db)):
             "classification_code": tender.category or "Item Principal"
         }]
 
+    canon_api_pncp = (
+        build_canonical_pncp_url(numero_controle_pncp=getattr(tender, "url_pncp", None) or tender.link_pncp or tender.source_url or tender.external_id)
+        if (getattr(tender, "url_pncp", None) or tender.link_pncp or tender.source_url or tender.external_id)
+        else (getattr(tender, "url_pncp", None) or tender.link_pncp or tender.source_url)
+    )
+
     docs_payload = [
         {
             "id": d.id,
             "name": d.name,
             "document_type": d.document_type,
-            "source_url": d.source_url,
+            "source_url": resolve_document_download_url(d.source_url, tender),
             "mime_type": d.mime_type or "application/pdf",
             "file_size": d.file_size
         } for d in docs
     ]
-    if not docs_payload and (tender.official_notice_url or tender.link_pncp or tender.source_url):
+    if not docs_payload and (tender.official_notice_url or canon_api_pncp or tender.source_url):
         docs_payload = [{
             "id": f"doc-edital-{tender.id}",
             "name": f"Edital e Termo de Referência ({tender.notice_number or tender.external_id})",
             "document_type": "EDITAL",
-            "source_url": tender.official_notice_url or tender.link_pncp or tender.source_url,
+            "source_url": resolve_document_download_url(tender.official_notice_url or canon_api_pncp or tender.source_url, tender),
             "mime_type": "application/pdf",
             "file_size": None
         }]
@@ -1087,9 +1232,9 @@ def api_get_tender_by_id(tender_id: str, db: Session = Depends(get_db)):
         "uasg_code": tender.uasg_code,
         "sicaf_ready": bool(tender.sicaf_ready),
         "link_comprasnet": tender.link_comprasnet,
-        "link_pncp": getattr(tender, "url_pncp", None) or tender.link_pncp or tender.source_url,
-        "url_disputa": getattr(tender, "url_disputa", None) or tender.link_comprasnet or tender.official_notice_url or (getattr(tender, "url_pncp", None) or tender.link_pncp or tender.source_url),
-        "url_pncp": getattr(tender, "url_pncp", None) or tender.link_pncp or tender.source_url,
+        "link_pncp": canon_api_pncp,
+        "url_disputa": getattr(tender, "url_disputa", None) or tender.link_comprasnet or tender.official_notice_url or canon_api_pncp,
+        "url_pncp": canon_api_pncp,
         "data_completeness": tender.data_completeness,
         "items": items_payload,
         "documents": docs_payload,
