@@ -17,25 +17,31 @@
       <h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight text-white flex items-center gap-3">
         <i class="fa-solid fa-tower-broadcast text-sky-400"></i> Cockpit Multi-Pregão
       </h1>
-      <p class="text-sm text-slate-400 mt-1">Acompanhamento concorrente de lotes, alertas sonoros com Web Audio API e vibração tátil.</p>
+      <p class="text-sm text-slate-400 mt-1">Acompanhamento concorrente de lotes, robô de lances com stop-loss, alertas sonoros e vibração tátil.</p>
     </div>
 
     <!-- Control Actions -->
     <div class="flex flex-wrap items-center gap-3">
+      <!-- Interruptor Mestre Global de Automação de Lances -->
+      <button id="btn-global-autobid" onclick="toggleGlobalAutobid()" class="px-4 py-2.5 rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-2 border bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700" title="Ligar ou desligar todos os robôs de lances simultaneamente">
+        <i id="global-autobid-icon" class="fa-solid fa-robot text-slate-400"></i>
+        <span id="global-autobid-label">Robô de Lances Global: DESLIGADO</span>
+      </button>
+
       <!-- Toggle Sound Button -->
       <button id="btn-sound-toggle" onclick="toggleAudio()" class="px-4 py-2.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center gap-2 transition shadow-sm">
         <i id="sound-icon" class="fa-solid fa-volume-high text-sky-400"></i>
-        <span id="sound-label">Som de Lances: Ligado</span>
+        <span id="sound-label">Som: Ligado</span>
       </button>
 
       <!-- Pulse Simulation Button (Mock/Dev) -->
       <button onclick="triggerSimulatedPulse()" class="px-4 py-2.5 rounded-xl text-xs font-semibold bg-amber-500 hover:bg-amber-400 text-slate-950 flex items-center gap-2 transition shadow-sm font-bold">
-        <i class="fa-solid fa-bolt"></i> Simular Pulso Concorrente
+        <i class="fa-solid fa-bolt"></i> Simular Pulso
       </button>
 
       <!-- Quick Track Modal Toggle -->
       <button onclick="openTrackModal()" class="px-4 py-2.5 rounded-xl text-xs font-semibold bg-sky-600 hover:bg-sky-500 text-white flex items-center gap-2 transition shadow-md">
-        <i class="fa-solid fa-plus"></i> Acompanhar Novo Lote
+        <i class="fa-solid fa-plus"></i> Novo Lote
       </button>
     </div>
   </div>
@@ -60,19 +66,19 @@
     </div>
   </div>
 
-  <!-- Live Matrix of Concurrent Items -->
+  <!-- Live Accordion Multi-Item Section -->
   <div class="mb-8">
     <div class="flex items-center justify-between mb-4">
       <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">
-        <i class="fa-solid fa-layer-group text-slate-500"></i> Matriz de Disputa Simultânea
+        <i class="fa-solid fa-list-check text-slate-500"></i> Disputa Multi-Item (Painel de Automação)
       </h2>
       <span class="text-xs text-slate-500 font-mono" id="last-update-time">Aguardando dados...</span>
     </div>
 
-    <!-- Items Grid Container -->
-    <div id="dispute-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    <!-- Accordion Container -->
+    <div id="dispute-accordion" class="space-y-4">
       <!-- Loading Skeleton State -->
-      <div class="p-8 text-center text-slate-400 bg-white rounded-2xl border border-slate-200 col-span-full">
+      <div class="p-8 text-center text-slate-400 bg-white rounded-2xl border border-slate-200">
         <i class="fa-solid fa-circle-notch fa-spin text-2xl text-sky-500 mb-3"></i>
         <p class="text-sm">Carregando lotes em acompanhamento...</p>
       </div>
@@ -82,7 +88,7 @@
 
 <!-- Modal: Acompanhar Novo Lote -->
 <div id="modal-track" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
-  <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-6 animate-scaleIn">
+  <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-lg w-full p-6 animate-scaleIn max-h-[90vh] overflow-y-auto">
     <div class="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
       <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
         <i class="fa-solid fa-plus-circle text-sky-600"></i> Adicionar Lote à Disputa
@@ -126,6 +132,37 @@
         <div>
           <label class="block text-xs font-bold text-slate-600 mb-1">Meu Lance Atual (R$)</label>
           <input type="number" step="0.01" id="track-meu-lance" required placeholder="9500.00" class="w-full px-3 py-2 text-sm rounded-xl border border-slate-300 focus:ring-2 focus:ring-sky-500 outline-none">
+        </div>
+      </div>
+
+      <!-- Configurações Iniciais do Robô de Lances -->
+      <div class="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+        <div class="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+          <i class="fa-solid fa-robot text-sky-600"></i> Parâmetros do Robô de Lances
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-[11px] font-semibold text-slate-500 mb-1">Degrau Mínimo (R$)</label>
+            <input type="number" step="0.01" id="track-degrau" value="0.01" min="0.01" class="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-sky-500 outline-none">
+          </div>
+          <div>
+            <label class="block text-[11px] font-semibold text-slate-500 mb-1">Piso Stop-Loss (R$)</label>
+            <input type="number" step="0.01" id="track-piso" placeholder="7000.00" class="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-sky-500 outline-none">
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-3 items-center">
+          <div>
+            <label class="block text-[11px] font-semibold text-slate-500 mb-1">Posição Alvo</label>
+            <select id="track-pos-alvo" class="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-sky-500 outline-none bg-white">
+              <option value="1">1º Lugar</option>
+              <option value="2">2º Lugar</option>
+              <option value="3">3º Lugar</option>
+            </select>
+          </div>
+          <div class="flex items-center gap-2 pt-4">
+            <input type="checkbox" id="track-auto-ativo" class="rounded text-sky-600 focus:ring-sky-500">
+            <label for="track-auto-ativo" class="text-xs font-bold text-slate-700">Ativar Robô Imediatamente</label>
+          </div>
         </div>
       </div>
 
@@ -194,7 +231,7 @@
         osc.start(t);
         osc.stop(t + 0.16);
 
-        // Suporte tátil mobile
+        // Suporte tátil mobile nativo
         if ('vibrate' in navigator) {
           navigator.vibrate([80]);
         }
@@ -248,6 +285,17 @@
   const audioEngine = new DisputeAudioEngine();
   let eventSource = null;
   let activeItems = {};
+  let expandedPanels = new Set();
+  let globalAutobidState = false;
+
+  function safeKey(key) {
+    return String(key).replace(/[^a-zA-Z0-9_-]/g, '_');
+  }
+
+  function formatCurrency(val) {
+    const num = Number(val) || 0;
+    return 'R$ ' + num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
 
   function updateAudioButtonUI() {
     const btn = document.getElementById('btn-sound-toggle');
@@ -255,11 +303,11 @@
     const label = document.getElementById('sound-label');
     if (audioEngine.enabled) {
       icon.className = 'fa-solid fa-volume-high text-sky-400';
-      label.textContent = 'Som de Lances: Ligado';
+      label.textContent = 'Som: Ligado';
       btn.className = 'px-4 py-2.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center gap-2 transition shadow-sm';
     } else {
       icon.className = 'fa-solid fa-volume-xmark text-rose-400';
-      label.textContent = 'Som de Lances: Mudo';
+      label.textContent = 'Som: Mudo';
       btn.className = 'px-4 py-2.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-400 border border-rose-900/50 flex items-center gap-2 transition shadow-sm';
     }
   }
@@ -270,11 +318,69 @@
     showToast(audioEngine.enabled ? 'Sons de disputa habilitados.' : 'Sons de disputa silenciados.', 'info');
   }
 
+  function updateGlobalAutobidUI(state) {
+    globalAutobidState = Boolean(state);
+    const btn = document.getElementById('btn-global-autobid');
+    const icon = document.getElementById('global-autobid-icon');
+    const label = document.getElementById('global-autobid-label');
+    if (!btn || !icon || !label) return;
+
+    if (globalAutobidState) {
+      btn.className = 'px-4 py-2.5 rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-2 border bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500';
+      icon.className = 'fa-solid fa-robot text-white animate-pulse';
+      label.textContent = 'Robô de Lances Global: LIGADO';
+    } else {
+      btn.className = 'px-4 py-2.5 rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-2 border bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700';
+      icon.className = 'fa-solid fa-robot text-slate-400';
+      label.textContent = 'Robô de Lances Global: DESLIGADO';
+    }
+  }
+
+  async function toggleGlobalAutobid() {
+    const nextState = !globalAutobidState;
+    try {
+      const res = await fetch('/api/disputes/toggle-global', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: nextState })
+      });
+      const data = await res.json();
+      if (data.status === 'success') {
+        updateGlobalAutobidUI(data.global_status);
+        if (Array.isArray(data.items)) {
+          data.items.forEach(it => {
+            activeItems[it.item_key] = it;
+          });
+        }
+        renderDisputeAccordion();
+        showToast(`Robô de lances global ${nextState ? 'LIGADO' : 'DESLIGADO'} com sucesso!`, nextState ? 'success' : 'info');
+      }
+    } catch (e) {
+      showToast('Falha ao alternar robô global.', 'error');
+    }
+  }
+
+  function toggleAccordion(sKey) {
+    const panel = document.getElementById(`panel-${sKey}`);
+    const chevron = document.getElementById(`chevron-${sKey}`);
+    if (!panel) return;
+
+    if (panel.classList.contains('hidden')) {
+      panel.classList.remove('hidden');
+      expandedPanels.add(sKey);
+      if (chevron) chevron.classList.add('rotate-180');
+    } else {
+      panel.classList.add('hidden');
+      expandedPanels.delete(sKey);
+      if (chevron) chevron.classList.remove('rotate-180');
+    }
+  }
+
   // =========================================================================
-  // CONTROLES DE RENDERIZAÇÃO E MATRIZ MULTI-PREGÃO
+  // RENDERIZAÇÃO EM LISTA EXPANSÍVEL (ACCORDION MULTI-ITEM)
   // =========================================================================
-  function renderDisputeGrid() {
-    const grid = document.getElementById('dispute-grid');
+  function renderDisputeAccordion() {
+    const container = document.getElementById('dispute-accordion');
     const items = Object.values(activeItems);
 
     document.getElementById('metric-total').textContent = items.length;
@@ -283,87 +389,258 @@
     let losingCount = 0;
 
     if (items.length === 0) {
-      grid.innerHTML = `
-        <div class="p-8 text-center text-slate-400 bg-white rounded-2xl border border-slate-200 col-span-full">
+      container.innerHTML = `
+        <div class="p-8 text-center text-slate-400 bg-white rounded-2xl border border-slate-200">
           <i class="fa-solid fa-inbox text-3xl mb-2 text-slate-300"></i>
           <p class="text-sm font-semibold text-slate-600">Nenhum lote monitorado ativamente.</p>
-          <p class="text-xs text-slate-400 mt-1">Clique em "Acompanhar Novo Lote" ou aguarde a sincronização.</p>
+          <p class="text-xs text-slate-400 mt-1">Clique em "Novo Lote" acima para iniciar o acompanhamento.</p>
         </div>
       `;
       return;
     }
 
-    grid.innerHTML = items.map(item => {
+    container.innerHTML = items.map(item => {
+      const sKey = safeKey(item.item_key);
       const isLosing = item.meu_lance > 0 && item.melhor_lance > 0 && (item.meu_lance > item.melhor_lance);
       const isWinning = item.meu_lance > 0 && (item.meu_lance <= item.melhor_lance);
       const isImminent = item.fase === 'IMINENCIA';
+      const isExpanded = expandedPanels.has(sKey);
 
       if (isImminent) imminenceCount++;
       if (isWinning) winningCount++;
       if (isLosing) losingCount++;
 
-      // Badges
+      // Badges de Fase
       let phaseBadge = '';
       if (isImminent) {
-        phaseBadge = `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold bg-rose-600 text-white animate-pulse shadow-md"><i class="fa-solid fa-triangle-exclamation"></i> IMINÊNCIA</span>`;
+        phaseBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-rose-600 text-white animate-pulse shadow-sm"><i class="fa-solid fa-triangle-exclamation"></i> IMINÊNCIA</span>`;
       } else if (item.fase === 'ABERTO') {
-        phaseBadge = `<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800"><i class="fa-solid fa-door-open"></i> ABERTO</span>`;
+        phaseBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800"><i class="fa-solid fa-door-open"></i> ABERTO</span>`;
       } else {
-        phaseBadge = `<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700">${item.fase}</span>`;
+        phaseBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700">${item.fase}</span>`;
       }
 
+      // Badge de Posição
       let positionBadge = '';
       if (isLosing) {
-        positionBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200 animate-pulse"><i class="fa-solid fa-arrow-down"></i> Lance Superado!</span>`;
+        positionBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200 animate-pulse"><i class="fa-solid fa-arrow-down"></i> Superado!</span>`;
       } else if (isWinning) {
-        positionBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200"><i class="fa-solid fa-crown"></i> 1º Lugar (Liderando)</span>`;
+        positionBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200"><i class="fa-solid fa-crown"></i> 1º Lugar</span>`;
+      } else {
+        positionBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-50 text-slate-600 border border-slate-200">Aguardando Lance</span>`;
       }
 
-      const cardBorder = isLosing ? 'border-rose-400 ring-2 ring-rose-100' : (isImminent ? 'border-amber-400' : 'border-slate-200');
+      // Status do Robô
+      let robotStatusBadge = '';
+      if (item.status_automacao === 'Piso Atingido / Margem Esgotada') {
+        robotStatusBadge = `<span class="text-[11px] font-bold text-rose-600 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md"><i class="fa-solid fa-hand"></i> Stop-Loss Atingido</span>`;
+      } else if (item.auto_lance_ativo) {
+        robotStatusBadge = `<span class="text-[11px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span> Robô Ativo</span>`;
+      } else {
+        robotStatusBadge = `<span class="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">Robô Pausado</span>`;
+      }
+
+      const cardBorder = isLosing ? 'border-rose-400 ring-1 ring-rose-200' : (isImminent ? 'border-amber-400 ring-1 ring-amber-200' : 'border-slate-200');
+      const safetyMargin = (item.meu_lance > 0 && item.valor_minimo_limite > 0) ? (item.meu_lance - item.valor_minimo_limite) : 0;
+      const marginColor = safetyMargin >= 0 ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-rose-700 bg-rose-50 border-rose-200';
+
+      // Histórico dos Concorrentes formatado
+      const historyList = (item.historico_concorrentes || []).map((h, idx) => {
+        const timeStr = h.timestamp ? new Date(h.timestamp).toLocaleTimeString('pt-BR') : '--:--';
+        const isSelf = (h.autor || '').includes('Você');
+        return `
+          <tr class="border-b border-slate-100 text-xs ${isSelf ? 'bg-sky-50/50 font-bold' : ''}">
+            <td class="py-1.5 px-2 text-slate-500 font-mono">${timeStr}</td>
+            <td class="py-1.5 px-2 text-slate-700">${h.autor || 'Concorrente'}</td>
+            <td class="py-1.5 px-2"><span class="px-1.5 py-0.5 rounded text-[10px] ${h.posicao === 1 ? 'bg-emerald-100 text-emerald-800 font-bold' : 'bg-slate-100 text-slate-600'}">${h.posicao}º Lugar</span></td>
+            <td class="py-1.5 px-2 text-right font-mono font-bold ${isSelf ? 'text-sky-700' : 'text-slate-900'}">${formatCurrency(h.valor)}</td>
+          </tr>
+        `;
+      }).join('');
 
       return `
-        <div id="card-${item.item_key.replace(':', '-')}" class="bg-white rounded-2xl border ${cardBorder} shadow-sm hover:shadow-md transition p-5 flex flex-col justify-between">
-          <div>
-            <!-- Card Header -->
-            <div class="flex items-start justify-between gap-2 mb-3">
-              <div>
-                <span class="text-xs font-bold text-sky-700 bg-sky-50 border border-sky-200 px-2.5 py-0.5 rounded-lg font-mono">${item.id_pregao}</span>
-                <span class="text-xs font-bold text-slate-500 ml-1">Lote/Item #${item.numero_item}</span>
-              </div>
-              <div class="flex items-center gap-2">
-                ${phaseBadge}
-              </div>
-            </div>
-
-            <!-- Description -->
-            <h3 class="text-sm font-bold text-slate-800 line-clamp-2 mb-4" title="${item.descricao}">
-              ${item.descricao}
-            </h3>
-
-            <!-- Price Comparison Grid -->
-            <div class="grid grid-cols-2 gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100 mb-4">
-              <div>
-                <span class="block text-[11px] font-semibold text-slate-400 uppercase">Melhor Lance</span>
-                <span class="text-lg font-black text-slate-900">${formatCurrency(item.melhor_lance)}</span>
-              </div>
-              <div>
-                <span class="block text-[11px] font-semibold text-slate-400 uppercase">Meu Lance</span>
-                <span class="text-lg font-black ${isLosing ? 'text-rose-600' : 'text-emerald-600'}">${formatCurrency(item.meu_lance)}</span>
+        <div id="item-card-${sKey}" class="bg-white rounded-2xl border ${cardBorder} shadow-sm overflow-hidden transition">
+          <!-- Linha Principal (Vista Rápida Acordeão) -->
+          <div onclick="toggleAccordion('${sKey}')" class="p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4 cursor-pointer hover:bg-slate-50/70 transition select-none">
+            
+            <!-- Identificação & Detalhes Rápidos -->
+            <div class="flex items-start sm:items-center gap-3 flex-1 min-w-0">
+              <button type="button" onclick="event.stopPropagation(); toggleAccordion('${sKey}')" class="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition mt-0.5 sm:mt-0" aria-label="Expandir">
+                <i id="chevron-${sKey}" class="fa-solid fa-chevron-down text-sm transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}"></i>
+              </button>
+              
+              <div class="min-w-0">
+                <div class="flex flex-wrap items-center gap-2 mb-1">
+                  <span class="text-xs font-extrabold text-sky-800 bg-sky-50 border border-sky-200 px-2.5 py-0.5 rounded-lg font-mono">${item.id_pregao}</span>
+                  <span class="text-xs font-bold text-slate-600">Lote/Item #${item.numero_item}</span>
+                  ${phaseBadge}
+                  ${robotStatusBadge}
+                </div>
+                <h3 class="text-sm font-bold text-slate-800 truncate" title="${item.descricao}">
+                  ${item.descricao}
+                </h3>
               </div>
             </div>
 
-            <div class="flex items-center justify-between text-xs text-slate-500 mb-4">
-              <span>Referência: <b>${formatCurrency(item.valor_referencia)}</b></span>
-              ${positionBadge}
+            <!-- Valores, Posição e Limite Mínimo -->
+            <div class="flex flex-wrap items-center justify-between sm:justify-end gap-3 sm:gap-6 pt-2 lg:pt-0 border-t lg:border-t-0 border-slate-100">
+              
+              <!-- Meu Lance -->
+              <div class="text-left sm:text-right">
+                <div class="text-[10px] font-bold uppercase text-slate-400">Meu Lance</div>
+                <div class="text-base sm:text-lg font-black ${isLosing ? 'text-rose-600' : 'text-emerald-600'}">${formatCurrency(item.meu_lance)}</div>
+              </div>
+
+              <!-- Melhor Lance -->
+              <div class="text-left sm:text-right">
+                <div class="text-[10px] font-bold uppercase text-slate-400">Melhor Lance</div>
+                <div class="text-base sm:text-lg font-black text-slate-900">${formatCurrency(item.melhor_lance)}</div>
+              </div>
+
+              <!-- Piso / Stop Loss Visível Imediato -->
+              <div class="text-left sm:text-right hidden sm:block">
+                <div class="text-[10px] font-bold uppercase text-slate-400">Piso Stop-Loss</div>
+                <div class="text-xs font-bold text-slate-600 font-mono">${formatCurrency(item.valor_minimo_limite)}</div>
+              </div>
+
+              <!-- Posição Atual -->
+              <div>
+                ${positionBadge}
+              </div>
+
+              <!-- Interruptor Individual (Toggle Switch) -->
+              <div class="flex items-center gap-2 pl-2 border-l border-slate-200" onclick="event.stopPropagation()">
+                <button type="button" onclick="toggleItemAutobid('${item.item_key}')" class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${item.auto_lance_ativo ? 'bg-emerald-500' : 'bg-slate-300'}" title="${item.auto_lance_ativo ? 'Desativar Robô deste item' : 'Ativar Robô deste item'}">
+                  <span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow ${item.auto_lance_ativo ? 'translate-x-6' : 'translate-x-1'}"></span>
+                </button>
+              </div>
+
             </div>
           </div>
 
-          <!-- Quick Outbid Action -->
-          <div class="pt-3 border-t border-slate-100 flex items-center gap-2">
-            <input type="number" step="0.01" id="bid-input-${item.item_key.replace(':', '-')}" placeholder="Novo lance" value="${Math.max(10, item.melhor_lance - 50).toFixed(2)}" class="w-full px-3 py-1.5 text-xs rounded-xl border border-slate-300 outline-none focus:border-sky-500 font-mono">
-            <button onclick="submitNewBid('${item.id_pregao}', ${item.numero_item})" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white whitespace-nowrap transition">
-              Cobrir
-            </button>
+          <!-- Painel Expandido (Ao Clicar no Item) -->
+          <div id="panel-${sKey}" class="${isExpanded ? '' : 'hidden'} border-t border-slate-100 bg-slate-50/70 p-4 sm:p-6 transition">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              
+              <!-- Coluna 1: Estratégia de Automação & Piso -->
+              <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
+                <div class="flex items-center justify-between pb-2 border-b border-slate-100">
+                  <h4 class="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                    <i class="fa-solid fa-sliders text-sky-600"></i> Estratégia do Robô
+                  </h4>
+                  <span class="text-[11px] font-semibold text-slate-400">Salvar para aplicar</span>
+                </div>
+
+                <div>
+                  <label class="block text-[11px] font-bold text-slate-600 mb-1">
+                    Degrau Mínimo / Taxa de Disputa (R$)
+                  </label>
+                  <input type="number" step="0.01" min="0.01" id="input-degrau-${sKey}" value="${item.degrau_minimo.toFixed(2)}" class="w-full px-3 py-1.5 text-xs font-mono rounded-lg border border-slate-300 focus:ring-2 focus:ring-sky-500 outline-none">
+                  <span class="text-[10px] text-slate-400">Valor decrementado por lance (ex: R$ 0,01).</span>
+                </div>
+
+                <div>
+                  <label class="block text-[11px] font-bold text-slate-600 mb-1">
+                    Valor Mínimo Aceitável / Piso Stop-Loss (R$)
+                  </label>
+                  <input type="number" step="0.01" id="input-piso-${sKey}" value="${item.valor_minimo_limite.toFixed(2)}" class="w-full px-3 py-1.5 text-xs font-mono rounded-lg border border-slate-300 focus:ring-2 focus:ring-sky-500 outline-none">
+                  <span class="text-[10px] text-slate-400">Não ofertar lances abaixo deste limite sob hipótese alguma.</span>
+                </div>
+
+                <div>
+                  <label class="block text-[11px] font-bold text-slate-600 mb-1">
+                    Posição Alvo Pretendida
+                  </label>
+                  <select id="select-pos-${sKey}" class="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-sky-500 outline-none bg-white">
+                    <option value="1" ${item.posicao_alvo === 1 ? 'selected' : ''}>1º Lugar (Cobrir melhor lance)</option>
+                    <option value="2" ${item.posicao_alvo === 2 ? 'selected' : ''}>2º Lugar (Atrás do líder)</option>
+                    <option value="3" ${item.posicao_alvo === 3 ? 'selected' : ''}>3º Lugar (Estratégico)</option>
+                  </select>
+                </div>
+
+                <div class="pt-2">
+                  <button type="button" onclick="saveItemParameters('${item.item_key}')" class="w-full py-2 px-3 rounded-lg text-xs font-bold bg-sky-600 hover:bg-sky-500 text-white transition shadow-sm flex items-center justify-center gap-1.5">
+                    <i class="fa-solid fa-floppy-disk"></i> Salvar Estratégia
+                  </button>
+                </div>
+              </div>
+
+              <!-- Coluna 2: Margem Preservada & Lance Manual de Emergência -->
+              <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-4 flex flex-col justify-between">
+                <div>
+                  <div class="flex items-center justify-between pb-2 border-b border-slate-100 mb-3">
+                    <h4 class="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                      <i class="fa-solid fa-shield-halved text-emerald-600"></i> Proteção & Margem
+                    </h4>
+                    <span class="text-[11px] font-semibold text-slate-400">Tempo Real</span>
+                  </div>
+
+                  <!-- Caixa de Margem de Segurança -->
+                  <div class="p-3 rounded-xl border ${marginColor} mb-3">
+                    <div class="text-[10px] font-bold uppercase tracking-wider">Margem de Segurança Preservada</div>
+                    <div class="text-lg font-black font-mono">${formatCurrency(safetyMargin)}</div>
+                    <div class="text-[10px] mt-0.5 opacity-90">Distância do seu lance atual para o piso stop-loss.</div>
+                  </div>
+
+                  <div class="text-xs text-slate-500 space-y-1">
+                    <div class="flex justify-between">
+                      <span>Valor de Referência:</span>
+                      <b class="text-slate-700 font-mono">${formatCurrency(item.valor_referencia)}</b>
+                    </div>
+                    <div class="flex justify-between">
+                      <span>Economia / Desconto:</span>
+                      <b class="text-emerald-600 font-mono">${item.valor_referencia > 0 && item.meu_lance > 0 ? (((item.valor_referencia - item.meu_lance) / item.valor_referencia) * 100).toFixed(1) + '%' : '0.0%'}</b>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Cobertura Manual de Emergência -->
+                <div class="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                  <label class="block text-[11px] font-bold text-slate-700 mb-1">
+                    Lance Manual de Emergência (R$)
+                  </label>
+                  <div class="flex items-center gap-2">
+                    <input type="number" step="0.01" id="manual-bid-${sKey}" value="${Math.max(1, item.melhor_lance - item.degrau_minimo).toFixed(2)}" class="w-full px-3 py-1.5 text-xs font-mono rounded-lg border border-slate-300 outline-none focus:ring-2 focus:ring-sky-500">
+                    <button type="button" onclick="submitManualBid('${item.item_key}')" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white whitespace-nowrap transition shadow-sm">
+                      Cobrir
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Coluna 3: Histórico Visual dos Concorrentes -->
+              <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                <div>
+                  <div class="flex items-center justify-between pb-2 border-b border-slate-100 mb-2">
+                    <h4 class="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                      <i class="fa-solid fa-clock-rotate-left text-purple-600"></i> Histórico de Disputa
+                    </h4>
+                    <span class="text-[11px] font-mono text-slate-400">Últimos lances</span>
+                  </div>
+
+                  <div class="max-h-48 overflow-y-auto">
+                    <table class="w-full text-left">
+                      <thead>
+                        <tr class="text-[10px] uppercase font-bold text-slate-400 border-b border-slate-100">
+                          <th class="py-1 px-2">Hora</th>
+                          <th class="py-1 px-2">Ofertante</th>
+                          <th class="py-1 px-2">Posição</th>
+                          <th class="py-1 px-2 text-right">Valor</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${historyList || '<tr><td colspan="4" class="text-center py-4 text-xs text-slate-400">Nenhum lance concorrente registrado ainda.</td></tr>'}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div class="pt-2 text-right">
+                  <span class="text-[10px] text-slate-400">Atualização em tempo real via SSE</span>
+                </div>
+              </div>
+
+            </div>
           </div>
         </div>
       `;
@@ -413,11 +690,11 @@
   function handleStreamEvent(event) {
     if (!event || !event.type) return;
 
-    if (event.type === 'ITEM_TRACKED' || event.type === 'BID_UPDATE' || event.type === 'IMMINENCE_ALERT') {
+    if (event.type === 'ITEM_TRACKED' || event.type === 'BID_UPDATE' || event.type === 'IMMINENCE_ALERT' || event.type === 'AUTO_BID_PLACED' || event.type === 'ITEM_CONFIGURED' || event.type === 'MANUAL_BID_PLACED') {
       const item = event.item;
       if (item) {
         activeItems[item.item_key] = item;
-        renderDisputeGrid();
+        renderDisputeAccordion();
 
         if (event.type === 'IMMINENCE_ALERT') {
           audioEngine.playImminenceAlert();
@@ -425,17 +702,33 @@
         } else if (event.type === 'BID_UPDATE') {
           audioEngine.playCompetitorBeep();
           if (item.is_losing) {
-            showToast(`⚠️ Novo lance concorrente em ${item.id_pregao}: R$ ${item.melhor_lance.toFixed(2)}`, 'info');
+            showToast(`⚠️ Novo lance concorrente em ${item.id_pregao}: ${formatCurrency(item.melhor_lance)}`, 'info');
           }
+        } else if (event.type === 'AUTO_BID_PLACED') {
+          audioEngine.playCompetitorBeep();
+          showToast(`🤖 Lance automático efetuado pelo robô: ${formatCurrency(event.lance || item.meu_lance)} em ${item.id_pregao}!`, 'success');
         }
       }
+    } else if (event.type === 'STOP_LOSS_REACHED') {
+      const item = event.item;
+      if (item) {
+        activeItems[item.item_key] = item;
+        renderDisputeAccordion();
+        showToast(`🛑 Stop-Loss Atingido: Robô suspenso em ${item.id_pregao} para proteger margem mínima (${formatCurrency(event.piso)})!`, 'error');
+      }
+    } else if (event.type === 'GLOBAL_AUTOBID_TOGGLED') {
+      updateGlobalAutobidUI(event.global_status);
+      loadInitialActiveDisputes();
     } else if (event.type === 'HEARTBEAT') {
+      if (event.global_autobid !== undefined) {
+        updateGlobalAutobidUI(event.global_autobid);
+      }
       document.getElementById('last-update-time').textContent = 'Sincronizado: ' + new Date().toLocaleTimeString('pt-BR');
     }
   }
 
   // =========================================================================
-  // API CALLS
+  // AÇÕES DE CONTROLE & APIs
   // =========================================================================
   async function loadInitialActiveDisputes() {
     try {
@@ -445,7 +738,7 @@
         data.items.forEach(it => {
           activeItems[it.item_key] = it;
         });
-        renderDisputeGrid();
+        renderDisputeAccordion();
       }
     } catch (e) {
       console.warn('Falha ao carregar snapshot inicial:', e);
@@ -464,11 +757,74 @@
     }
   }
 
-  async function submitNewBid(idPregao, numItem) {
-    const input = document.getElementById(`bid-input-${idPregao.replace(':', '-')}-${numItem}`);
-    const key = `${idPregao}:${numItem}`;
-    const item = activeItems[key];
+  async function toggleItemAutobid(itemKey) {
+    const item = activeItems[itemKey];
     if (!item) return;
+    const nextStatus = !item.auto_lance_ativo;
+
+    try {
+      const res = await fetch('/api/disputes/configure/' + encodeURIComponent(itemKey), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ auto_lance_ativo: nextStatus })
+      });
+      const data = await res.json();
+      if (data.status === 'success' && data.item) {
+        activeItems[data.item.item_key] = data.item;
+        renderDisputeAccordion();
+        showToast(`Robô ${nextStatus ? 'ativado' : 'desativado'} para ${item.id_pregao} (Item #${item.numero_item})`, nextStatus ? 'success' : 'info');
+      }
+    } catch (e) {
+      showToast('Falha ao alternar automação do item.', 'error');
+    }
+  }
+
+  async function saveItemParameters(itemKey) {
+    const sKey = safeKey(itemKey);
+    const degrauInput = document.getElementById(`input-degrau-${sKey}`);
+    const pisoInput = document.getElementById(`input-piso-${sKey}`);
+    const posSelect = document.getElementById(`select-pos-${sKey}`);
+
+    if (!degrauInput || !pisoInput || !posSelect) return;
+
+    const degrau = parseFloat(degrauInput.value);
+    const piso = parseFloat(pisoInput.value);
+    const pos = parseInt(posSelect.value);
+
+    if (isNaN(degrau) || degrau <= 0) {
+      showToast('Degrau mínimo deve ser maior que zero (ex: R$ 0,01).', 'error');
+      return;
+    }
+    if (isNaN(piso) || piso < 0) {
+      showToast('Informe um valor de piso stop-loss válido.', 'error');
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/disputes/configure/' + encodeURIComponent(itemKey), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          degrau_minimo: degrau,
+          valor_minimo_limite: piso,
+          posicao_alvo: pos
+        })
+      });
+      const data = await res.json();
+      if (data.status === 'success' && data.item) {
+        activeItems[data.item.item_key] = data.item;
+        renderDisputeAccordion();
+        showToast('Estratégia e limites de stop-loss salvos com sucesso!', 'success');
+      }
+    } catch (e) {
+      showToast('Falha ao salvar parâmetros do lote.', 'error');
+    }
+  }
+
+  async function submitManualBid(itemKey) {
+    const sKey = safeKey(itemKey);
+    const input = document.getElementById(`manual-bid-${sKey}`);
+    if (!input) return;
 
     const val = parseFloat(input.value);
     if (!val || isNaN(val) || val <= 0) {
@@ -477,25 +833,21 @@
     }
 
     try {
-      const res = await fetch('/api/disputes/track', {
+      const res = await fetch('/api/disputes/bid/' + encodeURIComponent(itemKey), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id_pregao: item.id_pregao,
-          numero_item: item.numero_item,
-          descricao: item.descricao,
-          valor_referencia: item.valor_referencia,
-          melhor_lance: Math.min(val, item.melhor_lance),
-          meu_lance: val,
-          fase: item.fase
-        })
+        body: JSON.stringify({ valor: val })
       });
       const data = await res.json();
       if (data.status === 'success') {
-        showToast(`Seu lance de R$ ${val.toFixed(2)} foi registrado com sucesso!`, 'success');
+        showToast(`Lance manual de ${formatCurrency(val)} registrado com sucesso!`, 'success');
+        if (data.item) {
+          activeItems[data.item.item_key] = data.item;
+          renderDisputeAccordion();
+        }
       }
     } catch (e) {
-      showToast('Falha ao registrar novo lance.', 'error');
+      showToast('Falha ao registrar lance manual.', 'error');
     }
   }
 
@@ -510,13 +862,17 @@
   async function submitTrackItem(e) {
     e.preventDefault();
     const payload = {
-      id_pregao: document.getElementById('track-id-pregao').value,
+      id_pregao: document.getElementById('track-id-pregao').value.trim(),
       numero_item: parseInt(document.getElementById('track-num-item').value),
-      descricao: document.getElementById('track-descricao').value,
+      descricao: document.getElementById('track-descricao').value.trim(),
       valor_referencia: parseFloat(document.getElementById('track-valor-ref').value),
       meu_lance: parseFloat(document.getElementById('track-meu-lance').value),
       melhor_lance: parseFloat(document.getElementById('track-meu-lance').value),
-      fase: document.getElementById('track-fase').value
+      fase: document.getElementById('track-fase').value,
+      degrau_minimo: parseFloat(document.getElementById('track-degrau').value) || 0.01,
+      valor_minimo_limite: parseFloat(document.getElementById('track-piso').value) || 0.0,
+      posicao_alvo: parseInt(document.getElementById('track-pos-alvo').value) || 1,
+      auto_lance_ativo: document.getElementById('track-auto-ativo').checked
     };
 
     try {

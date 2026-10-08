@@ -3,6 +3,7 @@ import sys
 import json
 import csv
 import io
+import asyncio
 from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
 from typing import Optional, List, Dict, Any, Union
@@ -955,6 +956,62 @@ def api_dispute_simulate_pulse(item_key: Optional[str] = Query(None)):
     }
 
 
+@app.post("/api/disputes/configure/{item_id:path}")
+async def api_disputes_configure_item(item_id: str, payload: Dict[str, Any] = Body(...)):
+    """Persiste parâmetros individuais (degrau_minimo, valor_minimo_limite, posicao_alvo, auto_lance_ativo)."""
+    degrau = payload.get("degrau_minimo")
+    piso = payload.get("valor_minimo_limite")
+    pos = payload.get("posicao_alvo")
+    auto = payload.get("auto_lance_ativo")
+
+    item = dispute_monitor.configure_item(
+        item_id=item_id,
+        degrau_minimo=degrau,
+        valor_minimo_limite=piso,
+        posicao_alvo=pos,
+        auto_lance_ativo=auto
+    )
+    if not item:
+        raise HTTPException(status_code=404, detail="Item de disputa não encontrado.")
+    return {
+        "status": "success",
+        "item": item.to_dict()
+    }
+
+
+@app.post("/api/disputes/toggle-global")
+async def api_disputes_toggle_global(payload: Dict[str, Any] = Body(...)):
+    """Liga/desliga o interruptor mestre global de automação de lances."""
+    status_val = bool(payload.get("status", False))
+    items = dispute_monitor.toggle_all_autobid(status_val)
+    return {
+        "status": "success",
+        "global_status": status_val,
+        "total_updated": len(items),
+        "items": items
+    }
+
+
+@app.post("/api/disputes/bid/{item_id:path}")
+async def api_disputes_bid_action(item_id: str, payload: Dict[str, Any] = Body(default={})):
+    """Cobre lance manual ou dispara execução imediata do robô para o lote."""
+    valor = payload.get("valor")
+    item = dispute_monitor._find_item(item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Item de disputa não encontrado.")
+    if valor is not None:
+        item.meu_lance = round(float(valor), 2)
+        if item.meu_lance <= item.melhor_lance:
+            item.melhor_lance = item.meu_lance
+        item.updated_at = to_sp_datetime(datetime.now()) or datetime.now()
+        event = {"type": "MANUAL_BID_PLACED", "item": item.to_dict(), "timestamp": datetime.now().isoformat()}
+        dispute_monitor.broadcast_sync(event)
+        return {"status": "success", "item": item.to_dict()}
+    else:
+        res = dispute_monitor.executar_lance_automatico(item_id)
+        return {"status": "success", "item": res or item.to_dict()}
+
+
 @app.get("/api/disputes/events")
 async def api_disputes_sse_events(request: Request):
     """
@@ -965,7 +1022,8 @@ async def api_disputes_sse_events(request: Request):
 
     async def event_generator():
         try:
-            # Envia snapshot inicial logo na abertura da conexão SSE
+            # Envia evento de confirmação de conexão e snapshot inicial logo na abertura da conexão SSE
+            yield f"data: {json.dumps({'type': 'CONNECTED', 'timestamp': datetime.now().isoformat()})}\n\n"
             initial_snapshot = dispute_monitor.get_active_snapshot()
             for it in initial_snapshot:
                 payload = json.dumps({"type": "ITEM_TRACKED", "item": it})
