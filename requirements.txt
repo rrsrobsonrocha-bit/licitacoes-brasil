@@ -8,4 +8,8 @@ email-validator
 google-genai
 sqlalchemy
 aiosqlite
+bcrypt
+passlib[bcrypt]
+python-jose[cryptography]
+httpx
 pytest
