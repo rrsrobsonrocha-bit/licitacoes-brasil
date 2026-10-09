@@ -1,0 +1,391 @@
+{% extends "base.html" %}
+
+{% block title %}Cofre de Documentos - Licitações Brasil{% endblock %}
+
+{% block content %}
+<div class="bg-[#0b0f19] min-h-screen text-slate-100 font-sans pb-16">
+  <!-- Cabeçalho do Cofre -->
+  <div class="border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-md sticky top-16 z-30 py-5">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-emerald-500 flex items-center justify-center text-white shadow-lg shadow-emerald-500/20">
+            <i class="fa-solid fa-vault text-lg"></i>
+          </div>
+          <div>
+            <h1 class="text-xl sm:text-2xl font-black text-white tracking-tight">
+              Cofre de <span class="text-emerald-400">Documentos</span>
+            </h1>
+            <p class="text-xs text-slate-400 mt-0.5">
+              Documentos de habilitação (arts. 62 a 70 da Lei 14.133/2021) com auditoria automática de validade.
+            </p>
+          </div>
+        </div>
+
+        <!-- Resumo de validade -->
+        <div class="flex flex-wrap items-center gap-2 text-xs" aria-live="polite">
+          <button type="button" data-status-filter="" class="status-pill bg-slate-800/80 border border-slate-700/70 rounded-xl px-3 py-1.5 flex items-center gap-2 cursor-pointer">
+            <span class="text-slate-400">Total</span>
+            <span id="resumo-total" class="font-bold text-white font-mono">{{ resumo.total }}</span>
+          </button>
+          <button type="button" data-status-filter="VALIDO" class="status-pill bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-3 py-1.5 flex items-center gap-2 cursor-pointer">
+            <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+            <span class="text-emerald-300">Válidos</span>
+            <span id="resumo-validos" class="font-bold text-emerald-300 font-mono">{{ resumo.validos + resumo.sem_validade }}</span>
+          </button>
+          <button type="button" data-status-filter="A_VENCER" class="status-pill bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-1.5 flex items-center gap-2 cursor-pointer">
+            <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+            <span class="text-amber-300">A vencer (≤{{ dias_alerta }}d)</span>
+            <span id="resumo-a-vencer" class="font-bold text-amber-300 font-mono">{{ resumo.a_vencer }}</span>
+          </button>
+          <button type="button" data-status-filter="VENCIDO" class="status-pill bg-rose-500/10 border border-rose-500/30 rounded-xl px-3 py-1.5 flex items-center gap-2 cursor-pointer">
+            <span class="w-2 h-2 rounded-full bg-rose-400"></span>
+            <span class="text-rose-300">Vencidos</span>
+            <span id="resumo-vencidos" class="font-bold text-rose-300 font-mono">{{ resumo.vencidos }}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+    <!-- Formulário de Upload -->
+    <section class="lg:col-span-1">
+      <form id="form-upload-documento" class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-lg space-y-4" enctype="multipart/form-data" novalidate>
+        <div class="flex items-center gap-2">
+          <i class="fa-solid fa-cloud-arrow-up text-emerald-400"></i>
+          <h2 class="text-sm font-bold text-white">Adicionar documento</h2>
+        </div>
+
+        <div>
+          <label for="doc-nome" class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Nome do documento *</label>
+          <input id="doc-nome" name="nome" type="text" required maxlength="255" placeholder="Ex: CND Federal (Receita/PGFN)" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition">
+        </div>
+
+        <div>
+          <label for="doc-categoria" class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Categoria *</label>
+          <select id="doc-categoria" name="categoria" required class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-emerald-500 transition">
+            {% for chave, rotulo in categorias.items() %}
+              <option value="{{ chave }}">{{ rotulo }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label for="doc-emissao" class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Emissão *</label>
+            <input id="doc-emissao" name="data_emissao" type="date" required value="{{ hoje }}" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-emerald-500 transition [color-scheme:dark]">
+          </div>
+          <div>
+            <label for="doc-validade" class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Validade</label>
+            <input id="doc-validade" name="data_validade" type="date" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-emerald-500 transition disabled:opacity-40 [color-scheme:dark]">
+          </div>
+        </div>
+
+        <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer select-none">
+          <input id="doc-sem-validade" type="checkbox" class="w-4 h-4 rounded accent-emerald-500">
+          Documento sem vencimento (ex.: contrato social, atestado técnico)
+        </label>
+
+        <div>
+          <label for="doc-tags" class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Tags de habilitação</label>
+          <input id="doc-tags" name="tags_habilitacao" type="text" maxlength="500" placeholder="Ex: CND, Receita Federal, Art. 68" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition">
+          <p class="text-[10px] text-slate-500 mt-1">Separe por vírgulas.</p>
+        </div>
+
+        <div>
+          <label for="doc-arquivo" class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Arquivo PDF * (até {{ max_mb }} MB)</label>
+          <input id="doc-arquivo" name="arquivo" type="file" required accept="application/pdf,.pdf" class="w-full text-xs text-slate-300 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-200 hover:file:bg-slate-700 cursor-pointer">
+        </div>
+
+        <p id="upload-erro" class="hidden text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded-xl px-3 py-2"></p>
+
+        <button id="btn-upload" type="submit" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl text-xs transition shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60">
+          <i class="fa-solid fa-lock"></i> Guardar no cofre
+        </button>
+
+        <div class="text-[10px] text-slate-500 leading-relaxed border-t border-slate-800 pt-3">
+          <span class="inline-flex items-center gap-1 mr-2"><span class="w-2 h-2 rounded-full bg-emerald-400"></span> &gt; {{ dias_alerta }} dias</span>
+          <span class="inline-flex items-center gap-1 mr-2"><span class="w-2 h-2 rounded-full bg-amber-400"></span> ≤ {{ dias_alerta }} dias</span>
+          <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-rose-400"></span> Vencido</span>
+        </div>
+      </form>
+    </section>
+
+    <!-- Lista de documentos com auditoria de validade -->
+    <section class="lg:col-span-2">
+      <div class="bg-slate-900/80 border border-slate-800 rounded-2xl shadow-lg overflow-hidden">
+        <div class="p-4 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div class="flex items-center gap-2">
+            <i class="fa-solid fa-list-check text-emerald-400"></i>
+            <h2 class="text-sm font-bold text-white">Documentos guardados</h2>
+            <span id="filtro-ativo-label" class="hidden text-[10px] font-bold uppercase px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 border border-slate-700"></span>
+          </div>
+          <div class="relative w-full sm:w-64">
+            <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-xs text-slate-500"></i>
+            <input id="busca-documentos" type="search" placeholder="Buscar por nome, categoria ou tag..." class="w-full bg-slate-950 border border-slate-700 rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition">
+          </div>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-xs min-w-[720px]">
+            <thead class="bg-slate-950/70 text-[10px] uppercase tracking-wider text-slate-400">
+              <tr>
+                <th class="text-left font-bold px-4 py-2.5">Documento</th>
+                <th class="text-left font-bold px-3 py-2.5">Categoria</th>
+                <th class="text-left font-bold px-3 py-2.5">Emissão</th>
+                <th class="text-left font-bold px-3 py-2.5">Validade</th>
+                <th class="text-right font-bold px-3 py-2.5">Dias restantes</th>
+                <th class="text-left font-bold px-3 py-2.5">Status</th>
+                <th class="text-right font-bold px-4 py-2.5">Ações</th>
+              </tr>
+            </thead>
+            <tbody id="documentos-tbody" class="divide-y divide-slate-800/80"></tbody>
+          </table>
+        </div>
+
+        <div id="documentos-vazio" class="hidden text-center py-14 px-4">
+          <i class="fa-solid fa-folder-open text-3xl text-slate-600 block mb-3"></i>
+          <h3 class="text-sm font-bold text-slate-300">Nenhum documento por aqui</h3>
+          <p class="text-xs text-slate-500 mt-1">Guarde certidões, balanços e atestados para montar kits de habilitação em um clique.</p>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+  const DIAS_ALERTA = {{ dias_alerta|int }};
+  let documentos = {{ documentos|tojson }};
+  let filtroStatus = '';
+
+  function escapeHtml(valor) {
+    return String(valor ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+  }
+
+  // Data corrente no fuso oficial (America/Sao_Paulo) no formato AAAA-MM-DD
+  function hojeSaoPauloISO() {
+    try {
+      return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    } catch (e) {
+      return new Date().toISOString().slice(0, 10);
+    }
+  }
+
+  function isoParaUTC(iso) {
+    const [y, m, d] = iso.split('-').map(Number);
+    return Date.UTC(y, m - 1, d);
+  }
+
+  function calcularDiasRestantes(validadeISO) {
+    if (!validadeISO) return null;
+    return Math.round((isoParaUTC(validadeISO) - isoParaUTC(hojeSaoPauloISO())) / 86400000);
+  }
+
+  function calcularStatus(dias) {
+    if (dias === null) return 'SEM_VALIDADE';
+    if (dias < 0) return 'VENCIDO';
+    if (dias <= DIAS_ALERTA) return 'A_VENCER';
+    return 'VALIDO';
+  }
+
+  function formatarDataBR(iso) {
+    if (!iso) return '—';
+    const [y, m, d] = iso.split('-');
+    return `${d}/${m}/${y}`;
+  }
+
+  const BADGES = {
+    VALIDO: { cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40', dot: 'bg-emerald-400', label: 'Válido' },
+    SEM_VALIDADE: { cls: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30', dot: 'bg-emerald-400', label: 'Sem vencimento' },
+    A_VENCER: { cls: 'bg-amber-500/15 text-amber-300 border-amber-500/40', dot: 'bg-amber-400 animate-pulse', label: 'A vencer' },
+    VENCIDO: { cls: 'bg-rose-500/15 text-rose-300 border-rose-500/40', dot: 'bg-rose-400', label: 'Vencido' }
+  };
+
+  function corDias(status) {
+    if (status === 'VENCIDO') return 'text-rose-300';
+    if (status === 'A_VENCER') return 'text-amber-300';
+    return 'text-emerald-300';
+  }
+
+  function textoDias(dias) {
+    if (dias === null) return '<span class="text-slate-500">∞</span>';
+    return `${dias}`;
+  }
+
+  function legendaDias(dias) {
+    if (dias === null) return 'sem vencimento';
+    if (dias < 0) return `vencido há ${Math.abs(dias)} dia(s)`;
+    if (dias === 0) return 'vence hoje';
+    return dias === 1 ? 'dia' : 'dias';
+  }
+
+  function renderizar() {
+    const termo = (document.getElementById('busca-documentos').value || '').toLowerCase().trim();
+    const tbody = document.getElementById('documentos-tbody');
+    const resumo = { total: 0, validos: 0, a_vencer: 0, vencidos: 0 };
+    const linhas = [];
+
+    documentos.forEach(doc => {
+      const dias = calcularDiasRestantes(doc.data_validade);
+      const status = calcularStatus(dias);
+      doc.dias_restantes = dias;
+      doc.status = status;
+
+      resumo.total++;
+      if (status === 'VENCIDO') resumo.vencidos++;
+      else if (status === 'A_VENCER') resumo.a_vencer++;
+      else resumo.validos++;
+
+      const statusFiltro = status === 'SEM_VALIDADE' ? 'VALIDO' : status;
+      if (filtroStatus && statusFiltro !== filtroStatus) return;
+      const alvo = `${doc.nome} ${doc.categoria_label} ${doc.tags_habilitacao || ''}`.toLowerCase();
+      if (termo && !alvo.includes(termo)) return;
+
+      const badge = BADGES[status];
+      const tags = (doc.tags || []).map(t => `<span class="text-[10px] bg-slate-950 text-slate-400 border border-slate-800 px-1.5 py-0.5 rounded">${escapeHtml(t)}</span>`).join(' ');
+      const arquivo = doc.arquivo_disponivel
+        ? `<a href="${doc.arquivo_url}" target="_blank" rel="noopener" class="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition" title="Abrir PDF"><i class="fa-regular fa-file-pdf"></i></a>`
+        : `<span class="p-1.5 text-rose-400" title="Arquivo físico ausente"><i class="fa-solid fa-triangle-exclamation"></i></span>`;
+
+      linhas.push(`
+        <tr class="hover:bg-slate-800/30 transition" data-doc-id="${doc.id}" data-status="${status}">
+          <td class="px-4 py-3 align-top">
+            <div class="font-semibold text-slate-100">${escapeHtml(doc.nome)}</div>
+            <div class="flex flex-wrap gap-1 mt-1">${tags}</div>
+          </td>
+          <td class="px-3 py-3 align-top text-slate-300">${escapeHtml(doc.categoria_label)}</td>
+          <td class="px-3 py-3 align-top font-mono text-slate-400">${formatarDataBR(doc.data_emissao)}</td>
+          <td class="px-3 py-3 align-top font-mono text-slate-300">${formatarDataBR(doc.data_validade)}</td>
+          <td class="px-3 py-3 align-top text-right">
+            <div class="dias-restantes font-mono font-black text-base leading-none ${corDias(status)}">${textoDias(dias)}</div>
+            <div class="text-[10px] text-slate-500 mt-0.5">${legendaDias(dias)}</div>
+          </td>
+          <td class="px-3 py-3 align-top">
+            <span class="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase px-2 py-1 rounded-md border ${badge.cls}">
+              <span class="w-1.5 h-1.5 rounded-full ${badge.dot}"></span>${badge.label}
+            </span>
+          </td>
+          <td class="px-4 py-3 align-top text-right whitespace-nowrap">
+            ${arquivo}
+            <button type="button" onclick="excluirDocumento(${doc.id})" class="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition cursor-pointer" title="Excluir do cofre">
+              <i class="fa-regular fa-trash-can"></i>
+            </button>
+          </td>
+        </tr>`);
+    });
+
+    tbody.innerHTML = linhas.join('');
+    document.getElementById('documentos-vazio').classList.toggle('hidden', linhas.length > 0);
+    document.getElementById('resumo-total').textContent = resumo.total;
+    document.getElementById('resumo-validos').textContent = resumo.validos;
+    document.getElementById('resumo-a-vencer').textContent = resumo.a_vencer;
+    document.getElementById('resumo-vencidos').textContent = resumo.vencidos;
+  }
+
+  function definirFiltroStatus(status) {
+    filtroStatus = (filtroStatus === status) ? '' : status;
+    const label = document.getElementById('filtro-ativo-label');
+    const nomes = { VALIDO: 'Válidos', A_VENCER: 'A vencer', VENCIDO: 'Vencidos' };
+    if (filtroStatus) {
+      label.textContent = nomes[filtroStatus];
+      label.classList.remove('hidden');
+    } else {
+      label.classList.add('hidden');
+    }
+    document.querySelectorAll('.status-pill').forEach(btn => {
+      btn.classList.toggle('ring-2', btn.dataset.statusFilter === filtroStatus && !!filtroStatus);
+      btn.classList.toggle('ring-slate-400/60', btn.dataset.statusFilter === filtroStatus && !!filtroStatus);
+    });
+    renderizar();
+  }
+
+  function mostrarErroUpload(msg) {
+    const el = document.getElementById('upload-erro');
+    if (!msg) { el.classList.add('hidden'); el.textContent = ''; return; }
+    el.textContent = msg;
+    el.classList.remove('hidden');
+  }
+
+  async function enviarDocumento(ev) {
+    ev.preventDefault();
+    mostrarErroUpload('');
+    const form = ev.target;
+    const nome = form.nome.value.trim();
+    const emissao = form.data_emissao.value;
+    const semValidade = document.getElementById('doc-sem-validade').checked;
+    const validade = semValidade ? '' : form.data_validade.value;
+    const arquivo = form.arquivo.files[0];
+
+    if (!nome) return mostrarErroUpload('Informe o nome do documento.');
+    if (!emissao) return mostrarErroUpload('Informe a data de emissão.');
+    if (!semValidade && !validade) return mostrarErroUpload('Informe a validade ou marque "sem vencimento".');
+    if (validade && validade < emissao) return mostrarErroUpload('A validade não pode ser anterior à emissão.');
+    if (!arquivo) return mostrarErroUpload('Selecione o arquivo PDF.');
+    if (!arquivo.name.toLowerCase().endsWith('.pdf')) return mostrarErroUpload('Apenas arquivos PDF são aceitos.');
+    if (arquivo.size > {{ max_mb|int }} * 1024 * 1024) return mostrarErroUpload('O arquivo excede {{ max_mb }} MB.');
+
+    const dados = new FormData();
+    dados.append('nome', nome);
+    dados.append('categoria', form.categoria.value);
+    dados.append('data_emissao', emissao);
+    if (validade) dados.append('data_validade', validade);
+    dados.append('tags_habilitacao', form.tags_habilitacao.value.trim());
+    dados.append('arquivo', arquivo);
+
+    const botao = document.getElementById('btn-upload');
+    const original = botao.innerHTML;
+    botao.disabled = true;
+    botao.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Enviando...';
+    try {
+      const resp = await fetch('/api/documentos', { method: 'POST', body: dados });
+      const corpo = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        const detalhe = typeof corpo.detail === 'string' ? corpo.detail : 'Falha ao guardar o documento.';
+        throw new Error(detalhe);
+      }
+      documentos.push(corpo);
+      documentos.sort((a, b) => (a.data_validade || '9999-12-31').localeCompare(b.data_validade || '9999-12-31') || a.nome.localeCompare(b.nome));
+      form.reset();
+      form.data_emissao.value = hojeSaoPauloISO();
+      document.getElementById('doc-validade').disabled = false;
+      renderizar();
+      showToast(`"${corpo.nome}" guardado no cofre.`, 'success');
+    } catch (e) {
+      mostrarErroUpload(e.message);
+    } finally {
+      botao.disabled = false;
+      botao.innerHTML = original;
+    }
+  }
+
+  async function excluirDocumento(id) {
+    const doc = documentos.find(d => d.id === id);
+    if (!doc || !confirm(`Excluir "${doc.nome}" do cofre? O arquivo será removido.`)) return;
+    try {
+      const resp = await fetch(`/api/documentos/${id}`, { method: 'DELETE' });
+      if (!resp.ok) throw new Error('Falha ao excluir o documento.');
+      documentos = documentos.filter(d => d.id !== id);
+      renderizar();
+      showToast('Documento removido do cofre.', 'info');
+    } catch (e) {
+      showToast(e.message, 'error');
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('form-upload-documento').addEventListener('submit', enviarDocumento);
+    document.getElementById('busca-documentos').addEventListener('input', renderizar);
+    document.getElementById('doc-sem-validade').addEventListener('change', (e) => {
+      const campo = document.getElementById('doc-validade');
+      campo.disabled = e.target.checked;
+      if (e.target.checked) campo.value = '';
+    });
+    document.querySelectorAll('.status-pill').forEach(btn => btn.addEventListener('click', () => definirFiltroStatus(btn.dataset.statusFilter)));
+    renderizar();
+    // Recalcula contadores e badges em tempo real (virada de dia sem recarregar a página)
+    setInterval(renderizar, 60000);
+  });
+</script>
+{% endblock %}

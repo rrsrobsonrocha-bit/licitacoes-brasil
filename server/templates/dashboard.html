@@ -1,0 +1,560 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard Executivo & Indicadores - Licitações Brasil{% endblock %}
+
+{% block content %}
+<div class="bg-[#0b0f19] min-h-screen text-slate-100 font-sans pb-16">
+  <!-- Header Executivo LicitaçõesBrasil -->
+  <div class="border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-md sticky top-16 z-30 py-5">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-600 to-emerald-500 flex items-center justify-center text-white shadow-lg shadow-sky-500/20">
+              <i class="fa-solid fa-chart-pie text-lg"></i>
+            </div>
+            <div>
+              <h1 class="text-xl sm:text-2xl font-black text-white tracking-tight flex items-center gap-2">
+                Painel Executivo & <span class="text-emerald-400">Indicadores</span>
+              </h1>
+              <p class="text-xs text-slate-400 mt-0.5">
+                Visão consolidada de inteligência comercial, funil de vendas e agenda de certames.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2.5">
+          <button onclick="syncFromDashboard()" id="btn-dash-sync" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-medium px-3.5 py-2 rounded-xl text-xs transition flex items-center gap-2 cursor-pointer shadow-sm">
+            <i class="fa-solid fa-arrows-rotate text-emerald-400" id="dash-sync-icon"></i>
+            <span id="dash-sync-label">Sincronizar (500+)</span>
+          </button>
+          <a href="/negocios?view=quadros" class="bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-semibold px-4 py-2 rounded-xl text-xs transition shadow-sm flex items-center gap-2">
+            <i class="fa-solid fa-table-columns"></i> Funil Kanban
+          </a>
+          <a href="/search" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-medium px-4 py-2 rounded-xl text-xs transition flex items-center gap-2">
+            <i class="fa-solid fa-magnifying-glass text-sky-400"></i> Buscar Editais
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6 space-y-6">
+
+    <!-- 1. OS 4 CARDS DE TOPO (LICITAÇÕESBRASIL EXECUTIVE STATS) -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      
+      <!-- Card 1: Negócios ativos -->
+      <div class="bg-slate-900/80 border border-slate-800 hover:border-emerald-500/40 rounded-2xl p-5 shadow-lg transition-all duration-200 flex flex-col justify-between">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Negócios ativos</span>
+          <div class="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center">
+            <i class="fa-solid fa-table-columns text-base"></i>
+          </div>
+        </div>
+        <div class="mt-4">
+          <div class="text-3xl font-black font-mono text-emerald-400 tracking-tight" id="stat-active-deals">
+            {{ summary.active_deals_count if summary else 0 }}
+          </div>
+          <div class="flex items-center justify-between text-xs text-slate-400 mt-1">
+            <span>Oportunidades em acompanhamento</span>
+            <a href="/negocios?view=quadros" class="text-emerald-400 hover:underline font-medium text-[11px]">Ver funil →</a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 2: Empresas identificadas -->
+      <div class="bg-slate-900/80 border border-slate-800 hover:border-sky-500/40 rounded-2xl p-5 shadow-lg transition-all duration-200 flex flex-col justify-between">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Empresas identificadas</span>
+          <div class="w-10 h-10 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-400 flex items-center justify-center">
+            <i class="fa-solid fa-building text-base"></i>
+          </div>
+        </div>
+        <div class="mt-4">
+          <div class="text-3xl font-black font-mono text-white tracking-tight" id="stat-companies">
+            {{ summary.companies_identified_count if summary else 0 }}
+          </div>
+          <div class="text-xs text-slate-400 mt-1">
+            <span>Órgãos e compradores mapeados</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 3: Licitações publicadas hoje -->
+      <div class="bg-slate-900/80 border border-slate-800 hover:border-amber-500/40 rounded-2xl p-5 shadow-lg transition-all duration-200 flex flex-col justify-between">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Licitações publicadas hoje</span>
+          <div class="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center">
+            <i class="fa-solid fa-file-invoice text-base"></i>
+          </div>
+        </div>
+        <div class="mt-4">
+          <div class="text-3xl font-black font-mono text-amber-400 tracking-tight" id="stat-tenders-today">
+            {{ summary.tenders_today_count if summary else 0 }}
+          </div>
+          <div class="text-xs text-slate-400 mt-1 flex items-center justify-between">
+            <span><strong class="text-slate-300 font-mono" id="stat-items-today">{{ summary.items_today_count if summary else 0 }}</strong> itens catalogados</span>
+            <span class="text-[10px] bg-slate-800 text-amber-300 px-1.5 py-0.5 rounded border border-slate-700">Hoje</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 4: Eventos na agenda -->
+      <div class="bg-slate-900/80 border border-slate-800 hover:border-rose-500/40 rounded-2xl p-5 shadow-lg transition-all duration-200 flex flex-col justify-between">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Eventos na agenda</span>
+          <div class="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center justify-center">
+            <i class="fa-solid fa-calendar-check text-base"></i>
+          </div>
+        </div>
+        <div class="mt-4">
+          <div class="text-3xl font-black font-mono text-rose-400 tracking-tight" id="stat-agenda-events">
+            {{ summary.agenda_events_count if summary else 0 }}
+          </div>
+          <div class="text-xs text-slate-400 mt-1">
+            <span>Disputas e prazos de envio</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- 2. BARRA DE STATUS DO FUNIL (ETAPAS KANBAN) -->
+    <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-lg">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+        <div>
+          <h2 class="text-sm font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2">
+            <i class="fa-solid fa-arrows-split-up-and-left text-emerald-400"></i> Funil de Licitações <span class="text-xs text-slate-400 font-normal">| Status do Funil de Negócios</span>
+          </h2>
+          <p class="text-xs text-slate-400 mt-0.5">Distribuição em tempo real das oportunidades nas etapas do pipeline comercial.</p>
+        </div>
+        <a href="/negocios?view=quadros" class="text-xs text-emerald-400 hover:text-emerald-300 font-semibold flex items-center gap-1 transition">
+          Abrir Quadro Completo <i class="fa-solid fa-arrow-right"></i>
+        </a>
+      </div>
+
+      <!-- Grid com os contadores por etapa -->
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        <!-- Oportunidades -->
+        <a href="/negocios?view=quadros" class="bg-slate-950/60 border border-sky-500/20 hover:border-sky-500/50 rounded-xl p-3.5 transition group block">
+          <div class="flex items-center justify-between">
+            <span class="text-[11px] font-bold uppercase tracking-wide text-sky-400">Oportunidades</span>
+            <span class="w-2 h-2 rounded-full bg-sky-400"></span>
+          </div>
+          <div class="text-2xl font-black font-mono text-white mt-2 group-hover:text-sky-300 transition" id="funnel-count-oportunidades">
+            {{ summary.funnel_stages.oportunidades if summary and summary.funnel_stages else 0 }}
+          </div>
+          <div class="w-full bg-slate-800/80 rounded-full h-1.5 mt-2 overflow-hidden">
+            <div id="funnel-bar-oportunidades" class="bg-sky-400 h-full rounded-full transition-all duration-500" style="width: {% if summary and summary.active_deals_count and summary.funnel_stages and summary.active_deals_count > 0 %}{{ [(summary.funnel_stages.oportunidades / summary.active_deals_count * 100)|round, 100]|min }}%{% else %}20%{% endif %}"></div>
+          </div>
+          <span class="text-[10px] text-slate-500 block mt-1">Triagem inicial</span>
+        </a>
+
+        <!-- Qualificação -->
+        <a href="/negocios?view=quadros" class="bg-slate-950/60 border border-amber-500/20 hover:border-amber-500/50 rounded-xl p-3.5 transition group block">
+          <div class="flex items-center justify-between">
+            <span class="text-[11px] font-bold uppercase tracking-wide text-amber-400">Qualificação</span>
+            <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+          </div>
+          <div class="text-2xl font-black font-mono text-white mt-2 group-hover:text-amber-300 transition" id="funnel-count-qualificacao">
+            {{ summary.funnel_stages.qualificacao if summary and summary.funnel_stages else 0 }}
+          </div>
+          <div class="w-full bg-slate-800/80 rounded-full h-1.5 mt-2 overflow-hidden">
+            <div id="funnel-bar-qualificacao" class="bg-amber-400 h-full rounded-full transition-all duration-500" style="width: {% if summary and summary.active_deals_count and summary.funnel_stages and summary.active_deals_count > 0 %}{{ [(summary.funnel_stages.qualificacao / summary.active_deals_count * 100)|round, 100]|min }}%{% else %}20%{% endif %}"></div>
+          </div>
+          <span class="text-[10px] text-slate-500 block mt-1">Análise técnica/edital</span>
+        </a>
+
+        <!-- Disputa -->
+        <a href="/negocios?view=quadros" class="bg-slate-950/60 border border-rose-500/20 hover:border-rose-500/50 rounded-xl p-3.5 transition group block">
+          <div class="flex items-center justify-between">
+            <span class="text-[11px] font-bold uppercase tracking-wide text-rose-400">Disputa</span>
+            <span class="w-2 h-2 rounded-full bg-rose-400"></span>
+          </div>
+          <div class="text-2xl font-black font-mono text-white mt-2 group-hover:text-rose-300 transition" id="funnel-count-disputa">
+            {{ summary.funnel_stages.disputa if summary and summary.funnel_stages else 0 }}
+          </div>
+          <div class="w-full bg-slate-800/80 rounded-full h-1.5 mt-2 overflow-hidden">
+            <div id="funnel-bar-disputa" class="bg-rose-400 h-full rounded-full transition-all duration-500" style="width: {% if summary and summary.active_deals_count and summary.funnel_stages and summary.active_deals_count > 0 %}{{ [(summary.funnel_stages.disputa / summary.active_deals_count * 100)|round, 100]|min }}%{% else %}20%{% endif %}"></div>
+          </div>
+          <span class="text-[10px] text-slate-500 block mt-1">Sessão pública de lances</span>
+        </a>
+
+        <!-- Classificação -->
+        <a href="/negocios?view=quadros" class="bg-slate-950/60 border border-purple-500/20 hover:border-purple-500/50 rounded-xl p-3.5 transition group block">
+          <div class="flex items-center justify-between">
+            <span class="text-[11px] font-bold uppercase tracking-wide text-purple-400">Classificação</span>
+            <span class="w-2 h-2 rounded-full bg-purple-400"></span>
+          </div>
+          <div class="text-2xl font-black font-mono text-white mt-2 group-hover:text-purple-300 transition" id="funnel-count-classificacao">
+            {{ summary.funnel_stages.classificacao if summary and summary.funnel_stages else 0 }}
+          </div>
+          <div class="w-full bg-slate-800/80 rounded-full h-1.5 mt-2 overflow-hidden">
+            <div id="funnel-bar-classificacao" class="bg-purple-400 h-full rounded-full transition-all duration-500" style="width: {% if summary and summary.active_deals_count and summary.funnel_stages and summary.active_deals_count > 0 %}{{ [(summary.funnel_stages.classificacao / summary.active_deals_count * 100)|round, 100]|min }}%{% else %}20%{% endif %}"></div>
+          </div>
+          <span class="text-[10px] text-slate-500 block mt-1">Aguardando julgamento</span>
+        </a>
+
+        <!-- Contrato -->
+        <a href="/negocios?view=quadros" class="bg-slate-950/60 border border-emerald-500/20 hover:border-emerald-500/50 rounded-xl p-3.5 transition group block col-span-2 sm:col-span-1">
+          <div class="flex items-center justify-between">
+            <span class="text-[11px] font-bold uppercase tracking-wide text-emerald-400">Contrato</span>
+            <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+          </div>
+          <div class="text-2xl font-black font-mono text-white mt-2 group-hover:text-emerald-300 transition" id="funnel-count-contrato">
+            {{ summary.funnel_stages.contrato if summary and summary.funnel_stages else 0 }}
+          </div>
+          <div class="w-full bg-slate-800/80 rounded-full h-1.5 mt-2 overflow-hidden">
+            <div id="funnel-bar-contrato" class="bg-emerald-400 h-full rounded-full transition-all duration-500" style="width: {% if summary and summary.active_deals_count and summary.funnel_stages and summary.active_deals_count > 0 %}{{ [(summary.funnel_stages.contrato / summary.active_deals_count * 100)|round, 100]|min }}%{% else %}20%{% endif %}"></div>
+          </div>
+          <span class="text-[10px] text-slate-500 block mt-1">Homologado e assinado</span>
+        </a>
+      </div>
+    </div>
+
+    <!-- 3. BLOCO DE RESUMO "LICITAÇÕES PUBLICADAS HOJE" (CATEGORIAS E FAIXAS DE VALOR) -->
+    <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-lg">
+      <div class="flex items-center justify-between mb-5">
+        <div>
+          <h2 class="text-sm font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2">
+            <i class="fa-solid fa-chart-simple text-amber-400"></i> Licitações publicadas hoje
+          </h2>
+          <p class="text-xs text-slate-400 mt-0.5">Segmentação estratégica por tipo de demanda e faixas orçamentárias.</p>
+        </div>
+        <span class="text-xs bg-slate-800 text-slate-300 px-2.5 py-1 rounded-lg border border-slate-700 font-mono">
+          PNCP + Compras.gov
+        </span>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        
+        <!-- Bloco A: Distribuição por Categoria -->
+        <div class="bg-slate-950/50 border border-slate-800/80 rounded-xl p-4">
+          <div class="flex items-center justify-between pb-3 mb-3 border-b border-slate-800">
+            <span class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+              <i class="fa-solid fa-tags text-sky-400 text-xs"></i> Distribuição por Categoria
+            </span>
+            <span class="text-[11px] text-slate-500">Serviços x Materiais</span>
+          </div>
+
+          <div class="grid grid-cols-3 gap-3">
+            <!-- Serviços -->
+            <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-3 text-center">
+              <div class="w-8 h-8 mx-auto rounded-lg bg-sky-500/10 text-sky-400 flex items-center justify-center text-xs mb-1.5">
+                <i class="fa-solid fa-gears"></i>
+              </div>
+              <div class="text-xs font-bold text-slate-300">Serviços</div>
+              <div class="text-xl font-black font-mono text-sky-400 mt-1" id="cat-count-servicos">
+                {{ summary.categories_distribution.servicos if summary and summary.categories_distribution else 0 }}
+              </div>
+            </div>
+
+            <!-- Materiais -->
+            <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-3 text-center">
+              <div class="w-8 h-8 mx-auto rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center text-xs mb-1.5">
+                <i class="fa-solid fa-box-archive"></i>
+              </div>
+              <div class="text-xs font-bold text-slate-300">Materiais</div>
+              <div class="text-xl font-black font-mono text-emerald-400 mt-1" id="cat-count-materiais">
+                {{ summary.categories_distribution.materiais if summary and summary.categories_distribution else 0 }}
+              </div>
+            </div>
+
+            <!-- Não Classificado -->
+            <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-3 text-center">
+              <div class="w-8 h-8 mx-auto rounded-lg bg-slate-800 text-slate-400 flex items-center justify-center text-xs mb-1.5">
+                <i class="fa-solid fa-folder-open"></i>
+              </div>
+              <div class="text-xs font-bold text-slate-400">Não Classificado</div>
+              <div class="text-xl font-black font-mono text-slate-400 mt-1" id="cat-count-nao-classificado">
+                {{ summary.categories_distribution.nao_classificado if summary and summary.categories_distribution else 0 }}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bloco B: Distribuição por Faixa de Valor -->
+        <div class="bg-slate-950/50 border border-slate-800/80 rounded-xl p-4">
+          <div class="flex items-center justify-between pb-3 mb-3 border-b border-slate-800">
+            <span class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+              <i class="fa-solid fa-brazilian-real-sign text-emerald-400 text-xs"></i> Faixas de Valor Estimado
+            </span>
+            <span class="text-[11px] text-slate-500">Ticket Médio</span>
+          </div>
+
+          <div class="grid grid-cols-3 gap-3">
+            <!-- Até R$ 50 mil -->
+            <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-3 text-center">
+              <div class="text-[11px] font-bold text-emerald-400 truncate" title="Até R$ 50 mil">Até R$ 50 mil</div>
+              <div class="text-xl font-black font-mono text-emerald-400 mt-2" id="val-count-ate-50k">
+                {{ summary.value_ranges.ate_50k if summary and summary.value_ranges else 0 }}
+              </div>
+              <span class="text-[10px] text-slate-500 block mt-0.5">Dispensa rápida</span>
+            </div>
+
+            <!-- R$ 50 mil a R$ 250 mil -->
+            <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-3 text-center">
+              <div class="text-[11px] font-bold text-sky-400 truncate" title="R$ 50 mil a R$ 250 mil">R$ 50 mil a R$ 250 mil</div>
+              <div class="text-xl font-black font-mono text-sky-400 mt-2" id="val-count-50k-250k">
+                {{ summary.value_ranges.de_50k_a_250k if summary and summary.value_ranges else 0 }}
+              </div>
+              <span class="text-[10px] text-slate-500 block mt-0.5">Médio porte</span>
+            </div>
+
+            <!-- Acima de R$ 250 mil -->
+            <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-3 text-center">
+              <div class="text-[11px] font-bold text-purple-400 truncate" title="Acima de R$ 250 mil">Acima de R$ 250 mil</div>
+              <div class="text-xl font-black font-mono text-purple-400 mt-2" id="val-count-acima-250k">
+                {{ summary.value_ranges.acima_250k if summary and summary.value_ranges else 0 }}
+              </div>
+              <span class="text-[10px] text-slate-500 block mt-0.5">Pregões amplos</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- 4. SEÇÃO: PRÓXIMOS EVENTOS DA AGENDA & ALERTAS MONITORADOS -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      
+      <!-- Agenda de Eventos Estratégicos -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-lg">
+        <div class="flex justify-between items-center mb-4">
+          <div>
+            <h2 class="text-sm font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2">
+              <i class="fa-solid fa-calendar-day text-rose-400"></i> Agenda da semana <span class="text-xs text-slate-400 font-normal">| Próximos Eventos da Agenda</span>
+            </h2>
+            <p class="text-[11px] text-slate-400">Prazos críticos vinculados aos seus negócios e certames cadastrados no funil.</p>
+          </div>
+          <a href="/negocios?view=quadros" class="text-xs text-sky-400 hover:underline font-semibold">Ver funil</a>
+        </div>
+
+        <div id="agenda-events-list" class="space-y-3">
+          {% if summary and summary.agenda_events %}
+            {% for ev in summary.agenda_events %}
+              <div class="p-3.5 bg-slate-950/70 rounded-xl border border-slate-800 hover:border-slate-700 transition flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-2 mb-1 flex-wrap">
+                    <span class="text-[10px] font-mono px-1.5 py-0.5 rounded font-bold uppercase {% if ev.stage == 'disputa' %}bg-rose-500/20 text-rose-300 border border-rose-500/30{% elif ev.stage == 'contrato' %}bg-emerald-500/20 text-emerald-300 border border-emerald-500/30{% else %}bg-sky-500/20 text-sky-300 border border-sky-500/30{% endif %}">
+                      {{ ev.stage }}
+                    </span>
+                    <span class="text-[10px] text-slate-400 font-mono">{{ ev.notice_number }}</span>
+                    {% if ev.state %}
+                      <span class="text-[10px] font-bold bg-slate-800 text-slate-300 px-1 rounded">{{ ev.state }}</span>
+                    {% endif %}
+                  </div>
+                  <a href="/tenders/{{ ev.tender_id }}" class="text-xs font-semibold text-slate-200 hover:text-emerald-400 line-clamp-1 block transition">
+                    {{ ev.title }}
+                  </a>
+                  <span class="text-[11px] text-slate-400 truncate block mt-0.5">{{ ev.contracting_entity }}</span>
+                </div>
+                <div class="text-right shrink-0">
+                  <span class="inline-flex items-center gap-1 text-[11px] font-mono font-bold text-rose-400 bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 rounded-lg whitespace-nowrap">
+                    <i class="fa-regular fa-clock text-[10px]"></i> {{ ev.formatted_date }}
+                  </span>
+                  {% if ev.estimated_value %}
+                    <div class="text-[10px] text-emerald-400 font-mono font-semibold mt-1">
+                      R$ {{ "{:,.2f}".format(ev.estimated_value).replace(",", "X").replace(".", ",").replace("X", ".") }}
+                    </div>
+                  {% endif %}
+                </div>
+              </div>
+            {% endfor %}
+          {% else %}
+            <div class="text-center py-8 text-slate-500 text-xs border border-dashed border-slate-800 rounded-xl">
+              <i class="fa-regular fa-calendar-xmark text-xl text-slate-600 block mb-2"></i>
+              Nenhum evento agendado para os próximos dias
+            </div>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Prazos de Propostas mais Próximos & Radares Monitorados -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-lg">
+        <div class="flex justify-between items-center mb-4">
+          <div>
+            <h2 class="text-sm font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2">
+              <i class="fa-regular fa-clock text-amber-400"></i> Prazos de Propostas mais Próximos
+            </h2>
+            <p class="text-[11px] text-slate-400">Editais favoritados com prazo de envio limite.</p>
+          </div>
+          <a href="/favorites" class="text-xs text-sky-400 hover:underline font-semibold">Ver favoritos</a>
+        </div>
+
+        <div id="upcoming-deadlines-list" class="space-y-3">
+          {% if summary and summary.upcoming_tenders %}
+            {% for t in summary.upcoming_tenders %}
+              <div class="p-3 bg-slate-950/70 rounded-xl border border-slate-800 flex justify-between items-center text-xs">
+                <div class="min-w-0 pr-2">
+                  <a href="/tenders/{{ t.id }}" class="font-bold text-slate-200 hover:text-sky-400 block line-clamp-1 transition">{{ t.title }}</a>
+                  <span class="text-slate-400 text-[11px]">{{ t.contracting_entity }} - {{ t.state }}</span>
+                </div>
+                <span class="font-bold font-mono text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-md text-[11px] whitespace-nowrap">
+                  {{ t.proposal_deadline[:10] }}
+                </span>
+              </div>
+            {% endfor %}
+          {% else %}
+            <div class="text-center py-8 text-slate-500 text-xs border border-dashed border-slate-800 rounded-xl">
+              <i class="fa-regular fa-star text-xl text-slate-600 block mb-2"></i>
+              Nenhum certame favoritado no momento.
+            </div>
+          {% endif %}
+        </div>
+
+        <!-- Notificações Recentes do Radar -->
+        <div class="mt-6 pt-5 border-t border-slate-800/80">
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+              <i class="fa-solid fa-satellite-dish text-sky-400"></i> Disparos Recentes de Radares
+            </span>
+            <a href="/alerts" class="text-xs text-sky-400 hover:underline">Gerenciar</a>
+          </div>
+          <div id="recent-deliveries-list" class="space-y-2">
+            {% if summary and summary.recent_deliveries %}
+              {% for d in summary.recent_deliveries %}
+                <div class="p-2.5 bg-slate-950/50 rounded-xl border border-slate-800/80 flex justify-between items-center text-xs">
+                  <div class="min-w-0 pr-2">
+                    <a href="/tenders/{{ d.tender_id }}" class="font-medium text-slate-200 hover:text-sky-300 block line-clamp-1">{{ d.tender_title }}</a>
+                    <span class="text-emerald-400 text-[11px]">Radar: {{ d.alert_name }}</span>
+                  </div>
+                  <span class="text-slate-500 font-mono text-[10px]">{{ d.delivered_at[:10] }}</span>
+                </div>
+              {% endfor %}
+            {% else %}
+              <div class="text-center py-4 text-slate-500 text-xs">
+                Nenhuma notificação entregue recentemente.
+              </div>
+            {% endif %}
+          </div>
+        </div>
+
+        <!-- Elementos ocultos para plena compatibilidade retroativa com JS/testes -->
+        <div class="hidden">
+          <span id="stat-favorites-count">{{ summary.favorites_count if summary else 0 }}</span>
+          <span id="stat-alerts-count">{{ summary.alerts_count if summary else 0 }}</span>
+          <span id="stat-deliveries-count">{{ summary.deliveries_count if summary else 0 }}</span>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+</div>
+
+<script>
+  // Função para carregar ou atualizar dados em tempo real
+  async function loadDashboardData() {
+    try {
+      const headers = {};
+      if (typeof AppSession !== 'undefined' && AppSession.getToken()) {
+        headers['Authorization'] = `Bearer ${AppSession.getToken()}`;
+      }
+
+      const resp = await fetch('/api/user/dashboard-summary', { headers });
+      if (resp.ok) {
+        const data = await resp.json();
+
+        // 1. Cards de Topo
+        const activeDealsEl = document.getElementById('stat-active-deals');
+        if (activeDealsEl) activeDealsEl.textContent = data.active_deals_count || data.deals_count || 0;
+
+        const companiesEl = document.getElementById('stat-companies');
+        if (companiesEl) companiesEl.textContent = data.companies_identified_count || data.companies_count || 0;
+
+        const tendersTodayEl = document.getElementById('stat-tenders-today');
+        if (tendersTodayEl) tendersTodayEl.textContent = data.tenders_today_count || data.total_tenders_today || 0;
+
+        const itemsTodayEl = document.getElementById('stat-items-today');
+        if (itemsTodayEl) itemsTodayEl.textContent = data.items_today_count || 0;
+
+        const agendaEventsEl = document.getElementById('stat-agenda-events');
+        if (agendaEventsEl) agendaEventsEl.textContent = data.agenda_events_count || (data.agenda_events ? data.agenda_events.length : 0);
+
+        // 2. Funil Stages
+        if (data.funnel_stages) {
+          const totalDeals = (data.active_deals_count !== undefined ? data.active_deals_count : data.deals_count) || 1;
+          ['oportunidades', 'qualificacao', 'disputa', 'classificacao', 'contrato'].forEach(st => {
+            const el = document.getElementById(`funnel-count-${st}`);
+            if (el && data.funnel_stages[st] !== undefined) {
+              el.textContent = data.funnel_stages[st];
+            }
+            const bar = document.getElementById(`funnel-bar-${st}`);
+            if (bar && data.funnel_stages[st] !== undefined) {
+              const pct = totalDeals > 0 ? Math.min(100, Math.round((data.funnel_stages[st] / totalDeals) * 100)) : 0;
+              bar.style.width = `${pct}%`;
+            }
+          });
+        }
+
+        // 3. Categorias
+        if (data.categories_distribution) {
+          const s = document.getElementById('cat-count-servicos');
+          if (s) s.textContent = data.categories_distribution.servicos || 0;
+          const m = document.getElementById('cat-count-materiais');
+          if (m) m.textContent = data.categories_distribution.materiais || 0;
+          const nc = document.getElementById('cat-count-nao-classificado');
+          if (nc) nc.textContent = data.categories_distribution.nao_classificado || 0;
+        }
+
+        // 4. Faixas de Valor
+        if (data.value_ranges) {
+          const v1 = document.getElementById('val-count-ate-50k');
+          if (v1) v1.textContent = data.value_ranges.ate_50k || 0;
+          const v2 = document.getElementById('val-count-50k-250k');
+          if (v2) v2.textContent = data.value_ranges.de_50k_a_250k || 0;
+          const v3 = document.getElementById('val-count-acima-250k');
+          if (v3) v3.textContent = data.value_ranges.acima_250k || 0;
+        }
+
+        // 5. Elementos legados
+        const favCount = document.getElementById('stat-favorites-count');
+        if (favCount && data.favorites_count !== undefined) favCount.textContent = data.favorites_count;
+
+        const alertsCount = document.getElementById('stat-alerts-count');
+        if (alertsCount && data.alerts_count !== undefined) alertsCount.textContent = data.alerts_count;
+
+        const delivsCount = document.getElementById('stat-deliveries-count');
+        if (delivsCount && data.deliveries_count !== undefined) delivsCount.textContent = data.deliveries_count;
+      }
+    } catch (e) {
+      console.warn('Dashboard data auto-refresh:', e);
+    }
+  }
+
+  async function syncFromDashboard() {
+    const btn = document.getElementById('btn-dash-sync');
+    const icon = document.getElementById('dash-sync-icon');
+    const label = document.getElementById('dash-sync-label');
+    if (btn) btn.disabled = true;
+    if (icon) icon.classList.add('animate-spin');
+    if (label) label.textContent = 'Sincronizando...';
+
+    try {
+      const res = await fetch('/api/tenders/sync?pages=10&limit_per_page=50', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        if (label) label.textContent = `Atualizado (${data.total_geral_banco} certames)`;
+        setTimeout(() => {
+          window.location.reload();
+        }, 1200);
+      } else {
+        if (label) label.textContent = 'Sincronizar (500+)';
+        if (btn) btn.disabled = false;
+        if (icon) icon.classList.remove('animate-spin');
+      }
+    } catch {
+      if (label) label.textContent = 'Sincronizar (500+)';
+      if (btn) btn.disabled = false;
+      if (icon) icon.classList.remove('animate-spin');
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    loadDashboardData();
+  });
+</script>
+{% endblock %}

@@ -77,6 +77,12 @@ def run_db_migrations():
             )
         """))
 
+        # Cofre de documentos de habilitação da empresa (DDL portátil via metadata do modelo)
+        if "documentos_empresa" not in inspector.get_table_names():
+            from server.models import DocumentoEmpresa
+            logger.info("Migração: criando tabela documentos_empresa")
+            DocumentoEmpresa.__table__.create(bind=conn, checkfirst=True)
+
         # Backfill de links e identificadores para dados existentes
         conn.execute(text("UPDATE tenders SET link_pncp = source_url WHERE link_pncp IS NULL"))
         conn.execute(text(

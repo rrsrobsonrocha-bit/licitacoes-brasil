@@ -1,0 +1,265 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- Hero Section -->
+<section class="bg-gradient-to-b from-brand-900 via-brand-800 to-slate-900 text-white pt-14 pb-20 px-4 sm:px-6 lg:px-8">
+  <div class="max-w-4xl mx-auto text-center">
+    <!-- Top badge -->
+    <div class="inline-flex items-center gap-2 bg-sky-950/80 border border-sky-700/50 px-3 py-1 rounded-full text-xs text-sky-300 font-medium mb-6">
+      <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+      Conectado ao PNCP (Portal Nacional de Contratações Públicas) & Lei 14.133/2021
+    </div>
+
+    <h1 class="text-3xl sm:text-5xl font-extrabold tracking-tight leading-tight mb-4">
+      Pesquise e Analise Licitações Públicas com <span class="text-transparent bg-clip-text bg-gradient-to-r from-sky-400 to-teal-300">Inteligência Artificial</span>
+    </h1>
+    <p class="text-slate-300 text-base sm:text-lg mb-8 max-w-2xl mx-auto">
+      Oportunidades de contratações públicas federais, estaduais e municipais em todo o Brasil. Busca semântica, resumos automáticos de editais e monitoramento de certames.
+    </p>
+
+    <!-- Search Box -->
+    <form action="/search" method="GET" class="relative max-w-3xl mx-auto shadow-2xl rounded-2xl overflow-hidden bg-white p-2 text-slate-800">
+      <div class="flex flex-col sm:flex-row items-center gap-2">
+        <div class="flex items-center pl-3 flex-grow w-full">
+          <i class="fa-solid fa-magnifying-glass text-slate-400 text-lg mr-3"></i>
+          <input 
+            type="text" 
+            name="q" 
+            id="hero-search-input"
+            placeholder="Ex: Medicamentos em Alagoas, equipamentos de informática, serviços de engenharia..." 
+            class="w-full py-3 text-slate-800 placeholder-slate-400 focus:outline-none text-base"
+            autocomplete="off"
+          />
+        </div>
+        <div class="flex items-center gap-2 w-full sm:w-auto">
+          <select name="uf" id="uf-select" class="bg-slate-100 text-slate-700 border-0 rounded-xl px-3 py-3 text-sm focus:ring-2 focus:ring-sky-500 font-medium">
+            <option value="">Todos os Estados (UF)</option>
+            <option value="AC">AC - Acre</option>
+            <option value="AL">AL - Alagoas</option>
+            <option value="AP">AP - Amapá</option>
+            <option value="AM">AM - Amazonas</option>
+            <option value="BA">BA - Bahia</option>
+            <option value="CE">CE - Ceará</option>
+            <option value="DF">DF - Distrito Federal</option>
+            <option value="ES">ES - Espírito Santo</option>
+            <option value="GO">GO - Goiás</option>
+            <option value="MA">MA - Maranhão</option>
+            <option value="MT">MT - Mato Grosso</option>
+            <option value="MS">MS - Mato Grosso do Sul</option>
+            <option value="MG">MG - Minas Gerais</option>
+            <option value="PA">PA - Pará</option>
+            <option value="PB">PB - Paraíba</option>
+            <option value="PR">PR - Paraná</option>
+            <option value="PE">PE - Pernambuco</option>
+            <option value="PI">PI - Piauí</option>
+            <option value="RJ">RJ - Rio de Janeiro</option>
+            <option value="RN">RN - Rio Grande do Norte</option>
+            <option value="RS">RS - Rio Grande do Sul</option>
+            <option value="RO">RO - Rondônia</option>
+            <option value="RR">RR - Roraima</option>
+            <option value="SC">SC - Santa Catarina</option>
+            <option value="SP">SP - São Paulo</option>
+            <option value="SE">SE - Sergipe</option>
+            <option value="TO">TO - Tocantins</option>
+          </select>
+          <button type="submit" class="w-full sm:w-auto bg-sky-600 hover:bg-sky-500 text-white font-semibold px-6 py-3 rounded-xl transition shadow-md flex items-center justify-center gap-2">
+            <span>Buscar</span>
+            <i class="fa-solid fa-arrow-right text-xs"></i>
+          </button>
+        </div>
+      </div>
+    </form>
+
+    <!-- Exemplo de Pesquisa Conforme Solicitação Oficial -->
+    <div class="mt-6 flex flex-wrap items-center justify-center gap-2 text-xs text-slate-300">
+      <span class="text-slate-400 font-medium">Exemplos rápidos:</span>
+      <button onclick="fillSearch('medicamentos materiais hospitalares farmácias', 'AL')" class="bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-full border border-white/15 transition flex items-center gap-1.5 text-sky-200">
+        <i class="fa-solid fa-kit-medical text-rose-400"></i> Alagoas: Medicamentos e Materiais Hospitalares
+      </button>
+      <button onclick="fillSearch('computação em nuvem ti', 'SP')" class="bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-full border border-white/15 transition text-sky-200">
+        <i class="fa-solid fa-server text-cyan-400"></i> São Paulo: Tecnologia e Cloud
+      </button>
+      <button onclick="fillSearch('ventiladores pulmonares uti', 'DF')" class="bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-full border border-white/15 transition text-sky-200">
+        <i class="fa-solid fa-hospital text-emerald-400"></i> Federal: Equipamentos de Saúde
+      </button>
+    </div>
+  </div>
+</section>
+
+<!-- KPI / Metrics Strip -->
+<section class="bg-slate-900 border-y border-slate-800 text-slate-300 py-6">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
+    <div>
+      <div class="text-2xl sm:text-3xl font-extrabold text-white">100%</div>
+      <div class="text-xs text-slate-400 mt-1 uppercase tracking-wider">Fontes Oficiais Verificadas</div>
+    </div>
+    <div>
+      <div class="text-2xl sm:text-3xl font-extrabold text-sky-400">PNCP v1</div>
+      <div class="text-xs text-slate-400 mt-1 uppercase tracking-wider">Integração Padronizada</div>
+    </div>
+    <div>
+      <div class="text-2xl sm:text-3xl font-extrabold text-emerald-400">Gemini 3.8</div>
+      <div class="text-xs text-slate-400 mt-1 uppercase tracking-wider">IA Documental com Citação</div>
+    </div>
+    <div>
+      <div class="text-2xl sm:text-3xl font-extrabold text-white">LGPD</div>
+      <div class="text-xs text-slate-400 mt-1 uppercase tracking-wider">Privacidade & Conformidade</div>
+    </div>
+  </div>
+</section>
+
+<!-- Recent Opportunities Showcase -->
+<section class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+  <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
+    <div>
+      <h2 class="text-2xl font-bold text-slate-900">Oportunidades em Destaque</h2>
+      <p class="text-sm text-slate-500">Editais recentemente sincronizados do Portal Nacional de Contratações Públicas</p>
+    </div>
+    <div class="flex flex-wrap items-center gap-3">
+      <!-- Filtro de natureza do objeto (Material / Serviço / Outros) -->
+      <form id="natureza-filter-form" action="/" method="GET" class="flex items-center gap-2">
+        <label for="natureza-filter" class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Natureza</label>
+        <select
+          id="natureza-filter"
+          name="natureza"
+          onchange="aplicarFiltroNatureza(this.value)"
+          class="bg-white border border-slate-300 text-slate-700 rounded-xl px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-sky-500 focus:outline-none"
+        >
+          <option value="" {% if not natureza_sel %}selected{% endif %}>Todas</option>
+          {% for chave, rotulo in (natureza_labels or {}).items() %}
+            <option value="{{ chave }}" {% if natureza_sel == chave %}selected{% endif %}>{{ rotulo }}{% if natureza_counts %} ({{ natureza_counts[chave] }}){% endif %}</option>
+          {% endfor %}
+        </select>
+        <noscript><button type="submit" class="text-xs font-semibold text-sky-600">Filtrar</button></noscript>
+      </form>
+      <a href="/search" class="text-sm font-semibold text-sky-600 hover:text-sky-700 flex items-center gap-1.5">
+        Ver todos os certames <i class="fa-solid fa-arrow-right text-xs"></i>
+      </a>
+    </div>
+  </div>
+
+  <div id="recent-tenders-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    <!-- Populated via script or pre-rendered -->
+    {% for tender in recent_tenders %}
+    {% set natureza = (naturezas_por_id or {}).get(tender.id, 'OUTROS') %}
+    <div class="tender-card bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition p-6 flex flex-col justify-between" data-natureza="{{ natureza }}">
+      <div>
+        <div class="flex items-center justify-between gap-2 mb-3">
+          <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-sky-50 text-sky-700 border border-sky-100">
+            <i class="fa-solid fa-location-dot text-sky-500"></i> {{ tender.state }} - {{ tender.city or "Não informado" }}
+          </span>
+          <span class="text-xs text-slate-400 font-mono truncate">{{ tender.modality }}</span>
+        </div>
+
+        <span class="natureza-badge inline-flex items-center gap-1.5 px-2 py-0.5 mb-2 rounded-md text-[11px] font-bold uppercase tracking-wide border
+          {% if natureza == 'MATERIAL' %}bg-indigo-50 text-indigo-700 border-indigo-200
+          {% elif natureza == 'SERVICO' %}bg-emerald-50 text-emerald-700 border-emerald-200
+          {% else %}bg-slate-100 text-slate-600 border-slate-200{% endif %}">
+          <i class="fa-solid {% if natureza == 'MATERIAL' %}fa-box{% elif natureza == 'SERVICO' %}fa-screwdriver-wrench{% else %}fa-shapes{% endif %} text-[10px]"></i>
+          {{ (natureza_labels or {}).get(natureza, 'Outros') }}
+        </span>
+
+        <h3 class="text-base font-bold text-slate-900 leading-snug mb-2 line-clamp-2">
+          <a href="/tenders/{{ tender.id }}" class="hover:text-sky-600 transition">{{ tender.title }}</a>
+        </h3>
+
+        <p class="text-xs text-slate-600 line-clamp-3 mb-4 leading-relaxed">
+          {{ tender.object_description }}
+        </p>
+
+        <div class="text-xs text-slate-500 mb-4 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+          <div class="font-medium text-slate-700 truncate mb-1"><i class="fa-regular fa-building text-slate-400 mr-1"></i> {{ tender.contracting_entity }}</div>
+          <div class="flex justify-between items-center text-slate-500">
+            <span>Valor estimado:</span>
+            <span class="font-bold text-slate-900">
+              {% if tender.estimated_total_value %}
+                R$ {{ "{:,.2f}".format(tender.estimated_total_value).replace(",", "X").replace(".", ",").replace("X", ".") }}
+              {% else %}
+                Não informado
+              {% endif %}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div class="pt-4 border-t border-slate-100 flex items-center justify-between">
+        <a href="/tenders/{{ tender.id }}" class="text-xs font-semibold text-white bg-slate-900 hover:bg-sky-600 px-3.5 py-2 rounded-xl transition flex items-center gap-1.5">
+          <span>Ver Detalhes e IA</span>
+          <i class="fa-solid fa-arrow-right text-[10px]"></i>
+        </a>
+        <a href="{{ tender.source_url }}" target="_blank" rel="noopener" class="text-xs text-slate-400 hover:text-slate-700 flex items-center gap-1" title="Acessar publicação oficial">
+          <i class="fa-solid fa-arrow-up-right-from-square"></i> Fonte
+        </a>
+      </div>
+    </div>
+    {% endfor %}
+    {% if not recent_tenders %}
+    <div class="md:col-span-2 lg:col-span-3 text-center py-12 bg-white border border-dashed border-slate-300 rounded-2xl text-sm text-slate-500">
+      Nenhum certame recente com esta natureza. <a href="/" class="font-semibold text-sky-600 hover:text-sky-700">Ver todos</a>
+    </div>
+    {% endif %}
+  </div>
+</section>
+
+<!-- Sources Integration Section -->
+<section class="bg-slate-100 py-12 border-t border-slate-200">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="text-center max-w-2xl mx-auto mb-10">
+      <h2 class="text-2xl font-bold text-slate-900">Fontes Oficiais Conectadas</h2>
+      <p class="text-sm text-slate-600 mt-2">
+        Arquitetura de conectores independentes com transparência total de integração e respeito aos termos de uso.
+      </p>
+    </div>
+
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 text-center">
+      <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+        <div class="text-sky-600 font-bold text-sm mb-1">PNCP Nacional</div>
+        <span class="inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">API Ativa</span>
+      </div>
+      <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+        <div class="text-slate-800 font-bold text-sm mb-1">Compras.gov.br</div>
+        <span class="inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">API Federal</span>
+      </div>
+      <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+        <div class="text-slate-800 font-bold text-sm mb-1">Compras RS</div>
+        <span class="inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-sky-50 text-sky-700 border border-sky-200">CELIC / RS</span>
+      </div>
+      <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+        <div class="text-slate-800 font-bold text-sm mb-1">Compras MG</div>
+        <span class="inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-sky-50 text-sky-700 border border-sky-200">SEPLAG / MG</span>
+      </div>
+      <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+        <div class="text-slate-800 font-bold text-sm mb-1">Licitações CAIXA</div>
+        <span class="inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">Extrato Oficial</span>
+      </div>
+      <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+        <div class="text-slate-800 font-bold text-sm mb-1">Licitações-e (BB)</div>
+        <span class="inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">Busca Direta</span>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function aplicarFiltroNatureza(valor) {
+    const url = new URL(window.location.href);
+    if (valor) url.searchParams.set('natureza', valor); else url.searchParams.delete('natureza');
+    url.hash = 'recent-tenders-grid';
+    window.location.href = url.toString();
+  }
+
+  function fillSearch(query, state) {
+    document.getElementById('hero-search-input').value = query;
+    const form = document.querySelector('form');
+    if (state) {
+      const ufSelect = form.querySelector('select[name="uf"], select[name="state"]');
+      if (ufSelect) {
+        ufSelect.value = state;
+      }
+    }
+    form.submit();
+  }
+</script>
+{% endblock %}

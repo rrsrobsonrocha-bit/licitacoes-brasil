@@ -3,6 +3,7 @@ import re
 import json
 import logging
 import asyncio
+import unicodedata
 from typing import Dict, Any, List, Optional, Union
 from datetime import datetime, timedelta
 import httpx
@@ -10,6 +11,146 @@ import httpx
 from server.connectors.pncp import build_canonical_pncp_url
 
 logger = logging.getLogger(__name__)
+
+
+# ==============================================================================
+# CLASSIFICAÇÃO SIMPLIFICADA DA NATUREZA DO OBJETO (MATERIAL / SERVIÇO / OUTROS)
+# ==============================================================================
+
+NATUREZA_MATERIAL = "MATERIAL"
+NATUREZA_SERVICO = "SERVICO"
+NATUREZA_OUTROS = "OUTROS"
+NATUREZAS_OBJETO = (NATUREZA_MATERIAL, NATUREZA_SERVICO, NATUREZA_OUTROS)
+NATUREZA_LABELS = {
+    NATUREZA_MATERIAL: "Material",
+    NATUREZA_SERVICO: "Serviço",
+    NATUREZA_OUTROS: "Outros",
+}
+
+# Objetos que não são compra nem prestação de serviço (alienações, cessões, imóveis).
+_RE_OUTROS_FORTE = re.compile(
+    r"\b("
+    r"leilao|alienacao|venda de (bens|imoveis|veiculos|sucatas?)|"
+    r"locacao de (imovel|imoveis|espaco|sala|galpao|predio)|"
+    r"(concessao|permissao|cessao|autorizacao) (onerosa |remunerada )?de uso|"
+    r"concessao (comum|patrocinada|administrativa)|parceria publico.privada|"
+    r"doacao|patrocinio|chamamento publico para (selecao de )?(organizacao|osc|entidade)"
+    r")\b"
+)
+
+# Verbo/forma inicial que define a natureza preponderante do objeto.
+_PREFIXO_ATA = r"(formalizacao de ata de |constitui objeto da presente licitacao (a |o )?)?"
+
+_RE_LIDER_MATERIAL = re.compile(
+    r"^" + _PREFIXO_ATA + r"(registro de precos?\s+(para|visando|objetivando)\s+(a\s+|o\s+)?"
+    r"((futura|eventual)(\s+e)?\s+)*)?"
+    r"(aquisicao|aquisicoes|compra|compras|fornecimento)\b"
+)
+# "Contratação de empresa (especializada) no/para fornecimento de ..." é compra de material.
+_RE_CONTRATACAO_FORNECIMENTO = re.compile(
+    r"contratacao de empresa( especializada| legalmente constituida)?( no ramo de [a-z ]+)?"
+    r",? (no |para (o |a )?|que realize o )?(fornecimento|aquisicao)\b"
+)
+_RE_LIDER_SERVICO = re.compile(
+    r"^" + _PREFIXO_ATA + r"(registro de precos?\s+(para|visando|objetivando)\s+(a\s+|o\s+)?"
+    r"((futura|eventual)(\s+e)?\s+)*)?"
+    r"(prestacao de servicos?|contratacao de (empresa|pessoa juridica|instituicao|servicos?)|"
+    r"execucao de (obras?|servicos?)|servicos?)\b"
+)
+
+_PADROES_SERVICO = [
+    (re.compile(r"\bprestacao de servicos?\b"), 4),
+    (re.compile(r"\bservicos?\b"), 2),
+    (re.compile(r"\bcontratacao de (empresa|pessoa juridica|instituicao)\b"), 2),
+    (re.compile(r"\b(obras?|engenharia|pavimentacao|recapeamento|drenagem|reforma|construcao|ampliacao|restauracao)\b"), 2),
+    (re.compile(r"\b(manutencao|conservacao|limpeza|higienizacao|vigilancia|seguranca patrimonial|portaria|zeladoria|jardinagem)\b"), 2),
+    (re.compile(r"\b(assistencia tecnica|consultoria|assessoria|auditoria|treinamento|capacitacao|curso|palestra)\b"), 2),
+    (re.compile(r"\b(locacao|terceirizacao|mao de obra|dedicacao exclusiva|outsourcing)\b"), 2),
+    (re.compile(r"\b(transporte|frete|fretamento|coleta|remocao|destinacao final|agenciamento|passagens aereas)\b"), 1),
+    (re.compile(r"\b(suporte tecnico|desenvolvimento de (sistema|software)|hospedagem|telefonia|link de (internet|dados))\b"), 1),
+    (re.compile(r"\b(exames|laboratoriais|plantoes|atendimento|organizacao de eventos|publicidade|dedetizacao|desinsetizacao)\b"), 1),
+    (re.compile(r"\b(instalacao|execucao|operacao|gestao|gerenciamento|monitoramento)\b"), 1),
+    (re.compile(r"\b(adequacao|recuperacao|sustentacao|modernizacao|implantacao|implementacao|desenvolvimento|evolucao|pericia|processamento de dados|nuvem|cloud)\b"), 1),
+    (re.compile(r"^contratacao\b"), 1),
+]
+
+_PADROES_MATERIAL = [
+    (re.compile(r"\b(aquisicao|aquisicoes|compra|fornecimento)\b"), 2),
+    (re.compile(r"^" + _PREFIXO_ATA + r"registro de precos?\b"), 1),
+    (re.compile(r"\b(material|materiais|medicamentos?|farmacos|insumos?|equipamentos?|generos alimenticios|alimentos)\b"), 2),
+    (re.compile(r"\b(pecas|componentes|sobressalentes|acessorios|ferramentas|utensilios|pneus)\b"), 1),
+    (re.compile(r"\b(veiculos?|ambulancias?|onibus|caminhoes|motocicletas|maquinas)\b"), 1),
+    (re.compile(r"\b(mobiliario|moveis|cadeiras|mesas|armarios|eletrodomesticos|ar.condicionados?)\b"), 1),
+    (re.compile(r"\b(computadores|notebooks?|microcomputadores|impressoras|monitores|tablets|licencas?|servidores (de rede|rack)|storage)\b"), 1),
+    (re.compile(r"\b(papel|toner|cartuchos|expediente|combustive(l|is)|gasolina|diesel|uniformes|fardamentos?|epis?)\b"), 1),
+    (re.compile(r"\b(produtos|kits?|cestas basicas|merenda|livros|imunobiologicos|vacinas|oncologicos|orteses?|proteses?|cateteres?|sondas?|reagentes?|racao)\b"), 1),
+]
+
+
+def _normalizar_texto(texto: str) -> str:
+    """Minúsculas, sem acentos e com espaços colapsados para casamento léxico estável."""
+    base = unicodedata.normalize("NFKD", texto or "")
+    sem_acento = "".join(ch for ch in base if not unicodedata.combining(ch))
+    return re.sub(r"\s+", " ", sem_acento.lower()).strip()
+
+
+def classificar_natureza_objeto(objeto: str) -> str:
+    """
+    Classifica o objeto de um certame em uma das três naturezas simplificadas.
+
+    Retorna estritamente ``"MATERIAL"``, ``"SERVICO"`` ou ``"OUTROS"``.
+
+    Regras (léxicas/regex, determinísticas):
+      1. Alienações, leilões, cessões/concessões de uso e locação de imóveis -> OUTROS.
+      2. Pontua sinais de material (aquisição, fornecimento, medicamentos, equipamentos...)
+         e de serviço (prestação de serviços, manutenção, obras e serviços de engenharia...).
+         Obras e serviços de engenharia são agrupados em SERVICO nesta taxonomia simplificada.
+      3. O verbo inicial do objeto ("Aquisição de...", "Contratação de empresa para...")
+         recebe peso extra, pois define a natureza preponderante.
+      4. Empate é decidido pelo verbo inicial; sem nenhum sinal -> OUTROS.
+    """
+    texto = _normalizar_texto(objeto if isinstance(objeto, str) else "")
+    if not texto:
+        return NATUREZA_OUTROS
+
+    lider_material = bool(_RE_LIDER_MATERIAL.search(texto) or _RE_CONTRATACAO_FORNECIMENTO.search(texto))
+    lider_servico = bool(_RE_LIDER_SERVICO.search(texto)) and not lider_material
+
+    # Alienação/cessão/concessão só prevalece quando é o núcleo do objeto (início do texto),
+    # e não um detalhe acessório de uma contratação de serviço ou compra.
+    outros = _RE_OUTROS_FORTE.search(texto)
+    if outros and outros.start() < 60 and not (lider_material or lider_servico):
+        return NATUREZA_OUTROS
+
+    pontos_material = sum(peso for padrao, peso in _PADROES_MATERIAL if padrao.search(texto))
+    pontos_servico = sum(peso for padrao, peso in _PADROES_SERVICO if padrao.search(texto))
+
+    if lider_material:
+        pontos_material += 3
+    if lider_servico:
+        pontos_servico += 3
+
+    if pontos_material == 0 and pontos_servico == 0:
+        return NATUREZA_OUTROS
+    if pontos_material > pontos_servico:
+        return NATUREZA_MATERIAL
+    if pontos_servico > pontos_material:
+        return NATUREZA_SERVICO
+    if lider_material and not lider_servico:
+        return NATUREZA_MATERIAL
+    if lider_servico and not lider_material:
+        return NATUREZA_SERVICO
+    return NATUREZA_OUTROS
+
+
+def classificar_natureza_certame(titulo: Optional[str], descricao: Optional[str] = None) -> str:
+    """Classifica um certame priorizando o título e recorrendo à descrição quando inconclusivo."""
+    natureza = classificar_natureza_objeto(titulo or "")
+    if natureza == NATUREZA_OUTROS and descricao:
+        natureza_desc = classificar_natureza_objeto(descricao)
+        if natureza_desc != NATUREZA_OUTROS or not titulo:
+            return natureza_desc
+    return natureza
 
 # Sanitização de ambiente para httpx
 if "NO_PROXY" in os.environ and "[" in os.environ["NO_PROXY"]:
@@ -392,7 +533,10 @@ class PortalCollectorService:
             ext = it.get("external_id")
             if ext and ext not in seen:
                 seen.add(ext)
-                deduped.append(it)
+                deduped.append({
+                    **it,
+                    "natureza_objeto": classificar_natureza_certame(it.get("title"), it.get("object_description"))
+                })
         return deduped
 
 

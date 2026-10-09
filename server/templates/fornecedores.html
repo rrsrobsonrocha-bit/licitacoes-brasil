@@ -1,0 +1,285 @@
+{% extends "base.html" %}
+
+{% block title %}Fornecedores & Prospecção de Empresas - Licitações Brasil{% endblock %}
+
+{% block content %}
+<div class="bg-[#0b0f19] min-h-screen text-slate-100 font-sans pb-16">
+  <!-- Header da Página -->
+  <div class="border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-md sticky top-16 z-30 py-5">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-purple-600 to-sky-500 flex items-center justify-center text-white shadow-lg shadow-purple-500/20">
+              <i class="fa-solid fa-building-user text-lg"></i>
+            </div>
+            <div>
+              <h1 class="text-xl sm:text-2xl font-black text-white tracking-tight flex items-center gap-2">
+                Mapeamento & <span class="text-purple-400">Prospecção de Empresas</span>
+              </h1>
+              <p class="text-xs text-slate-400 mt-0.5">
+                Inteligência de mercado para identificação de órgãos compradores, fornecedores e concorrência.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2.5">
+          <a href="/search" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-medium px-3.5 py-2 rounded-xl text-xs transition flex items-center gap-1.5">
+            <i class="fa-solid fa-magnifying-glass text-sky-400"></i> Buscar Editais
+          </a>
+          <a href="/negocios?view=quadros" class="bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-semibold px-4 py-2 rounded-xl text-xs transition shadow-sm flex items-center gap-2">
+            <i class="fa-solid fa-table-columns"></i> Funil Kanban
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6 space-y-6">
+
+    <!-- FALLBACK AMIGÁVEL DA IA GEMINI OU STATUS ATIVO -->
+    {% if not gemini_configured %}
+      <div class="bg-gradient-to-r from-amber-950/40 via-slate-900 to-slate-900 border border-amber-500/40 rounded-2xl p-5 shadow-xl relative overflow-hidden" id="gemini-fallback-banner">
+        <div class="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+          <div class="flex items-start gap-3.5">
+            <div class="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400 flex items-center justify-center shrink-0 mt-0.5">
+              <i class="fa-solid fa-wand-magic-sparkles text-lg"></i>
+            </div>
+            <div class="space-y-1.5">
+              <div class="flex items-center gap-2 flex-wrap">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                  Configuração de IA: Chave do Google Gemini não detectada
+                </h3>
+                <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                  <i class="fa-solid fa-circle-info text-[9px]"></i> Modo Base Ativo
+                </span>
+              </div>
+              <p class="text-xs text-slate-300 leading-relaxed max-w-3xl">
+                Para habilitar a <strong>análise preditiva de capacidade técnica</strong>, estimativa de margens e enriquecimento automatizado do perfil das empresas via Inteligência Artificial, configure sua chave no ambiente adicionando ao arquivo <code class="bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800 text-amber-300 font-mono text-[11px]">.env</code>:
+              </p>
+              <div class="pt-1 flex items-center gap-2 flex-wrap">
+                <span class="bg-slate-950/90 border border-slate-800 px-3 py-1.5 rounded-lg text-xs font-mono text-emerald-400">
+                  GEMINI_API_KEY=sua_chave_aqui
+                </span>
+                <span class="text-xs text-slate-400">ou</span>
+                <span class="bg-slate-950/90 border border-slate-800 px-3 py-1.5 rounded-lg text-xs font-mono text-emerald-400">
+                  AI_API_KEY=sua_chave_aqui
+                </span>
+                <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" class="text-xs text-sky-400 hover:underline flex items-center gap-1 ml-2">
+                  <span>Obter chave no Google AI Studio</span>
+                  <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
+                </a>
+              </div>
+            </div>
+          </div>
+          <div class="shrink-0 text-right">
+            <span class="text-[11px] text-slate-400 block">Motor Operacional:</span>
+            <span class="text-xs font-mono font-bold text-slate-200">Regras Oficiais PNCP/Compras.gov</span>
+          </div>
+        </div>
+      </div>
+    {% else %}
+      <div class="bg-gradient-to-r from-emerald-950/30 via-slate-900 to-slate-900 border border-emerald-500/40 rounded-2xl p-4 shadow-lg flex items-center justify-between" id="gemini-active-banner">
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 flex items-center justify-center">
+            <i class="fa-solid fa-brain text-base"></i>
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="text-xs font-bold text-white">IA Gemini Ativa (gemini-3.5-flash-lite)</span>
+              <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            </div>
+            <p class="text-[11px] text-slate-400">Enriquecimento documental e mapeamento preditivo habilitados.</p>
+          </div>
+        </div>
+        <span class="text-[10px] bg-slate-800 text-emerald-400 px-2 py-1 rounded-lg border border-slate-700 font-mono">
+          Google GenAI OK
+        </span>
+      </div>
+    {% endif %}
+
+    <!-- CARDS DE METRICAS DE PROSPECÇÃO -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      
+      <!-- Total de Entidades Mapeadas -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-lg flex flex-col justify-between">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Entidades Mapeadas</span>
+          <div class="w-9 h-9 rounded-xl bg-purple-500/10 text-purple-400 flex items-center justify-center border border-purple-500/20">
+            <i class="fa-solid fa-building"></i>
+          </div>
+        </div>
+        <div class="mt-3">
+          <div class="text-3xl font-black font-mono text-purple-400" id="stat-companies-count">
+            {{ total_companies }}
+          </div>
+          <span class="text-xs text-slate-400 mt-1 block">Órgãos compradores catalogados</span>
+        </div>
+      </div>
+
+      <!-- Total de Editais Mapeados -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-lg flex flex-col justify-between">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Certames Ativos</span>
+          <div class="w-9 h-9 rounded-xl bg-sky-500/10 text-sky-400 flex items-center justify-center border border-sky-500/20">
+            <i class="fa-solid fa-file-contract"></i>
+          </div>
+        </div>
+        <div class="mt-3">
+          <div class="text-3xl font-black font-mono text-white" id="stat-tenders-count">
+            {{ total_tenders }}
+          </div>
+          <span class="text-xs text-slate-400 mt-1 block">Oportunidades vinculadas</span>
+        </div>
+      </div>
+
+      <!-- Volume Financeiro -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-lg flex flex-col justify-between">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Volume Transacionado</span>
+          <div class="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center border border-emerald-500/20">
+            <i class="fa-solid fa-coins"></i>
+          </div>
+        </div>
+        <div class="mt-3">
+          <div class="text-2xl font-black font-mono text-emerald-400 truncate" id="stat-total-value">
+            R$ {{ "{:,.0f}".format(total_value).replace(",", ".") }}
+          </div>
+          <span class="text-xs text-slate-400 mt-1 block">Soma de valores estimados</span>
+        </div>
+      </div>
+
+      <!-- Cobertura de UFs -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-lg flex flex-col justify-between">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Presença Territorial</span>
+          <div class="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center border border-amber-500/20">
+            <i class="fa-solid fa-map-location-dot"></i>
+          </div>
+        </div>
+        <div class="mt-3">
+          <div class="text-3xl font-black font-mono text-amber-400" id="stat-states-count">
+            {{ states_count }}
+          </div>
+          <span class="text-xs text-slate-400 mt-1 block">Estados com contratações ativas</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- LISTAGEM E PROSPECÇÃO DE EMPRESAS / ÓRGÃOS -->
+    <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
+        <div>
+          <h2 class="text-sm font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2">
+            <i class="fa-solid fa-users-viewfinder text-purple-400"></i> Empresas & Órgãos em Destaque
+          </h2>
+          <p class="text-xs text-slate-400 mt-0.5">
+            Dados agregados das compras públicas para inteligência de vendas e análise concorrencial.
+          </p>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <div class="relative w-full sm:w-64">
+            <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-xs text-slate-500"></i>
+            <input 
+              type="text" 
+              id="company-search" 
+              onkeyup="filterCompaniesTable()" 
+              placeholder="Buscar por nome ou UF..." 
+              class="w-full bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-purple-500 transition"
+            >
+          </div>
+        </div>
+      </div>
+
+      <!-- Tabela de Empresas -->
+      <div class="overflow-x-auto mt-4">
+        <table class="w-full text-left border-collapse" id="companies-table">
+          <thead>
+            <tr class="border-b border-slate-800 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+              <th class="py-3 px-3">Entidade / Razão Social</th>
+              <th class="py-3 px-3">Localização</th>
+              <th class="py-3 px-3 text-center">Certames</th>
+              <th class="py-3 px-3">Modalidades Principais</th>
+              <th class="py-3 px-3 text-right">Volume Estimado</th>
+              <th class="py-3 px-3 text-center">Ações Rápidas</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-800/60 text-xs">
+            {% if companies %}
+              {% for comp in companies %}
+                <tr class="hover:bg-slate-850/50 transition company-row" data-search="{{ comp.name.lower() }} {{ comp.state.lower() }} {{ comp.city.lower() if comp.city else '' }}">
+                  <td class="py-3.5 px-3">
+                    <div class="font-bold text-white leading-snug line-clamp-1 max-w-sm" title="{{ comp.name }}">
+                      {{ comp.name }}
+                    </div>
+                    <div class="text-[11px] text-slate-400 font-mono mt-0.5">
+                      {{ comp.sphere }} • UASG: {{ comp.uasg_code or 'PNCP' }}
+                    </div>
+                  </td>
+                  <td class="py-3.5 px-3">
+                    <span class="inline-flex items-center gap-1 font-mono font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 text-[11px]">
+                      {{ comp.state }}
+                    </span>
+                    <span class="text-slate-400 text-[11px] ml-1">{{ comp.city or 'Âmbito Federal' }}</span>
+                  </td>
+                  <td class="py-3.5 px-3 text-center">
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold font-mono bg-sky-500/15 text-sky-300 border border-sky-500/30">
+                      {{ comp.tenders_count }}
+                    </span>
+                  </td>
+                  <td class="py-3.5 px-3">
+                    <span class="text-[11px] text-slate-300 font-medium">
+                      {{ comp.primary_modality or 'PREGÃO ELETRÔNICO' }}
+                    </span>
+                  </td>
+                  <td class="py-3.5 px-3 text-right font-mono font-bold text-emerald-400">
+                    {% if comp.total_value %}
+                      R$ {{ "{:,.2f}".format(comp.total_value).replace(",", "X").replace(".", ",").replace("X", ".") }}
+                    {% else %}
+                      Sob demanda
+                    {% endif %}
+                  </td>
+                  <td class="py-3.5 px-3 text-center">
+                    <a 
+                      href="/search?q={{ comp.name|urlencode }}" 
+                      class="inline-flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-400 hover:text-white transition border border-slate-700"
+                      title="Ver editais desta entidade"
+                    >
+                      <i class="fa-solid fa-magnifying-glass text-[10px]"></i> Editais
+                    </a>
+                  </td>
+                </tr>
+              {% endfor %}
+            {% else %}
+              <tr>
+                <td colspan="6" class="py-8 text-center text-xs text-slate-500">
+                  Nenhuma entidade mapeada no banco de dados atualmente.
+                </td>
+              </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  function filterCompaniesTable() {
+    const term = (document.getElementById('company-search').value || '').toLowerCase().trim();
+    const rows = document.querySelectorAll('.company-row');
+    rows.forEach(r => {
+      const searchAttr = r.getAttribute('data-search') || '';
+      if (!term || searchAttr.includes(term)) {
+        r.style.display = '';
+      } else {
+        r.style.display = 'none';
+      }
+    });
+  }
+</script>
+{% endblock %}

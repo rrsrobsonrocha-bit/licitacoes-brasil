@@ -38,6 +38,7 @@ class SearchFilterParams(BaseModel):
     q: Optional[str] = None # Palavras-chave ou múltiplos termos
     exact_match: bool = False
     state: Optional[str] = None # UF (ex: AL, SP)
+    uf: Optional[str] = None # Alias para UF (ex: AL, SP)
     city: Optional[str] = None
     region: Optional[str] = None # Nordeste, Sudeste, Norte, Sul, Centro-Oeste
     contracting_entity: Optional[str] = None # Órgão comprador

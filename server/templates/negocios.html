@@ -1,0 +1,420 @@
+{% extends "base.html" %}
+
+{% block title %}Funil de Negócios & Kanban - Licitações Brasil{% endblock %}
+
+{% block content %}
+<div class="bg-[#0b0f19] min-h-screen text-slate-100 font-sans pb-16">
+  <!-- Header de Gestão Comercial -->
+  <div class="border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-md sticky top-16 z-30 py-5">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center text-white shadow-lg shadow-emerald-500/20">
+              <i class="fa-solid fa-table-columns text-lg"></i>
+            </div>
+            <div>
+              <h1 class="text-xl sm:text-2xl font-black text-white tracking-tight flex items-center gap-2">
+                Funil de Negócios <span class="text-emerald-400">Kanban</span>
+              </h1>
+              <p class="text-xs text-slate-400 mt-0.5">
+                Pipeline integrado de contratações públicas: da triagem à homologação de contratos.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2.5">
+          <div class="bg-slate-800/80 border border-slate-700/70 rounded-xl px-3 py-1.5 flex items-center gap-2 text-xs">
+            <span class="text-slate-400">Total em Aberto:</span>
+            <span id="kanban-total-deals" class="font-bold text-emerald-400 font-mono">{{ total_deals }}</span>
+          </div>
+
+          <a href="/search" class="bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-semibold px-4 py-2 rounded-xl text-xs transition shadow-sm flex items-center gap-2">
+            <i class="fa-solid fa-plus"></i> + Buscar Oportunidades
+          </a>
+
+          <button onclick="refreshKanban()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-medium px-3.5 py-2 rounded-xl text-xs transition flex items-center gap-1.5 cursor-pointer" title="Recarregar Quadro">
+            <i class="fa-solid fa-arrows-rotate" id="refresh-icon"></i> Atualizar
+          </button>
+        </div>
+      </div>
+
+      <!-- Barra de Filtros Rápidos e Visualização -->
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mt-4 pt-3 border-t border-slate-800/60">
+        <div class="flex items-center gap-2">
+          <span class="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+            <i class="fa-solid fa-eye text-emerald-400"></i> Visualização:
+          </span>
+          <a href="/negocios?view=quadros" class="px-3 py-1 text-xs font-bold rounded-lg transition {% if view == 'quadros' or not view %}bg-emerald-500/20 text-emerald-400 border border-emerald-500/30{% else %}text-slate-400 hover:text-slate-200{% endif %}">
+            <i class="fa-solid fa-table-columns mr-1"></i> Quadros (Kanban)
+          </a>
+          <a href="/negocios?view=lista" class="px-3 py-1 text-xs font-medium rounded-lg transition {% if view == 'lista' %}bg-emerald-500/20 text-emerald-400 border border-emerald-500/30{% else %}text-slate-400 hover:text-slate-200{% endif %}">
+            <i class="fa-solid fa-list mr-1"></i> Lista
+          </a>
+        </div>
+
+        <div class="relative w-full sm:w-72">
+          <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-xs text-slate-500"></i>
+          <input 
+            type="text" 
+            id="kanban-search-input" 
+            onkeyup="filterKanbanCards()" 
+            placeholder="Filtrar por órgão, UF ou certame..." 
+            class="w-full bg-slate-900/90 border border-slate-700/80 rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition"
+          >
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Quadro Kanban (5 Colunas) -->
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+      
+      <!-- 1. OPORTUNIDADES -->
+      <div class="kanban-column flex flex-col bg-slate-900/50 border border-slate-800 rounded-2xl p-3 shadow-lg" data-stage="oportunidades" ondragover="allowDrop(event)" ondrop="handleDrop(event, 'oportunidades')">
+        <div class="flex items-center justify-between pb-3 mb-3 border-b border-slate-800">
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-sky-400 ring-4 ring-sky-400/20"></span>
+            <h2 class="text-xs font-black tracking-wider uppercase text-sky-400">Oportunidades</h2>
+          </div>
+          <span id="count-oportunidades" class="bg-slate-800/90 text-sky-400 font-mono text-xs font-bold px-2 py-0.5 rounded-full border border-sky-500/20 shadow-sm">
+            {{ counts.oportunidades }}
+          </span>
+        </div>
+        <div id="cards-oportunidades" class="cards-container flex-1 space-y-3 min-h-[350px]">
+          {% for deal in grouped_deals.oportunidades %}
+            {% include "partials_deal_card.html" %}
+          {% else %}
+            <div class="empty-state text-center py-10 px-2 text-slate-500 text-xs border border-dashed border-slate-800 rounded-xl">
+              <i class="fa-solid fa-inbox text-xl text-slate-600 block mb-2"></i>
+              Nenhuma oportunidade triada
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- 2. QUALIFICAÇÃO -->
+      <div class="kanban-column flex flex-col bg-slate-900/50 border border-slate-800 rounded-2xl p-3 shadow-lg" data-stage="qualificacao" ondragover="allowDrop(event)" ondrop="handleDrop(event, 'qualificacao')">
+        <div class="flex items-center justify-between pb-3 mb-3 border-b border-slate-800">
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-amber-400 ring-4 ring-amber-400/20"></span>
+            <h2 class="text-xs font-black tracking-wider uppercase text-amber-400">Qualificação</h2>
+          </div>
+          <span id="count-qualificacao" class="bg-slate-800/90 text-amber-400 font-mono text-xs font-bold px-2 py-0.5 rounded-full border border-amber-500/20 shadow-sm">
+            {{ counts.qualificacao }}
+          </span>
+        </div>
+        <div id="cards-qualificacao" class="cards-container flex-1 space-y-3 min-h-[350px]">
+          {% for deal in grouped_deals.qualificacao %}
+            {% include "partials_deal_card.html" %}
+          {% else %}
+            <div class="empty-state text-center py-10 px-2 text-slate-500 text-xs border border-dashed border-slate-800 rounded-xl">
+              <i class="fa-solid fa-clipboard-check text-xl text-slate-600 block mb-2"></i>
+              Nenhum certame em qualificação
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- 3. DISPUTA -->
+      <div class="kanban-column flex flex-col bg-slate-900/50 border border-slate-800 rounded-2xl p-3 shadow-lg" data-stage="disputa" ondragover="allowDrop(event)" ondrop="handleDrop(event, 'disputa')">
+        <div class="flex items-center justify-between pb-3 mb-3 border-b border-slate-800">
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-rose-400 ring-4 ring-rose-400/20"></span>
+            <h2 class="text-xs font-black tracking-wider uppercase text-rose-400">Disputa</h2>
+          </div>
+          <span id="count-disputa" class="bg-slate-800/90 text-rose-400 font-mono text-xs font-bold px-2 py-0.5 rounded-full border border-rose-500/20 shadow-sm">
+            {{ counts.disputa }}
+          </span>
+        </div>
+        <div id="cards-disputa" class="cards-container flex-1 space-y-3 min-h-[350px]">
+          {% for deal in grouped_deals.disputa %}
+            {% include "partials_deal_card.html" %}
+          {% else %}
+            <div class="empty-state text-center py-10 px-2 text-slate-500 text-xs border border-dashed border-slate-800 rounded-xl">
+              <i class="fa-solid fa-gavel text-xl text-slate-600 block mb-2"></i>
+              Nenhuma disputa ao vivo
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- 4. CLASSIFICAÇÃO -->
+      <div class="kanban-column flex flex-col bg-slate-900/50 border border-slate-800 rounded-2xl p-3 shadow-lg" data-stage="classificacao" ondragover="allowDrop(event)" ondrop="handleDrop(event, 'classificacao')">
+        <div class="flex items-center justify-between pb-3 mb-3 border-b border-slate-800">
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-purple-400 ring-4 ring-purple-400/20"></span>
+            <h2 class="text-xs font-black tracking-wider uppercase text-purple-400">Classificação</h2>
+          </div>
+          <span id="count-classificacao" class="bg-slate-800/90 text-purple-400 font-mono text-xs font-bold px-2 py-0.5 rounded-full border border-purple-500/20 shadow-sm">
+            {{ counts.classificacao }}
+          </span>
+        </div>
+        <div id="cards-classificacao" class="cards-container flex-1 space-y-3 min-h-[350px]">
+          {% for deal in grouped_deals.classificacao %}
+            {% include "partials_deal_card.html" %}
+          {% else %}
+            <div class="empty-state text-center py-10 px-2 text-slate-500 text-xs border border-dashed border-slate-800 rounded-xl">
+              <i class="fa-solid fa-trophy text-xl text-slate-600 block mb-2"></i>
+              Aguardando homologação/julgamento
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- 5. CONTRATO -->
+      <div class="kanban-column flex flex-col bg-slate-900/50 border border-slate-800 rounded-2xl p-3 shadow-lg" data-stage="contrato" ondragover="allowDrop(event)" ondrop="handleDrop(event, 'contrato')">
+        <div class="flex items-center justify-between pb-3 mb-3 border-b border-slate-800">
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 ring-4 ring-emerald-400/20"></span>
+            <h2 class="text-xs font-black tracking-wider uppercase text-emerald-400">Contrato</h2>
+          </div>
+          <span id="count-contrato" class="bg-slate-800/90 text-emerald-400 font-mono text-xs font-bold px-2 py-0.5 rounded-full border border-emerald-500/20 shadow-sm">
+            {{ counts.contrato }}
+          </span>
+        </div>
+        <div id="cards-contrato" class="cards-container flex-1 space-y-3 min-h-[350px]">
+          {% for deal in grouped_deals.contrato %}
+            {% include "partials_deal_card.html" %}
+          {% else %}
+            <div class="empty-state text-center py-10 px-2 text-slate-500 text-xs border border-dashed border-slate-800 rounded-xl">
+              <i class="fa-solid fa-file-signature text-xl text-slate-600 block mb-2"></i>
+              Nenhum contrato assinado
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+  const STAGES = ["oportunidades", "qualificacao", "disputa", "classificacao", "contrato"];
+
+  function formatCurrency(val) {
+    if (!val && val !== 0) return 'Sob demanda';
+    return Number(val).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  }
+
+  function calculateCountdown(dateStr) {
+    if (!dateStr) return { text: 'Sem data', isUrgent: false };
+    const target = new Date(dateStr);
+    const now = new Date();
+    const diffMs = target - now;
+
+    if (diffMs <= 0) {
+      return { text: 'Encerrada', isUrgent: false };
+    }
+
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffHours / 24);
+    const remHours = diffHours % 24;
+
+    if (diffDays > 0) {
+      return { text: `⏳ ${diffDays}d ${remHours}h`, isUrgent: diffDays <= 2 };
+    } else {
+      return { text: `⏳ ${diffHours}h restantes`, isUrgent: true };
+    }
+  }
+
+  // Atualizar contagens dinâmicas de tempo em cada card
+  function updateCountdowns() {
+    document.querySelectorAll('.countdown-badge').forEach(el => {
+      const dateStr = el.getAttribute('data-deadline');
+      if (dateStr) {
+        const cd = calculateCountdown(dateStr);
+        el.textContent = cd.text;
+        if (cd.isUrgent) {
+          el.className = 'countdown-badge text-[11px] font-mono px-2 py-0.5 rounded-md font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20';
+        }
+      }
+    });
+  }
+
+  // Movimentação do Deal entre colunas ("← voltar" / "avançar →")
+  async function moveDealStage(dealId, direction) {
+    const card = document.getElementById(`deal-card-${dealId}`);
+    if (!card) return;
+
+    const currentStage = card.getAttribute('data-current-stage');
+    const currentIndex = STAGES.indexOf(currentStage);
+    if (currentIndex === -1) return;
+
+    let targetIndex = direction === 'next' ? currentIndex + 1 : currentIndex - 1;
+    if (targetIndex < 0 || targetIndex >= STAGES.length) return;
+
+    const targetStage = STAGES[targetIndex];
+
+    try {
+      // Feedback visual rápido de carregamento
+      card.classList.add('opacity-50', 'pointer-events-none');
+
+      const resp = await fetch(`/api/deals/${dealId}/stage`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stage: targetStage })
+      });
+
+      if (!resp.ok) {
+        throw new Error('Falha ao mover estágio.');
+      }
+
+      const updatedDeal = await resp.json();
+
+      // Mover card no DOM
+      moveCardDom(card, targetStage);
+      updateColumnCounts();
+      showToast(`Negócio movido para ${targetStage.toUpperCase()}!`, 'success');
+
+    } catch (err) {
+      showToast('Erro ao atualizar estágio do negócio.', 'error');
+    } finally {
+      card.classList.remove('opacity-50', 'pointer-events-none');
+    }
+  }
+
+  function moveCardDom(card, newStage) {
+    card.setAttribute('data-current-stage', newStage);
+    
+    // Atualizar botões de navegação no próprio card
+    const prevBtn = card.querySelector('.btn-prev-stage');
+    const nextBtn = card.querySelector('.btn-next-stage');
+
+    const index = STAGES.indexOf(newStage);
+    if (prevBtn) {
+      if (index === 0) {
+        prevBtn.classList.add('hidden');
+      } else {
+        prevBtn.classList.remove('hidden');
+      }
+    }
+    if (nextBtn) {
+      if (index === STAGES.length - 1) {
+        nextBtn.classList.add('hidden');
+      } else {
+        nextBtn.classList.remove('hidden');
+      }
+    }
+
+    const targetContainer = document.getElementById(`cards-${newStage}`);
+    if (targetContainer) {
+      // Remover mensagem de vazio se houver
+      const emptyMsg = targetContainer.querySelector('.empty-state');
+      if (emptyMsg) emptyMsg.remove();
+      targetContainer.prepend(card);
+    }
+  }
+
+  function updateColumnCounts() {
+    let total = 0;
+    STAGES.forEach(st => {
+      const colContainer = document.getElementById(`cards-${st}`);
+      const cards = colContainer ? colContainer.querySelectorAll('.kanban-card') : [];
+      const countEl = document.getElementById(`count-${st}`);
+      if (countEl) {
+        countEl.textContent = cards.length;
+      }
+      total += cards.length;
+
+      // Se ficou vazio, adicionar placeholder
+      if (cards.length === 0 && colContainer && !colContainer.querySelector('.empty-state')) {
+        colContainer.innerHTML = `
+          <div class="empty-state text-center py-10 px-2 text-slate-500 text-xs border border-dashed border-slate-800 rounded-xl">
+            <i class="fa-solid fa-inbox text-xl text-slate-600 block mb-2"></i>
+            Nenhum certame neste estágio
+          </div>
+        `;
+      }
+    });
+
+    const totalEl = document.getElementById('kanban-total-deals');
+    if (totalEl) totalEl.textContent = total;
+  }
+
+  // Excluir Deal
+  async function deleteDeal(dealId) {
+    if (!confirm('Deseja remover este negócio do seu funil comercial?')) return;
+    try {
+      const resp = await fetch(`/api/deals/${dealId}`, { method: 'DELETE' });
+      if (resp.ok) {
+        const card = document.getElementById(`deal-card-${dealId}`);
+        if (card) {
+          card.remove();
+          updateColumnCounts();
+          showToast('Negócio removido do funil.', 'info');
+        }
+      }
+    } catch {
+      showToast('Erro ao remover negócio.', 'error');
+    }
+  }
+
+  // Filtro de cards em tempo real
+  function filterKanbanCards() {
+    const query = (document.getElementById('kanban-search-input').value || '').toLowerCase().trim();
+    document.querySelectorAll('.kanban-card').forEach(card => {
+      const text = card.textContent.toLowerCase();
+      if (!query || text.includes(query)) {
+        card.style.display = 'block';
+      } else {
+        card.style.display = 'none';
+      }
+    });
+  }
+
+  // Drag and Drop Nativo
+  let draggedDealId = null;
+
+  function handleDragStart(ev, dealId, currentStage) {
+    draggedDealId = dealId;
+    ev.dataTransfer.setData('text/plain', dealId);
+    ev.dataTransfer.effectAllowed = 'move';
+  }
+
+  function allowDrop(ev) {
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = 'move';
+  }
+
+  async function handleDrop(ev, targetStage) {
+    ev.preventDefault();
+    const dealId = ev.dataTransfer.getData('text/plain') || draggedDealId;
+    if (!dealId) return;
+
+    const card = document.getElementById(`deal-card-${dealId}`);
+    if (!card) return;
+
+    const currentStage = card.getAttribute('data-current-stage');
+    if (currentStage === targetStage) return;
+
+    try {
+      const resp = await fetch(`/api/deals/${dealId}/stage`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stage: targetStage })
+      });
+      if (resp.ok) {
+        moveCardDom(card, targetStage);
+        updateColumnCounts();
+        showToast(`Negócio movido para ${targetStage.toUpperCase()}!`, 'success');
+      }
+    } catch {
+      showToast('Erro ao mover cartão.', 'error');
+    }
+  }
+
+  async function refreshKanban() {
+    const icon = document.getElementById('refresh-icon');
+    if (icon) icon.classList.add('fa-spin');
+    window.location.reload();
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    updateCountdowns();
+    setInterval(updateCountdowns, 60000);
+  });
+</script>
+{% endblock %}

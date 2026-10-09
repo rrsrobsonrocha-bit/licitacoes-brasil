@@ -83,6 +83,9 @@
           <a href="/juridico" class="text-slate-200 hover:text-white transition flex items-center gap-1.5">
             <i class="fa-solid fa-gavel text-amber-400"></i> Peças Jurídicas
           </a>
+          <a href="/documentos" class="text-slate-200 hover:text-white transition flex items-center gap-1.5">
+            <i class="fa-solid fa-vault text-emerald-400"></i> Cofre de Documentos
+          </a>
           <a href="/alerts" class="text-slate-200 hover:text-white transition flex items-center gap-1.5">
             <i class="fa-solid fa-bell text-sky-400"></i> Alertas
           </a>
@@ -214,6 +217,15 @@
         <div class="flex items-center gap-3">
           <i class="fa-solid fa-gavel text-amber-400 w-5 text-center"></i>
           <span>Peças Jurídicas</span>
+        </div>
+        <i class="fa-solid fa-chevron-right text-xs text-slate-500"></i>
+      </a>
+
+      <!-- 8.1 Cofre de Documentos -->
+      <a href="/documentos" data-route="/cofre" class="flex items-center justify-between px-3 py-2.5 rounded-xl text-slate-200 hover:text-white hover:bg-slate-800/80 transition">
+        <div class="flex items-center gap-3">
+          <i class="fa-solid fa-vault text-emerald-400 w-5 text-center"></i>
+          <span>Cofre de Documentos</span>
         </div>
         <i class="fa-solid fa-chevron-right text-xs text-slate-500"></i>
       </a>
@@ -394,6 +406,9 @@
       } else if (href === '/pecas-juridicas') {
         e.preventDefault();
         window.location.href = '/juridico';
+      } else if (href === '/cofre') {
+        e.preventDefault();
+        window.location.href = '/documentos';
       } else if (href === '/logout') {
         e.preventDefault();
         handleAuthAction();

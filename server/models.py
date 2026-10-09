@@ -1,7 +1,8 @@
 import uuid
 from datetime import datetime, date, timedelta, timezone
+from typing import List, Optional
 from sqlalchemy import (
-    Column, String, Text, Integer, Float, Boolean, DateTime,
+    Column, String, Text, Integer, Float, Boolean, DateTime, Date,
     ForeignKey, UniqueConstraint, Index, JSON
 )
 from sqlalchemy.orm import relationship
@@ -449,3 +450,80 @@ class HistoricoDisputa(Base):
     autor = Column(String(100), default="Robô LicitaçõesBrasil")
     detalhes = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
+# ==============================================================================
+# COFRE DE DOCUMENTOS DE HABILITAÇÃO DA EMPRESA
+# ==============================================================================
+
+# Categorias alinhadas aos grupos de habilitação do art. 62 da Lei 14.133/2021.
+DOCUMENTO_CATEGORIAS = {
+    "juridica": "Habilitação Jurídica",
+    "fiscal": "Regularidade Fiscal, Social e Trabalhista",
+    "economica": "Qualificação Econômico-Financeira",
+    "tecnica": "Qualificação Técnica",
+    "declaracoes": "Declarações",
+    "outros": "Outros",
+}
+
+# Limiar (em dias) a partir do qual um documento passa a "A VENCER" (badge amarelo).
+DOCUMENTO_DIAS_ALERTA = 15
+
+DOCUMENTO_STATUS_VALIDO = "VALIDO"
+DOCUMENTO_STATUS_A_VENCER = "A_VENCER"
+DOCUMENTO_STATUS_VENCIDO = "VENCIDO"
+DOCUMENTO_STATUS_SEM_VALIDADE = "SEM_VALIDADE"
+
+
+def hoje_sao_paulo() -> date:
+    """Data corrente no fuso oficial America/Sao_Paulo (referência para validade documental)."""
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo("America/Sao_Paulo")).date()
+    except Exception:
+        return datetime.now(timezone(timedelta(hours=-3))).date()
+
+
+class DocumentoEmpresa(Base):
+    __tablename__ = "documentos_empresa"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    nome = Column(String(255), nullable=False, index=True)
+    categoria = Column(String(50), nullable=False, index=True)  # chave de DOCUMENTO_CATEGORIAS
+    data_emissao = Column(Date, nullable=False)
+    data_validade = Column(Date, nullable=True, index=True)  # None = sem vencimento (ex.: contrato social)
+    caminho_arquivo = Column(String(1000), nullable=False)
+    tags_habilitacao = Column(String(500), nullable=True)  # lista separada por vírgulas
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    @property
+    def categoria_label(self) -> str:
+        return DOCUMENTO_CATEGORIAS.get(self.categoria, self.categoria or "Outros")
+
+    @property
+    def tags(self) -> List[str]:
+        if not self.tags_habilitacao:
+            return []
+        return [t.strip() for t in self.tags_habilitacao.split(",") if t.strip()]
+
+    def dias_restantes(self, hoje: Optional[date] = None) -> Optional[int]:
+        """Dias corridos até o vencimento (negativo se vencido; None se sem validade)."""
+        if not self.data_validade:
+            return None
+        ref = hoje or hoje_sao_paulo()
+        return (self.data_validade - ref).days
+
+    def status_validade(self, hoje: Optional[date] = None) -> str:
+        """VALIDO (>15 dias), A_VENCER (0 a 15 dias), VENCIDO (<0) ou SEM_VALIDADE."""
+        dias = self.dias_restantes(hoje)
+        if dias is None:
+            return DOCUMENTO_STATUS_SEM_VALIDADE
+        if dias < 0:
+            return DOCUMENTO_STATUS_VENCIDO
+        if dias <= DOCUMENTO_DIAS_ALERTA:
+            return DOCUMENTO_STATUS_A_VENCER
+        return DOCUMENTO_STATUS_VALIDO
+
+    def is_valido(self, hoje: Optional[date] = None) -> bool:
+        return self.status_validade(hoje) != DOCUMENTO_STATUS_VENCIDO

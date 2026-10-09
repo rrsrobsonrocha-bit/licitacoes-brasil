@@ -7,13 +7,14 @@ import asyncio
 from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
 from typing import Optional, List, Dict, Any, Union
-from fastapi import FastAPI, Depends, HTTPException, status, Query, Request, Body
+from fastapi import FastAPI, Depends, HTTPException, status, Query, Request, Body, Form, File, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import func, text
+from pydantic import BaseModel, Field
 
 # Garantir importações locais
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -25,7 +26,8 @@ from server.models import (
     Favorite, UserNote, SavedSearch, Alert, AlertDelivery,
     TenderChange, DocumentExtraction, AIAnalysis, SearchHistory,
     WebhookDispatchLog, Deal, DEAL_STAGES, DEAL_STAGE_LABELS,
-    LegalDocumentTemplate, SupplierProspect, generate_uuid
+    LegalDocumentTemplate, SupplierProspect, generate_uuid,
+    DocumentoEmpresa, DOCUMENTO_CATEGORIAS, DOCUMENTO_DIAS_ALERTA, hoje_sao_paulo
 )
 from server.schemas import (
     UserRegisterRequest, UserLoginRequest, PasswordChangeRequest,
@@ -52,6 +54,16 @@ from server.seed_data import seed_database
 from server.integrations.opportunity_collector import sync_procurement_opportunities
 from server.migrate import run_db_migrations
 from server.services.dispute_monitor import dispute_monitor, PregaoItem
+from server.services.portal_collector import (
+    classificar_natureza_certame, NATUREZAS_OBJETO, NATUREZA_LABELS
+)
+from server.services.pdf_generator import (
+    gerar_peticao_pdf, normalizar_lei, slug_arquivo, PeticaoInvalidaError
+)
+from server.services.kit_builder import (
+    montar_kit_habilitacao_zip, nome_arquivo_kit, KitHabilitacaoError
+)
+from server.services import document_vault
 
 # Fuso horário oficial para prazos e agenda
 try:
@@ -297,10 +309,31 @@ async def on_shutdown():
 # ==============================================================================
 
 @app.get("/", response_class=HTMLResponse)
-def page_home(request: Request, db: Session = Depends(get_db)):
-    recent_tenders = db.query(Tender).order_by(Tender.publication_date.desc()).limit(6).all()
+def page_home(
+    request: Request,
+    natureza: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    natureza_sel = (natureza or "").strip().upper()
+    if natureza_sel not in NATUREZAS_OBJETO:
+        natureza_sel = ""
+
+    # Janela recente classificada lexicamente (MATERIAL / SERVICO / OUTROS)
+    candidatos = db.query(Tender).order_by(Tender.publication_date.desc()).limit(300).all()
+    classificados = [
+        (t, classificar_natureza_certame(t.title, t.object_description)) for t in candidatos
+    ]
+    natureza_counts = {n: 0 for n in NATUREZAS_OBJETO}
+    for _, nat in classificados:
+        natureza_counts[nat] += 1
+
+    selecionados = [(t, nat) for t, nat in classificados if not natureza_sel or nat == natureza_sel][:6]
     return templates.TemplateResponse(request, "index.html", {
-        "recent_tenders": recent_tenders
+        "recent_tenders": [t for t, _ in selecionados],
+        "naturezas_por_id": {t.id: nat for t, nat in selecionados},
+        "natureza_labels": NATUREZA_LABELS,
+        "natureza_counts": natureza_counts,
+        "natureza_sel": natureza_sel
     })
 
 @app.get("/search", response_class=HTMLResponse)
@@ -562,6 +595,10 @@ def page_juridico(
     q: Optional[str] = Query(None),
     tipo: Optional[str] = Query(None),
     nova_lei_only: Optional[bool] = Query(None),
+    orgao: Optional[str] = Query(None),
+    numero_certame: Optional[str] = Query(None),
+    objeto: Optional[str] = Query(None),
+    tender_id: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
     user = get_current_user(request, db)
@@ -601,7 +638,35 @@ def page_juridico(
             "q": q or "",
             "tipo": tipo or "",
             "nova_lei_only": bool(nova_lei_only),
-            "counts": counts
+            "counts": counts,
+            "certame_prefill": {
+                "orgao": (orgao or "").strip()[:500],
+                "numero_certame": (numero_certame or "").strip()[:255],
+                "objeto": (objeto or "").strip()[:1000],
+                "tender_id": (tender_id or "").strip()[:64]
+            }
+        }
+    )
+
+@app.get("/documentos", response_class=HTMLResponse)
+def page_documentos(request: Request, db: Session = Depends(get_db)):
+    hoje = hoje_sao_paulo()
+    docs = db.query(DocumentoEmpresa).order_by(
+        DocumentoEmpresa.data_validade.is_(None),
+        DocumentoEmpresa.data_validade.asc(),
+        DocumentoEmpresa.nome.asc()
+    ).all()
+    serializados = [document_vault.serializar_documento(d, hoje) for d in docs]
+    return templates.TemplateResponse(
+        request,
+        "documentos.html",
+        {
+            "documentos": serializados,
+            "resumo": document_vault.resumo_validade(serializados),
+            "categorias": DOCUMENTO_CATEGORIAS,
+            "dias_alerta": DOCUMENTO_DIAS_ALERTA,
+            "hoje": hoje.isoformat(),
+            "max_mb": document_vault.DOCUMENTO_MAX_BYTES // (1024 * 1024)
         }
     )
 
@@ -1922,6 +1987,213 @@ async def api_render_legal_template(
             "objeto": target_objeto
         }
     }
+
+# ----------------- Geração Jurídica em PDF -----------------
+
+class LicitantePDF(BaseModel):
+    razao_social: Optional[str] = Field(None, max_length=255)
+    cnpj: Optional[str] = Field(None, max_length=32)
+    endereco: Optional[str] = Field(None, max_length=500)
+    representante: Optional[str] = Field(None, max_length=255)
+    cargo: Optional[str] = Field(None, max_length=120)
+    cpf: Optional[str] = Field(None, max_length=20)
+    email: Optional[str] = Field(None, max_length=255)
+    telefone: Optional[str] = Field(None, max_length=40)
+
+
+class GerarPeticaoPDFRequest(BaseModel):
+    template_id: Optional[int] = None
+    tender_id: Optional[str] = Field(None, max_length=64)
+    titulo: Optional[str] = Field(None, max_length=255)
+    corpo: Optional[str] = Field(None, max_length=60000)
+    orgao: Optional[str] = Field(None, max_length=500)
+    numero_certame: Optional[str] = Field(None, max_length=255)
+    numero_edital: Optional[str] = Field(None, max_length=255)
+    objeto: Optional[str] = Field(None, max_length=2000)
+    lei: Optional[str] = Field(None, max_length=32)
+    fundamentacao: Optional[str] = Field(None, max_length=500)
+    cidade: Optional[str] = Field(None, max_length=120)
+    licitante: Optional[LicitantePDF] = None
+
+
+@app.post("/api/juridico/gerar-pdf")
+def api_juridico_gerar_pdf(payload: GerarPeticaoPDFRequest, db: Session = Depends(get_db)):
+    """
+    Compila a petição em PDF timbrado LicitaçõesBrasil.
+    O texto vem de `corpo` (editado no modal) ou do modelo `template_id`; os dados do
+    certame podem ser informados diretamente ou herdados de `tender_id`.
+    """
+    tmpl = None
+    if payload.template_id is not None:
+        tmpl = db.query(LegalDocumentTemplate).filter(LegalDocumentTemplate.id == payload.template_id).first()
+        if not tmpl:
+            raise HTTPException(status_code=404, detail="Modelo de peça jurídica não encontrado.")
+
+    corpo = (payload.corpo or "").strip() or (tmpl.corpo if tmpl else "")
+    if not corpo.strip():
+        raise HTTPException(status_code=422, detail="Informe `template_id` ou o `corpo` da petição.")
+
+    orgao = payload.orgao
+    numero = payload.numero_certame or payload.numero_edital
+    objeto = payload.objeto
+    if payload.tender_id:
+        t = db.query(Tender).filter(
+            (Tender.id == payload.tender_id) | (Tender.external_id == payload.tender_id)
+        ).first()
+        if t:
+            orgao = orgao or t.contracting_entity
+            numero = numero or t.notice_number or t.external_id
+            objeto = objeto or t.title
+
+    lei = normalizar_lei(payload.lei) if payload.lei else normalizar_lei(tmpl.is_nova_lei if tmpl else True)
+    fundamentacao = payload.fundamentacao or (tmpl.fundamentacao_legal if tmpl else None)
+    titulo = payload.titulo or (tmpl.titulo if tmpl else "Petição Administrativa")
+    tipo_label = serialize_legal_template(tmpl)["tipo_label"] if tmpl else None
+
+    try:
+        pdf_bytes = gerar_peticao_pdf(
+            corpo=corpo,
+            orgao=orgao,
+            numero_certame=numero,
+            objeto=objeto,
+            titulo=titulo,
+            tipo_label=tipo_label,
+            lei=lei,
+            fundamentacao=fundamentacao,
+            licitante=payload.licitante.model_dump() if payload.licitante else None,
+            cidade=payload.cidade
+        )
+    except PeticaoInvalidaError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    filename = f"{slug_arquivo(tmpl.tipo if tmpl else 'peticao', numero or 'certame')}.pdf"
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(len(pdf_bytes)),
+            "Cache-Control": "no-store"
+        }
+    )
+
+# ----------------- Cofre de Documentos de Habilitação -----------------
+
+@app.get("/api/documentos")
+def api_listar_documentos(
+    status_filtro: Optional[str] = Query(None, alias="status"),
+    categoria: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """Lista documentos do cofre com dias restantes e status de validade calculados (fuso America/Sao_Paulo)."""
+    hoje = hoje_sao_paulo()
+    query = db.query(DocumentoEmpresa)
+    if categoria:
+        query = query.filter(DocumentoEmpresa.categoria == categoria.lower())
+    docs = query.order_by(
+        DocumentoEmpresa.data_validade.is_(None),
+        DocumentoEmpresa.data_validade.asc(),
+        DocumentoEmpresa.nome.asc()
+    ).all()
+    itens = [document_vault.serializar_documento(d, hoje) for d in docs]
+    if status_filtro:
+        itens = [i for i in itens if i["status"] == status_filtro.upper()]
+    return {
+        "hoje": hoje.isoformat(),
+        "dias_alerta": DOCUMENTO_DIAS_ALERTA,
+        "resumo": document_vault.resumo_validade(itens),
+        "items": itens
+    }
+
+
+@app.post("/api/documentos", status_code=status.HTTP_201_CREATED)
+async def api_upload_documento(
+    nome: str = Form(...),
+    categoria: str = Form(...),
+    data_emissao: str = Form(...),
+    data_validade: Optional[str] = Form(None),
+    tags_habilitacao: Optional[str] = Form(None),
+    arquivo: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
+    """Recebe um PDF de habilitação, grava em uploads/documentos/ e persiste os metadados no SQLite."""
+    try:
+        meta = document_vault.validar_metadados(nome, categoria, data_emissao, data_validade)
+        conteudo = await arquivo.read(document_vault.DOCUMENTO_MAX_BYTES + 1)
+        document_vault.validar_conteudo_pdf(arquivo.filename, conteudo)
+    except document_vault.DocumentoInvalidoError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    finally:
+        await arquivo.close()
+
+    caminho = document_vault.salvar_pdf_no_cofre(conteudo, meta["nome"])
+    doc = DocumentoEmpresa(
+        nome=meta["nome"],
+        categoria=meta["categoria"],
+        data_emissao=meta["data_emissao"],
+        data_validade=meta["data_validade"],
+        caminho_arquivo=caminho,
+        tags_habilitacao=document_vault.normalizar_tags(tags_habilitacao),
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow()
+    )
+    try:
+        db.add(doc)
+        db.commit()
+        db.refresh(doc)
+    except Exception:
+        db.rollback()
+        document_vault.remover_arquivo_documento(caminho)
+        raise HTTPException(status_code=500, detail="Falha ao registrar o documento no cofre.")
+    return document_vault.serializar_documento(doc)
+
+
+@app.get("/api/documentos/{documento_id}/arquivo")
+def api_baixar_documento(documento_id: int, db: Session = Depends(get_db)):
+    doc = db.query(DocumentoEmpresa).filter(DocumentoEmpresa.id == documento_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Documento não encontrado.")
+    caminho = document_vault.resolver_caminho_documento(doc.caminho_arquivo)
+    if not caminho or not caminho.is_file():
+        raise HTTPException(status_code=404, detail="Arquivo físico não localizado no cofre.")
+    return FileResponse(
+        str(caminho),
+        media_type="application/pdf",
+        filename=f"{document_vault.slugify(doc.nome, 80)}.pdf"
+    )
+
+
+@app.delete("/api/documentos/{documento_id}")
+def api_excluir_documento(documento_id: int, db: Session = Depends(get_db)):
+    doc = db.query(DocumentoEmpresa).filter(DocumentoEmpresa.id == documento_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Documento não encontrado.")
+    caminho = doc.caminho_arquivo
+    db.delete(doc)
+    db.commit()
+    arquivo_removido = document_vault.remover_arquivo_documento(caminho)
+    return {"status": "success", "id": documento_id, "arquivo_removido": arquivo_removido}
+
+# ----------------- Kit de Habilitação (ZIP) -----------------
+
+@app.get("/api/tenders/{tender_id}/download-kit-zip")
+def api_download_kit_habilitacao(tender_id: str, db: Session = Depends(get_db)):
+    """Empacota os documentos válidos do cofre + Relatorio_Conformidade.pdf para o certame."""
+    try:
+        zip_bytes = montar_kit_habilitacao_zip(tender_id, db=db)
+    except KitHabilitacaoError:
+        raise HTTPException(status_code=404, detail="Licitação não encontrada.")
+    tender = db.query(Tender).filter((Tender.id == tender_id) | (Tender.external_id == tender_id)).first()
+    filename = nome_arquivo_kit(tender)
+    return StreamingResponse(
+        io.BytesIO(zip_bytes),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(len(zip_bytes)),
+            "Cache-Control": "no-store"
+        }
+    )
 
 @app.post("/api/tenders/{tender_id}/ai-summary")
 async def api_tender_ai_summary(

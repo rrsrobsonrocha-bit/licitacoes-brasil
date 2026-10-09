@@ -51,6 +51,16 @@
         <a href="{{ detail.tender.url_pncp or detail.tender.link_pncp or detail.tender.source_url }}" target="_blank" rel="noopener noreferrer" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow-sm">
           <i class="fa-solid fa-landmark text-sky-400 text-xs"></i> PNCP Oficial
         </a>
+        <button
+          type="button"
+          id="btn-baixar-kit-zip"
+          data-kit-url="/api/tenders/{{ detail.tender.id }}/download-kit-zip"
+          onclick="baixarKitHabilitacao(this)"
+          class="bg-amber-500 hover:bg-amber-400 text-slate-950 px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm border border-amber-400/40 cursor-pointer"
+          title="Documentos válidos do Cofre + Relatório de Conformidade (PDF)"
+        >
+          <i class="fa-solid fa-file-zipper text-xs"></i> Baixar Kit de Habilitação (ZIP)
+        </button>
       </div>
     </div>
 
@@ -505,6 +515,39 @@
 
 {% block scripts %}
 <script>
+  async function baixarKitHabilitacao(botao) {
+    const url = botao.getAttribute('data-kit-url');
+    const original = botao.innerHTML;
+    botao.disabled = true;
+    botao.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-xs"></i> Montando kit...';
+    try {
+      const resp = await fetch(url);
+      if (!resp.ok) {
+        let msg = 'Não foi possível montar o kit de habilitação.';
+        try { const err = await resp.json(); if (err && typeof err.detail === 'string') msg = err.detail; } catch (e) {}
+        throw new Error(msg);
+      }
+      const blob = await resp.blob();
+      const cd = resp.headers.get('Content-Disposition') || '';
+      const m = cd.match(/filename="?([^";]+)"?/i);
+      const nome = m ? m[1] : 'Kit_Habilitacao.zip';
+      const href = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = href;
+      a.download = nome;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(href), 1500);
+      showToast(`Kit ${nome} pronto. Confira o Relatório de Conformidade incluso.`, 'success');
+    } catch (e) {
+      showToast(e.message || 'Falha ao baixar o kit.', 'error');
+    } finally {
+      botao.disabled = false;
+      botao.innerHTML = original;
+    }
+  }
+
   function switchTab(tabName) {
     const tabs = ['overview', 'items', 'documents', 'ai', 'changes', 'notes'];
     tabs.forEach(t => {
