@@ -81,8 +81,8 @@ class Tender(Base):
     sicaf_ready = Column(Boolean, default=False, nullable=False, index=True) # True se for do Compras.gov.br para permitir lances via SICAF
     link_comprasnet = Column(String(1000), nullable=True) # URL de acesso direto/sala de disputa
     link_pncp = Column(String(1000), nullable=True) # URL do termo/edital no PNCP
-    url_disputa = Column(String(1000), nullable=True # URL oficial da sala de disputa / portal de origem
-    url_pncp = Column(String(1000), nullable=True # URL canônica pública do PNCP (/{cnpj}/{ano}/{sequencial})
+    url_disputa = Column(String(1000), nullable=True) # URL oficial da sala de disputa / portal de origem
+    url_pncp = Column(String(1000), nullable=True) # URL canônica pública do PNCP (/{cnpj}/{ano}/{sequencial})
     fonte_portal = Column(String(100), default="PNCP", nullable=True, index=True) # Portal de origem: PNCP, Compras.gov.br, BNC, etc.
     link_edital_oficial = Column(String(1000), nullable=True) # Link direto para download do edital nos portais oficiais
     ai_resumo = Column(Text, nullable=True) # Resumo executivo estruturado gerado via IA Gemini
