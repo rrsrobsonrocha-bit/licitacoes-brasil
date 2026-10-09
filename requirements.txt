@@ -3,7 +3,8 @@ uvicorn[standard]
 jinja2
 python-multipart
 reportlab
-pydantic
+pydantic[email]
+email-validator
 google-genai
 sqlalchemy
 aiosqlite
