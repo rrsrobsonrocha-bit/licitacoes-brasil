@@ -5,4 +5,6 @@ python-multipart
 reportlab
 pydantic
 google-genai
+sqlalchemy
+aiosqlite
 pytest
