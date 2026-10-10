@@ -3152,6 +3152,7 @@ def api_list_sources():
 # AGENDADOR AUTOMATICO DE OPORTUNIDADES A CADA 2 HORAS
 # ==========================================================
 from server.services.portal_collector import PortalCollectorService
+from server.database import SessionLocal
 
 # Referências fortes às tarefas de background (evita coleta pelo GC e permite cancelar no shutdown)
 _background_tasks: set = set()
@@ -3172,8 +3173,19 @@ async def loop_coleta_automatica():
         try:
             print("[AUTO-COLETA] Iniciando busca automatica de oportunidades no PNCP...")
             collector = PortalCollectorService()
-            resultado = await collector.collect_all()
-            print(f"[AUTO-COLETA] Concluido: {len(resultado)} oportunidades coletadas.")
+            db = SessionLocal()
+            try:
+                # Somente dados reais do PNCP: sem catalogo de contingencia na coleta automatica
+                resultado = await collector.sync_pipeline(
+                    sources=["PNCP"], db_session=db, use_fallback=False
+                )
+            finally:
+                db.close()
+            print(
+                f"[AUTO-COLETA] Concluido: {resultado.get('total_collected', 0)} coletadas, "
+                f"{resultado.get('persisted_tenders', 0)} gravadas/atualizadas, "
+                f"erros: {resultado.get('errors') or 'nenhum'}"
+            )
         except asyncio.CancelledError:
             raise
         except Exception as e:

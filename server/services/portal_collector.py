@@ -379,7 +379,8 @@ class PortalCollectorService:
         ufs: Optional[List[str]] = None,
         keywords: Optional[str] = None,
         rate_limit_delay: float = 0.1,
-        db_session: Optional[Any] = None
+        db_session: Optional[Any] = None,
+        use_fallback: bool = True
     ) -> Dict[str, Any]:
         """
         Fila assíncrona de sincronização multifonte com controle estrito de rate-limit,
@@ -407,7 +408,7 @@ class PortalCollectorService:
                     portal_items = await self.fetch_state_and_private_portals(portal, keywords=keywords)
 
                 # Se falhar ou estiver vazio na consulta online, mescla com itens correspondentes do catálogo
-                if not portal_items:
+                if not portal_items and use_fallback:
                     portal_items = [
                         it for it in FALLBACK_MULTISOURCE_CATALOG
                         if portal.lower() in it.get("fonte_portal", "").lower()
@@ -425,7 +426,7 @@ class PortalCollectorService:
                 errors.append(err_msg)
 
         # Se tudo estiver vazio por ausência de rede, assegura os itens do catálogo completo
-        if not collected_map:
+        if not collected_map and use_fallback:
             for item in FALLBACK_MULTISOURCE_CATALOG:
                 collected_map[item["external_id"]] = item
                 p_name = item.get("fonte_portal", "PNCP")

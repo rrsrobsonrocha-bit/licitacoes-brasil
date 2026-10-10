@@ -1,12 +1,5 @@
 # Dockerfile for Licitações Brasil
-# Multi-stage production build
-
-FROM node:22-alpine AS nextjs-builder
-WORKDIR /app
-COPY package*.json ./
-RUN npm install
-COPY . .
-RUN npm run build || true
+# Imagem de produção (FastAPI + uvicorn)
 
 FROM python:3.12-slim AS runner
 WORKDIR /app
