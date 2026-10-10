@@ -4,6 +4,7 @@ import json
 import csv
 import io
 import asyncio
+import logging
 from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
 from typing import Optional, List, Dict, Any, Union
@@ -12,6 +13,9 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, Fil
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 from sqlalchemy import func, text
 from pydantic import BaseModel, Field
@@ -208,6 +212,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+logger = logging.getLogger("licitacoes.api")
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(request: Request, exc: RequestValidationError):
+    """Nas rotas jurídicas, devolve `detail` como texto amigável (o front exibe direto); demais rotas mantêm o padrão do FastAPI."""
+    if not request.url.path.startswith("/api/juridico/"):
+        return await request_validation_exception_handler(request, exc)
+    erros = exc.errors()
+    if erros and erros[0].get("loc") and list(erros[0]["loc"]) == ["body"]:
+        mensagem = "Envie os dados da petição em JSON (o corpo da requisição veio vazio ou nulo)."
+    elif erros:
+        campo = ".".join(str(p) for p in erros[0].get("loc", []) if p != "body") or "requisição"
+        mensagem = f"Dado inválido no campo '{campo}': {erros[0].get('msg', 'valor não aceito')}."
+    else:
+        mensagem = "Dados inválidos para gerar o documento."
+    return JSONResponse(status_code=422, content={"detail": mensagem, "errors": jsonable_encoder(erros)})
 
 # Templates Jinja2
 templates_dir = os.path.join(os.path.dirname(__file__), "templates")
@@ -2025,7 +2046,7 @@ def serialize_legal_template(tmpl: LegalDocumentTemplate) -> Dict[str, Any]:
     return {
         "id": tmpl.id,
         "tipo": tmpl.tipo,
-        "tipo_label": tipo_label_map.get(tmpl.tipo, tmpl.tipo.capitalize()),
+        "tipo_label": tipo_label_map.get(tmpl.tipo, (tmpl.tipo or "Peça jurídica").capitalize()),
         "titulo": tmpl.titulo,
         "title": tmpl.titulo,
         "fundamentacao_legal": tmpl.fundamentacao_legal,
@@ -2098,6 +2119,9 @@ async def api_render_legal_template(
             payload = await request.json()
     except Exception:
         pass
+    if not isinstance(payload, dict):
+        # Corpo `null`, lista ou valor escalar: ignora e usa apenas os parâmetros de query
+        payload = {}
 
     target_tender_id = payload.get("tender_id") or tender_id
     target_orgao = payload.get("orgao") or orgao
@@ -2114,11 +2138,11 @@ async def api_render_legal_template(
             if not target_objeto:
                 target_objeto = t.title
 
-    target_orgao = target_orgao or "[ÓRGÃO COMPRADOR]"
-    target_numero = target_numero or "[NÚMERO DO EDITAL]"
-    target_objeto = target_objeto or "[OBJETO DA LICITAÇÃO]"
+    target_orgao = str(target_orgao or "[ÓRGÃO COMPRADOR]")
+    target_numero = str(target_numero or "[NÚMERO DO EDITAL]")
+    target_objeto = str(target_objeto or "[OBJETO DA LICITAÇÃO]")
 
-    rendered_corpo = tmpl.corpo
+    rendered_corpo = tmpl.corpo or ""
     rendered_corpo = rendered_corpo.replace("{{orgao}}", target_orgao)
     rendered_corpo = rendered_corpo.replace("{{numero_edital}}", target_numero)
     rendered_corpo = rendered_corpo.replace("{{objeto}}", target_objeto)
@@ -2213,6 +2237,13 @@ def api_juridico_gerar_pdf(payload: GerarPeticaoPDFRequest, db: Session = Depend
         )
     except PeticaoInvalidaError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+    except Exception:
+        logger.exception("Falha inesperada ao gerar PDF jurídico (template_id=%s, tender_id=%s)",
+                         payload.template_id, payload.tender_id)
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Não foi possível gerar o PDF agora. Revise o texto da petição e tente novamente."}
+        )
 
     filename = f"{slug_arquivo(tmpl.tipo if tmpl else 'peticao', numero or 'certame')}.pdf"
     return StreamingResponse(

@@ -35,8 +35,33 @@
         </div>
       </div>
 
-      <!-- Quick Filter Pills: Estados Prioritários -->
-      <div class="flex items-center gap-2 mb-4 overflow-x-auto pb-1 scrollbar-thin"><span class="text-xs font-semibold text-slate-400 whitespace-nowrap"><i class="fa-solid fa-bolt text-amber-400"></i> Estados:</span><a href="?" class="px-3 py-1 text-xs rounded-lg border transition font-medium whitespace-nowrap {% if not request.query_params.get('uf') and not request.query_params.get('state') %}bg-blue-600 border-blue-500 text-white{% else %}bg-slate-900 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700{% endif %}">Todos</a>{% for sigla in ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'] %}<a href="?uf={{ sigla }}" class="px-2.5 py-1 text-xs rounded-lg border transition font-medium whitespace-nowrap {% if request.query_params.get('uf') == sigla or request.query_params.get('state') == sigla %}bg-blue-600 border-blue-500 text-white font-bold{% else %}bg-slate-900 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700{% endif %}">{{ sigla }}</a>{% endfor %}</div>
+      <!-- Quick Filter Pills: todas as 27 UFs (preserva os demais filtros da busca) -->
+      {% set uf_ativa = (params.state or params.uf or '')|upper %}
+      {% set qs_uf_base = {} %}
+      {% for chave, valor in [
+        ('q', params.q), ('city', params.city), ('category', params.natureza or params.category),
+        ('modality', params.modality), ('status', params.status), ('administrative_sphere', params.administrative_sphere),
+        ('source_system', params.source_system), ('portal', params.portal), ('uasg_code', params.uasg_code),
+        ('value_min', params.value_min), ('value_max', params.value_max), ('date_from', params.date_from),
+        ('date_to', params.date_to), ('sort_by', params.sort_by), ('page_size', params.page_size)
+      ] %}
+        {% if valor is not none and valor != '' %}{% set _ = qs_uf_base.update({chave: valor}) %}{% endif %}
+      {% endfor %}
+      {% set chip_base = 'uf-chip shrink-0 snap-start px-2.5 py-1 text-xs rounded-lg border transition font-medium whitespace-nowrap focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400' %}
+      {% set chip_on = 'bg-blue-600 border-blue-500 text-white font-bold shadow-sm shadow-blue-600/30' %}
+      {% set chip_off = 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700' %}
+      <nav class="flex items-center gap-2 mb-4" aria-label="Filtrar por estado (UF)">
+        <span class="text-xs font-semibold text-slate-400 whitespace-nowrap"><i class="fa-solid fa-bolt text-amber-400" aria-hidden="true"></i> Estados:</span>
+        <button type="button" id="uf-scroll-left" onclick="scrollUfChips(-1)" aria-label="Rolar estados para a esquerda" aria-controls="uf-chips" class="hidden sm:flex shrink-0 w-7 h-7 items-center justify-center rounded-lg border border-slate-800 bg-slate-900 text-slate-400 hover:text-white hover:border-slate-700 disabled:opacity-30 disabled:cursor-default focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 transition"><i class="fa-solid fa-chevron-left text-[10px]" aria-hidden="true"></i></button>
+        <div id="uf-chips" role="list" class="relative flex-1 min-w-0 flex items-center gap-1.5 overflow-x-auto scroll-smooth snap-x snap-proximity overscroll-x-contain pb-1 scrollbar-thin">
+          <a role="listitem" href="?{{ qs_uf_base|urlencode }}" {% if not uf_ativa %}aria-current="true"{% endif %} title="Todos os estados" class="{{ chip_base }} px-3 {{ chip_on if not uf_ativa else chip_off }}">Todos</a>
+          {% for sigla, nome in UFS_BRASIL %}
+          {% set qs_chip = dict(qs_uf_base, uf=sigla) %}
+          <a role="listitem" href="?{{ qs_chip|urlencode }}" {% if uf_ativa == sigla %}aria-current="true"{% endif %} title="{{ nome }}" aria-label="{{ nome }} ({{ sigla }})" class="{{ chip_base }} {{ chip_on if uf_ativa == sigla else chip_off }}">{{ sigla }}</a>
+          {% endfor %}
+        </div>
+        <button type="button" id="uf-scroll-right" onclick="scrollUfChips(1)" aria-label="Rolar estados para a direita" aria-controls="uf-chips" class="hidden sm:flex shrink-0 w-7 h-7 items-center justify-center rounded-lg border border-slate-800 bg-slate-900 text-slate-400 hover:text-white hover:border-slate-700 disabled:opacity-30 disabled:cursor-default focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 transition"><i class="fa-solid fa-chevron-right text-[10px]" aria-hidden="true"></i></button>
+      </nav>
   </div>
 
   <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -455,7 +480,7 @@
         {% set qs_paginacao = {} %}
         {% for chave, valor in [
           ('q', params.q), ('uf', params.state or params.uf), ('city', params.city), ('category', params.natureza or params.category),
-          ('modality', params.modality), ('administrative_sphere', params.administrative_sphere),
+          ('modality', params.modality), ('status', params.status), ('administrative_sphere', params.administrative_sphere),
           ('source_system', params.source_system), ('portal', params.portal), ('uasg_code', params.uasg_code),
           ('value_min', params.value_min), ('value_max', params.value_max), ('date_from', params.date_from),
           ('date_to', params.date_to), ('sort_by', params.sort_by), ('page_size', params.page_size)
@@ -839,10 +864,16 @@
 {% block scripts %}
 <script>
   let currentDrawerTender = null;
+  // Identifica a abertura mais recente da gaveta; respostas de aberturas anteriores são descartadas
+  let drawerRequestSeq = 0;
 
   async function openTenderDrawer(tenderId) {
+    const requestSeq = ++drawerRequestSeq;
     const backdrop = document.getElementById('drawer-backdrop');
     const drawer = document.getElementById('tender-drawer');
+    currentDrawerTender = null;
+    document.getElementById('drawer-title').textContent = 'Carregando...';
+    document.getElementById('drawer-entity').textContent = '';
 
     backdrop.classList.remove('opacity-0', 'pointer-events-none');
     backdrop.classList.add('opacity-100');
@@ -859,6 +890,7 @@
       const resp = await fetch(`/api/tenders/${tenderId}`);
       if (!resp.ok) throw new Error('Falha ao carregar certame');
       const data = await resp.json();
+      if (requestSeq !== drawerRequestSeq) return;  // outra gaveta foi aberta nesse meio-tempo
       currentDrawerTender = data;
 
       // Badges
@@ -885,21 +917,19 @@
       document.getElementById('drawer-entity').textContent = data.contracting_entity || 'Órgão Não Informado';
       document.getElementById('drawer-title').textContent = data.title || 'Contratação Pública';
       document.getElementById('drawer-process').textContent = `Processo: ${data.process_number || 'Não informado'}`;
-      document.getElementById('drawer-notice').textContent = `Certame: ${data.notice_number || data.external_id}`;
-      document.getElementById('drawer-location').textContent = `Local: ${data.city || 'DF'} - ${data.state || 'DF'}`;
+      document.getElementById('drawer-notice').textContent = `Certame: ${data.notice_number || data.external_id || 'Não informado'}`;
+      document.getElementById('drawer-location').textContent = `Local: ${[data.city, data.state].filter(Boolean).join(' - ') || 'Não informado'}`;
 
       // Value
-      if (data.estimated_total_value) {
-        document.getElementById('drawer-value').textContent = Number(data.estimated_total_value).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-      } else {
-        document.getElementById('drawer-value').textContent = 'Valor sigiloso / A definir';
-      }
+      const valorTotal = toNumberOrNull(data.estimated_total_value);
+      document.getElementById('drawer-value').textContent = valorTotal ? formatBRL(valorTotal) : 'Valor sigiloso / A definir';
 
       // Dates
       const formatDt = (dtStr) => {
         if (!dtStr) return 'Não informado';
         try {
           const d = new Date(dtStr);
+          if (Number.isNaN(d.getTime())) return String(dtStr);
           return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
         } catch { return dtStr; }
       };
@@ -934,40 +964,117 @@
       filesBtn.href = docUrl;
 
       document.getElementById('drawer-link-full').href = `/tenders/${data.id}`;
-	try {
-  const itensResp = await fetch(`/api/tenders/${tenderId}/itens`);
-  if (itensResp.ok) {
-    const itensJson = await itensResp.json();
-    if (itensJson && Array.isArray(itensJson.itens) && itensJson.itens.length > 0) {
-      data.items = itensJson.itens;
-    }
-  }
-} catch (e) {}
-      // Items Table
-      const items = data.items || [];
-      document.getElementById('drawer-items-count').textContent = `${items.length} item(ns)`;
-      if (items.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-slate-400">Nenhum item individual cadastrado para este certame.</td></tr>';
-      } else {
-        tbody.innerHTML = items.map(item => `
-          <tr class="hover:bg-slate-800/50 transition">
-            <td class="py-2.5 px-3 font-bold text-sky-400">${item.item_number}</td>
-            <td class="py-2.5 px-3 text-slate-200 font-sans leading-snug">
-              <div class="line-clamp-2" title="${escapeHtml(item.description)}">${escapeHtml(item.description)}</div>
-              ${item.classification_code && item.classification_code !== 'Não informado' ? `<span class="text-[10px] text-slate-400 block font-mono mt-0.5">Cat: ${escapeHtml(item.classification_code)}</span>` : ''}
-            </td>
-            <td class="py-2.5 px-3 text-slate-300 font-bold">${item.quantity || 1}</td>
-            <td class="py-2.5 px-3 text-slate-400 text-[11px]">${escapeHtml(item.unit || 'UN')}</td>
-            <td class="py-2.5 px-3 text-right font-bold text-emerald-300">
-              ${(item.estimated_total_value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-            </td>
-          </tr>
-        `).join('');
-      }
+
+      // Itens detalhados do PNCP (carregamento independente: falha aqui não derruba a gaveta)
+      await loadDrawerItems(tenderId, data.items || [], requestSeq);
 
     } catch (err) {
-      tbody.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-rose-400"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Não foi possível carregar os detalhes do certame.</td></tr>';
+      if (requestSeq !== drawerRequestSeq) return;
+      document.getElementById('drawer-items-count').textContent = '—';
+      tbody.innerHTML = drawerItemsMessageRow('Não foi possível carregar os detalhes do certame. Verifique sua conexão.', 'error', tenderId);
     }
+  }
+
+  // ---------------- Itens da contratação (gaveta lateral) ----------------
+  const DRAWER_ITEMS_TIMEOUT_MS = 20000;
+
+  function toNumberOrNull(val) {
+    if (val === null || val === undefined || val === '') return null;
+    const str = String(val).trim();
+    // "1.234,56" (pt-BR) → 1234.56; "1234.56" segue como está
+    const n = typeof val === 'number' ? val : Number(str.includes(',') ? str.replace(/\./g, '').replace(',', '.') : str);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function formatBRL(val) {
+    const n = toNumberOrNull(val);
+    return n === null ? null : n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  }
+
+  function formatQuantity(val) {
+    const n = toNumberOrNull(val);
+    return n === null ? null : n.toLocaleString('pt-BR', { maximumFractionDigits: 4 });
+  }
+
+  function drawerItemsMessageRow(msg, tone = 'info', retryTenderId = null) {
+    const color = tone === 'error' ? 'text-rose-400' : tone === 'warn' ? 'text-amber-300' : 'text-slate-400';
+    const icon = tone === 'error' ? 'fa-triangle-exclamation' : tone === 'warn' ? 'fa-circle-exclamation' : 'fa-circle-info';
+    const retry = retryTenderId
+      ? ` <button type="button" onclick="loadDrawerItems('${escapeHtml(retryTenderId)}', [], drawerRequestSeq, true)" class="ml-2 underline text-sky-400 hover:text-sky-300 font-semibold cursor-pointer">Tentar novamente</button>`
+      : '';
+    return `<tr><td colspan="5" class="py-4 px-3 text-center font-sans ${color}"><i class="fa-solid ${icon} mr-1" aria-hidden="true"></i>${escapeHtml(msg)}${retry}</td></tr>`;
+  }
+
+  function renderDrawerItemRow(item, idx) {
+    const numero = item.item_number ?? (idx + 1);
+    const descricao = (item.description || '').trim() || 'Item sem descrição';
+    const qtd = formatQuantity(item.quantity);
+    const unidade = item.unit && item.unit !== 'Não informado' ? item.unit : null;
+    const total = formatBRL(item.estimated_total_value);
+    const unitario = formatBRL(item.estimated_unit_value);
+    const sigiloso = item.orcamento_sigiloso === true;
+    const valorHtml = total
+      ? `<span class="text-emerald-300 font-bold">${total}</span>${unitario && qtd ? `<span class="block text-[10px] text-slate-400 font-normal">${unitario} / un.</span>` : ''}`
+      : `<span class="text-slate-500 font-normal font-sans">${sigiloso ? 'Sigiloso' : 'Não informado'}</span>`;
+    const categoria = item.classification_code && item.classification_code !== 'Não informado'
+      ? `<span class="text-[10px] text-slate-400 block font-mono mt-0.5">Cat: ${escapeHtml(item.classification_code)}</span>` : '';
+    return `
+      <tr class="hover:bg-slate-800/50 transition align-top">
+        <td class="py-2.5 px-3 font-bold text-sky-400 whitespace-nowrap">${escapeHtml(numero)}</td>
+        <td class="py-2.5 px-3 text-slate-200 font-sans leading-snug min-w-[12rem] max-w-md break-words">
+          <div class="line-clamp-3" title="${escapeHtml(descricao)}">${escapeHtml(descricao)}</div>
+          ${categoria}
+        </td>
+        <td class="py-2.5 px-3 font-bold whitespace-nowrap ${qtd ? 'text-slate-300' : 'text-slate-500 font-normal'}">${qtd ? escapeHtml(qtd) : '—'}</td>
+        <td class="py-2.5 px-3 text-slate-400 text-[11px] whitespace-nowrap">${unidade ? escapeHtml(unidade) : '—'}</td>
+        <td class="py-2.5 px-3 text-right whitespace-nowrap">${valorHtml}</td>
+      </tr>`;
+  }
+
+  async function loadDrawerItems(tenderId, fallbackItems = [], requestSeq = drawerRequestSeq, forceRefresh = false) {
+    const tbody = document.getElementById('drawer-items-tbody');
+    const countEl = document.getElementById('drawer-items-count');
+    const isStale = () => requestSeq !== drawerRequestSeq;
+
+    tbody.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-slate-400 font-sans" aria-live="polite"><i class="fa-solid fa-spinner animate-spin mr-2" aria-hidden="true"></i>Consultando itens no PNCP...</td></tr>';
+    countEl.textContent = 'Carregando...';
+
+    let items = Array.isArray(fallbackItems) ? fallbackItems : [];
+    let aviso = null;
+    let falhou = false;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), DRAWER_ITEMS_TIMEOUT_MS);
+    try {
+      const resp = await fetch(`/api/tenders/${encodeURIComponent(tenderId)}/itens${forceRefresh ? '?atualizar=true' : ''}`, { signal: controller.signal });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const json = await resp.json();
+      if (json && Array.isArray(json.itens) && json.itens.length > 0) items = json.itens;
+      if (json && ['indisponivel', 'nao_encontrado', 'vazio', 'sem_identificador'].includes(json.status) && json.mensagem) {
+        aviso = json.mensagem;
+      }
+    } catch (e) {
+      falhou = true;
+      aviso = e.name === 'AbortError'
+        ? 'O PNCP demorou a responder.'
+        : 'Falha de rede ao consultar os itens no PNCP.';
+    } finally {
+      clearTimeout(timer);
+    }
+
+    if (isStale()) return;  // usuário já abriu outro certame
+
+    countEl.textContent = items.length ? `${items.length} item(ns)` : (falhou ? '—' : '0 itens');
+    if (items.length === 0) {
+      tbody.innerHTML = falhou
+        ? drawerItemsMessageRow(aviso, 'error', tenderId)
+        : drawerItemsMessageRow(aviso || 'Nenhum item individual cadastrado para este certame.');
+      return;
+    }
+
+    let html = items.map(renderDrawerItemRow).join('');
+    if (aviso) html = drawerItemsMessageRow(falhou ? `${aviso} Exibindo itens da base local.` : aviso, 'warn', falhou ? tenderId : null) + html;
+    tbody.innerHTML = html;
   }
 
   function closeTenderDrawer() {
@@ -1438,6 +1545,42 @@
     document.getElementById('drawer-chat-input').value = text;
     sendDrawerAiChat();
   }
+
+  // ---------------- Barra horizontal de UFs ----------------
+  function scrollUfChips(direction) {
+    const bar = document.getElementById('uf-chips');
+    if (bar) bar.scrollBy({ left: direction * Math.max(bar.clientWidth * 0.7, 120), behavior: 'smooth' });
+  }
+
+  function updateUfScrollButtons() {
+    const bar = document.getElementById('uf-chips');
+    const left = document.getElementById('uf-scroll-left');
+    const right = document.getElementById('uf-scroll-right');
+    if (!bar || !left || !right) return;
+    left.disabled = bar.scrollLeft <= 2;
+    right.disabled = bar.scrollLeft + bar.clientWidth >= bar.scrollWidth - 2;
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const bar = document.getElementById('uf-chips');
+    if (!bar) return;
+    // Mantém a UF selecionada visível ao carregar a página
+    const ativa = bar.querySelector('[aria-current="true"]');
+    if (ativa && ativa.offsetLeft + ativa.offsetWidth > bar.clientWidth) {
+      bar.scrollLeft = ativa.offsetLeft - (bar.clientWidth - ativa.offsetWidth) / 2;
+    }
+    // Roda do mouse vertical rola a barra na horizontal (desktop)
+    bar.addEventListener('wheel', (e) => {
+      const podeRolar = e.deltaY < 0 ? bar.scrollLeft > 0 : bar.scrollLeft + bar.clientWidth < bar.scrollWidth - 1;
+      if (Math.abs(e.deltaY) > Math.abs(e.deltaX) && podeRolar) {
+        e.preventDefault();
+        bar.scrollLeft += e.deltaY;
+      }
+    }, { passive: false });
+    bar.addEventListener('scroll', updateUfScrollButtons, { passive: true });
+    window.addEventListener('resize', updateUfScrollButtons);
+    updateUfScrollButtons();
+  });
 </script>
 {% endblock %}
 
