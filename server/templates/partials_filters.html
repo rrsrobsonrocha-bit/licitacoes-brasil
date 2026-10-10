@@ -1,0 +1,54 @@
+﻿<!-- BARRA SUPERIOR DE UFs (ROLAGEM HORIZONTAL COM TODAS AS 27 UFs) -->
+<div class="w-full overflow-x-auto pb-2 mb-4 scrollbar-thin">
+    <div class="flex items-center gap-1.5 min-w-max text-xs">
+        <a href="?{% for k, v in request.query_params.items() if k != 'uf' and k != 'page' %}{{ k }}={{ v }}&{% endfor %}"
+           class="px-3 py-1.5 rounded-lg border transition font-medium {% if not request.query_params.get('uf') %}bg-blue-600 border-blue-500 text-white{% else %}bg-slate-900 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700{% endif %}">
+            Todas as UFs
+        </a>
+        {% for sigla in ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'] %}
+        <a href="?uf={{ sigla }}{% for k, v in request.query_params.items() if k != 'uf' and k != 'page' %}&{{ k }}={{ v }}{% endfor %}"
+           class="px-2.5 py-1.5 rounded-lg border transition font-medium {% if request.query_params.get('uf') == sigla %}bg-blue-600 border-blue-500 text-white font-bold{% else %}bg-slate-900 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700{% endif %}">
+            {{ sigla }}
+        </a>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- FORMULÁRIO DE FILTROS COM RETENÇÃO DE ESTADO -->
+<form method="GET" action="/" class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-6 bg-slate-900/60 p-4 rounded-xl border border-slate-800">
+    <!-- Termo de Pesquisa -->
+    <div class="md:col-span-2">
+        <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Palavra-chave / Objeto</label>
+        <input type="text" name="q" value="{{ request.query_params.get('q', '') }}" placeholder="Ex: Medicamentos, Computadores..."
+               class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500">
+    </div>
+
+    <!-- Categoria Restrita: Material, Serviço e Outros -->
+    <div>
+        <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Categoria</label>
+        <select name="categoria" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500">
+            <option value="">Todas</option>
+            <option value="material" {% if request.query_params.get('categoria') == 'material' %}selected{% endif %}>Material</option>
+            <option value="servico" {% if request.query_params.get('categoria') == 'servico' %}selected{% endif %}>Serviço</option>
+            <option value="outros" {% if request.query_params.get('categoria') == 'outros' %}selected{% endif %}>Outros</option>
+        </select>
+    </div>
+
+    <!-- Menu Suspenso com as 27 UFs (Persistente) -->
+    <div>
+        <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Estado (UF)</label>
+        <select name="uf" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500">
+            <option value="">Todos os Estados</option>
+            {% for sigla, nome in [('AC','Acre'),('AL','Alagoas'),('AP','Amapá'),('AM','Amazonas'),('BA','Bahia'),('CE','Ceará'),('DF','Distrito Federal'),('ES','Espírito Santo'),('GO','Goiás'),('MA','Maranhão'),('MT','Mato Grosso'),('MS','Mato Grosso do Sul'),('MG','Minas Gerais'),('PA','Pará'),('PB','Paraíba'),('PR','Paraná'),('PE','Pernambuco'),('PI','Piauí'),('RJ','Rio de Janeiro'),('RN','Rio Grande do Norte'),('RS','Rio Grande do Sul'),('RO','Rondônia'),('RR','Roraima'),('SC','Santa Catarina'),('SP','São Paulo'),('SE','Sergipe'),('TO','Tocantins')] %}
+            <option value="{{ sigla }}" {% if request.query_params.get('uf') == sigla %}selected{% endif %}>
+                {{ sigla }} - {{ nome }}
+            </option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <div class="md:col-span-4 flex justify-end gap-2 pt-2">
+        <a href="/" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold transition">Limpar Filtros</a>
+        <button type="submit" class="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition">Filtrar Certames</button>
+    </div>
+</form>
