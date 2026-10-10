@@ -1,4 +1,4 @@
-import uuid
+﻿import uuid
 from datetime import datetime, date, timedelta, timezone
 from typing import List, Optional
 from sqlalchemy import (
@@ -58,10 +58,10 @@ class Tender(Base):
     source_id = Column(String(36), ForeignKey("sources.id", ondelete="CASCADE"), nullable=False)
     external_id = Column(String(255), nullable=False, index=True) # Ex: numeroControlePNCP
     process_number = Column(String(255), nullable=True)
-    notice_number = Column(String(255), nullable=True) # Edital nº
+    notice_number = Column(String(255), nullable=True) # Edital nÂº
     title = Column(String(500), nullable=False)
     object_description = Column(Text, nullable=False)
-    contracting_entity = Column(String(500), nullable=False, index=True) # Órgão comprador
+    contracting_entity = Column(String(500), nullable=False, index=True) # Ã“rgÃ£o comprador
     purchasing_unit = Column(String(500), nullable=True) # Unidade
     state = Column(String(2), nullable=False, index=True) # UF (ex: AL, SP)
     city = Column(String(255), nullable=True, index=True)
@@ -77,17 +77,17 @@ class Tender(Base):
     source_url = Column(String(1000), nullable=False)
     official_notice_url = Column(String(1000), nullable=True)
     source_system = Column(String(50), default="pncp", nullable=False, index=True) # "compras_gov" ou "pncp"
-    uasg_code = Column(String(50), nullable=True, index=True) # código da UASG/Unidade Compradora
+    uasg_code = Column(String(50), nullable=True, index=True) # cÃ³digo da UASG/Unidade Compradora
     sicaf_ready = Column(Boolean, default=False, nullable=False, index=True) # True se for do Compras.gov.br para permitir lances via SICAF
     link_comprasnet = Column(String(1000), nullable=True) # URL de acesso direto/sala de disputa
     link_pncp = Column(String(1000), nullable=True) # URL do termo/edital no PNCP
     url_disputa = Column(String(1000), nullable=True) # URL oficial da sala de disputa / portal de origem
-    url_pncp = Column(String(1000), nullable=True) # URL canônica pública do PNCP (/{cnpj}/{ano}/{sequencial})
+    url_pncp = Column(String(1000), nullable=True) # URL canÃ´nica pÃºblica do PNCP (/{cnpj}/{ano}/{sequencial})
     fonte_portal = Column(String(100), default="PNCP", nullable=True, index=True) # Portal de origem: PNCP, Compras.gov.br, BNC, etc.
     link_edital_oficial = Column(String(1000), nullable=True) # Link direto para download do edital nos portais oficiais
     ai_resumo = Column(Text, nullable=True) # Resumo executivo estruturado gerado via IA Gemini
-    ai_pontos_atencao = Column(Text, nullable=True) # Pontos críticos e riscos extraídos pela IA
-    itens_extraidos_json = Column(JSON, nullable=True) # Lista estruturada de itens extraídos via IA
+    ai_pontos_atencao = Column(Text, nullable=True) # Pontos crÃ­ticos e riscos extraÃ­dos pela IA
+    itens_extraidos_json = Column(JSON, nullable=True) # Lista estruturada de itens extraÃ­dos via IA
     data_completeness = Column(String(50), default="COMPLETO") # COMPLETO, PARCIAL, DADOS_AUSENTES
     raw_data_reference = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -143,7 +143,7 @@ class TenderDocument(Base):
     id = Column(String(36), primary_key=True, default=generate_uuid)
     tender_id = Column(String(36), ForeignKey("tenders.id", ondelete="CASCADE"), nullable=False, index=True)
     name = Column(String(500), nullable=False)
-    document_type = Column(String(100), default="EDITAL", nullable=False) # Edital, Termo de Referência, etc.
+    document_type = Column(String(100), default="EDITAL", nullable=False) # Edital, Termo de ReferÃªncia, etc.
     source_url = Column(String(1000), nullable=False)
     storage_key = Column(String(500), nullable=True)
     mime_type = Column(String(100), default="application/pdf", nullable=False)
@@ -327,9 +327,9 @@ class WebhookDispatchLog(Base):
 DEAL_STAGES = ["oportunidades", "qualificacao", "disputa", "classificacao", "contrato"]
 DEAL_STAGE_LABELS = {
     "oportunidades": "Oportunidades",
-    "qualificacao": "Qualificação",
+    "qualificacao": "QualificaÃ§Ã£o",
     "disputa": "Disputa",
-    "classificacao": "Classificação",
+    "classificacao": "ClassificaÃ§Ã£o",
     "contrato": "Contrato"
 }
 
@@ -447,22 +447,22 @@ class HistoricoDisputa(Base):
     tipo_evento = Column(String(50), nullable=False, index=True) # AUTO_BID, MANUAL_BID, STOP_LOSS, COMPETITOR_BID
     valor_ofertado = Column(Float, nullable=False)
     posicao = Column(Integer, default=1)
-    autor = Column(String(100), default="Robô LicitaçõesBrasil")
+    autor = Column(String(100), default="RobÃ´ LicitaÃ§ÃµesBrasil")
     detalhes = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
 
 # ==============================================================================
-# COFRE DE DOCUMENTOS DE HABILITAÇÃO DA EMPRESA
+# COFRE DE DOCUMENTOS DE HABILITAÃ‡ÃƒO DA EMPRESA
 # ==============================================================================
 
-# Categorias alinhadas aos grupos de habilitação do art. 62 da Lei 14.133/2021.
+# Categorias alinhadas aos grupos de habilitaÃ§Ã£o do art. 62 da Lei 14.133/2021.
 DOCUMENTO_CATEGORIAS = {
-    "juridica": "Habilitação Jurídica",
+    "juridica": "HabilitaÃ§Ã£o JurÃ­dica",
     "fiscal": "Regularidade Fiscal, Social e Trabalhista",
-    "economica": "Qualificação Econômico-Financeira",
-    "tecnica": "Qualificação Técnica",
-    "declaracoes": "Declarações",
+    "economica": "QualificaÃ§Ã£o EconÃ´mico-Financeira",
+    "tecnica": "QualificaÃ§Ã£o TÃ©cnica",
+    "declaracoes": "DeclaraÃ§Ãµes",
     "outros": "Outros",
 }
 
@@ -476,7 +476,7 @@ DOCUMENTO_STATUS_SEM_VALIDADE = "SEM_VALIDADE"
 
 
 def hoje_sao_paulo() -> date:
-    """Data corrente no fuso oficial America/Sao_Paulo (referência para validade documental)."""
+    """Data corrente no fuso oficial America/Sao_Paulo (referÃªncia para validade documental)."""
     try:
         from zoneinfo import ZoneInfo
         return datetime.now(ZoneInfo("America/Sao_Paulo")).date()
@@ -493,7 +493,7 @@ class DocumentoEmpresa(Base):
     data_emissao = Column(Date, nullable=False)
     data_validade = Column(Date, nullable=True, index=True)  # None = sem vencimento (ex.: contrato social)
     caminho_arquivo = Column(String(1000), nullable=False)
-    tags_habilitacao = Column(String(500), nullable=True)  # lista separada por vírgulas
+    tags_habilitacao = Column(String(500), nullable=True)  # lista separada por vÃ­rgulas
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -508,7 +508,7 @@ class DocumentoEmpresa(Base):
         return [t.strip() for t in self.tags_habilitacao.split(",") if t.strip()]
 
     def dias_restantes(self, hoje: Optional[date] = None) -> Optional[int]:
-        """Dias corridos até o vencimento (negativo se vencido; None se sem validade)."""
+        """Dias corridos atÃ© o vencimento (negativo se vencido; None se sem validade)."""
         if not self.data_validade:
             return None
         ref = hoje or hoje_sao_paulo()
@@ -527,3 +527,4 @@ class DocumentoEmpresa(Base):
 
     def is_valido(self, hoje: Optional[date] = None) -> bool:
         return self.status_validade(hoje) != DOCUMENTO_STATUS_VENCIDO
+
