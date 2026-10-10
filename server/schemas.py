@@ -10,7 +10,8 @@ class UserRegisterRequest(BaseModel):
 
 class UserLoginRequest(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(..., max_length=128)
+    remember_me: bool = False  # "Manter conectado": sessão estendida (REMEMBER_ME_DAYS)
 
 class PasswordChangeRequest(BaseModel):
     current_password: str
@@ -18,6 +19,10 @@ class PasswordChangeRequest(BaseModel):
 
 class PasswordResetRequest(BaseModel):
     email: EmailStr
+
+class PasswordResetConfirmRequest(BaseModel):
+    token: str = Field(..., min_length=20, max_length=200)
+    new_password: str = Field(..., min_length=8, max_length=128)
 
 class UserProfileResponse(BaseModel):
     id: str
@@ -32,6 +37,8 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserProfileResponse
+    expires_in: Optional[int] = None  # segundos até a expiração do token
+    remember_me: bool = False
 
 # ----------------- Search & Filter Schemas -----------------
 class SearchFilterParams(BaseModel):
@@ -45,7 +52,8 @@ class SearchFilterParams(BaseModel):
     administrative_sphere: Optional[str] = None # FEDERAL, ESTADUAL, MUNICIPAL
     modality: Optional[str] = None # Pregão Eletrônico, Concorrência, Dispensa, etc.
     status: Optional[str] = None
-    category: Optional[str] = None # Medicamentos, Materiais Hospitalares, TI, etc.
+    category: Optional[str] = None # MATERIAL, SERVICO, OUTROS (ou categoria legada: Medicamentos, TI...)
+    natureza: Optional[str] = None # MATERIAL, SERVICO ou OUTROS
     source_system: Optional[str] = None # compras_gov, pncp
     portal: Optional[str] = None # Compras.gov.br, BEC/SP, BLL Compras, Licitações-e, Compras MG, etc.
     uasg_code: Optional[str] = None
@@ -124,6 +132,13 @@ class TenderItemResponse(BaseModel):
     estimated_unit_value: Optional[float] = None
     estimated_total_value: Optional[float] = None
     classification_code: Optional[str] = "Não informado"
+    material_ou_servico: Optional[str] = None
+    criterio_julgamento: Optional[str] = None
+    situacao: Optional[str] = None
+    beneficio: Optional[str] = None
+    orcamento_sigiloso: Optional[bool] = None
+    informacao_complementar: Optional[str] = None
+    origem: Optional[str] = None
 
 class TenderDocumentResponse(BaseModel):
     id: str
@@ -135,6 +150,8 @@ class TenderDocumentResponse(BaseModel):
     checksum: Optional[str] = None
     published_at: Optional[datetime] = None
     extraction_status: str
+    origem: Optional[str] = None
+    download_url: Optional[str] = None  # rota interna de download (sem redirecionamento externo)
 
 class TenderChangeResponse(BaseModel):
     id: str
@@ -167,6 +184,7 @@ class TenderSummaryResponse(BaseModel):
     administrative_sphere: str
     modality: str
     category: Optional[str] = "Outros"
+    natureza_objeto: Optional[str] = None  # MATERIAL, SERVICO ou OUTROS
     status: str
     publication_date: Optional[datetime] = None
     opening_date: Optional[datetime] = None
@@ -339,4 +357,3 @@ class AIChatRequest(BaseModel):
 
 class AISummaryRequest(BaseModel):
     force_refresh: Optional[bool] = False
-

@@ -42,9 +42,13 @@
         </span>
         {% set priority_states = [('Todos', ''), ('SP', 'SP'), ('RJ', 'RJ'), ('MG', 'MG'), ('DF', 'DF'), ('BA', 'BA'), ('AL', 'AL'), ('PR', 'PR'), ('RS', 'RS')] %}
         {% for label, uf in priority_states %}
-          {% set is_active = (params.state == uf if uf else not params.state) %}
+          {% set is_active = ((params.state or params.uf) == uf if uf else not (params.state or params.uf)) %}
+          {% set qs_uf = {} %}
+          {% for chave, valor in [('q', params.q), ('modality', params.modality), ('status', params.status), ('category', params.natureza or params.category), ('uf', uf)] %}
+            {% if valor %}{% set _ = qs_uf.update({chave: valor}) %}{% endif %}
+          {% endfor %}
           <a 
-            href="/search?{% if params.q %}q={{ params.q }}&{% endif %}{% if params.modality %}modality={{ params.modality }}&{% endif %}{% if params.status %}status={{ params.status }}&{% endif %}{% if uf %}state={{ uf }}{% endif %}"
+            href="/search?{{ qs_uf|urlencode }}"
             class="px-2.5 py-1 rounded-lg font-semibold transition text-[11px] {% if is_active %}bg-sky-600 text-white shadow-sm shadow-sky-600/30{% else %}bg-slate-800/90 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/80{% endif %}"
           >
             {{ label }}
@@ -100,36 +104,9 @@
             <label class="block text-xs font-semibold text-slate-300 mb-1">Estado (UF)</label>
             <select name="uf" id="uf-select" class="w-full text-xs p-2.5 bg-slate-900 border border-slate-700 text-slate-100 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
               <option value="">Todos os Estados (UF)</option>
-              {% for sigla, nome in [
-                ("AC", "AC - Acre"),
-                ("AL", "AL - Alagoas"),
-                ("AP", "AP - Amapá"),
-                ("AM", "AM - Amazonas"),
-                ("BA", "BA - Bahia"),
-                ("CE", "CE - Ceará"),
-                ("DF", "DF - Distrito Federal"),
-                ("ES", "ES - Espírito Santo"),
-                ("GO", "GO - Goiás"),
-                ("MA", "MA - Maranhão"),
-                ("MT", "MT - Mato Grosso"),
-                ("MS", "MS - Mato Grosso do Sul"),
-                ("MG", "MG - Minas Gerais"),
-                ("PA", "PA - Pará"),
-                ("PB", "PB - Paraíba"),
-                ("PR", "PR - Paraná"),
-                ("PE", "PE - Pernambuco"),
-                ("PI", "PI - Piauí"),
-                ("RJ", "RJ - Rio de Janeiro"),
-                ("RN", "RN - Rio Grande do Norte"),
-                ("RS", "RS - Rio Grande do Sul"),
-                ("RO", "RO - Rondônia"),
-                ("RR", "RR - Roraima"),
-                ("SC", "SC - Santa Catarina"),
-                ("SP", "SP - São Paulo"),
-                ("SE", "SE - Sergipe"),
-                ("TO", "TO - Tocantins")
-              ] %}
-              <option value="{{ sigla }}" {% if (params.state == sigla or params.uf == sigla) %}selected{% endif %}>{{ nome }}</option>
+              {% set uf_atual = (params.state or params.uf or '')|upper %}
+              {% for sigla, nome in UFS_BRASIL %}
+              <option value="{{ sigla }}" {% if uf_atual == sigla %}selected{% endif %}>{{ sigla }} - {{ nome }}</option>
               {% endfor %}
             </select>
           </div>
@@ -146,13 +123,14 @@
             />
           </div>
 
-          <!-- Categoria -->
+          <!-- Categoria (estritamente Material / Serviço / Outros) -->
           <div>
             <label class="block text-xs font-semibold text-slate-300 mb-1">Categoria</label>
-            <select name="category" class="w-full text-xs p-2.5 bg-slate-900 border border-slate-700 text-slate-100 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
+            {% set natureza_atual = (params.natureza or params.category or '')|upper %}
+            <select name="category" id="categoria-select" class="w-full text-xs p-2.5 bg-slate-900 border border-slate-700 text-slate-100 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
               <option value="">Todas as Categorias</option>
-              {% for cat in ["Medicamentos", "Materiais hospitalares", "Materiais odontológicos", "Equipamentos", "Serviços", "Tecnologia", "Obras", "Alimentação", "Limpeza", "Outros"] %}
-              <option value="{{ cat }}" {% if params.category == cat %}selected{% endif %}>{{ cat }}</option>
+              {% for codigo, rotulo in NATUREZAS_FILTRO %}
+              <option value="{{ codigo }}" {% if natureza_atual == codigo %}selected{% endif %}>{{ rotulo }}</option>
               {% endfor %}
             </select>
           </div>
@@ -266,7 +244,7 @@
               </span>
               <a 
                 id="btn-export-csv"
-                href="/api/tenders/export/csv?q={{ params.q or '' }}&state={{ params.state or '' }}&modality={{ params.modality or '' }}&status={{ params.status or '' }}"
+                href="/api/tenders/export/csv?{{ {'q': params.q or '', 'uf': params.state or params.uf or '', 'modality': params.modality or '', 'status': params.status or '', 'category': params.natureza or params.category or ''}|urlencode }}"
                 download
                 class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-medium text-slate-300 bg-slate-800/90 hover:bg-slate-700 hover:text-white border border-slate-700/80 transition shadow-sm"
                 title="Exportar licitações filtradas em formato CSV"
@@ -418,9 +396,14 @@
                   <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Aberta
                 </span>
 
-                <!-- Tipo (Serviços/Materiais) -->
-                <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-purple-500/15 text-purple-300 border border-purple-500/30">
-                  {{ item.category or 'Geral' }}
+                <!-- Categoria simplificada: Material / Serviço / Outros -->
+                {% set nat = item.natureza_objeto or 'OUTROS' %}
+                <span class="natureza-badge inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border
+                  {% if nat == 'MATERIAL' %}bg-indigo-500/15 text-indigo-300 border-indigo-500/30
+                  {% elif nat == 'SERVICO' %}bg-emerald-500/15 text-emerald-300 border-emerald-500/30
+                  {% else %}bg-slate-700/40 text-slate-300 border-slate-600/50{% endif %}" data-natureza="{{ nat }}">
+                  <i class="fa-solid {% if nat == 'MATERIAL' %}fa-box{% elif nat == 'SERVICO' %}fa-screwdriver-wrench{% else %}fa-shapes{% endif %} text-[10px]"></i>
+                  {% if nat == 'MATERIAL' %}Material{% elif nat == 'SERVICO' %}Serviço{% else %}Outros{% endif %}
                 </span>
 
                 <!-- UF -->
@@ -488,6 +471,16 @@
         {% endif %}
 
         <!-- Pagination Controls (Dark Theme) -->
+        {% set qs_paginacao = {} %}
+        {% for chave, valor in [
+          ('q', params.q), ('uf', params.state or params.uf), ('city', params.city), ('category', params.natureza or params.category),
+          ('modality', params.modality), ('administrative_sphere', params.administrative_sphere),
+          ('source_system', params.source_system), ('portal', params.portal), ('uasg_code', params.uasg_code),
+          ('value_min', params.value_min), ('value_max', params.value_max), ('date_from', params.date_from),
+          ('date_to', params.date_to), ('sort_by', params.sort_by), ('page_size', params.page_size)
+        ] %}
+          {% if valor is not none and valor != '' %}{% set _ = qs_paginacao.update({chave: valor}) %}{% endif %}
+        {% endfor %}
         <div class="bg-[#111827] p-4 rounded-2xl border border-slate-800 shadow-xl flex flex-col sm:flex-row justify-between items-center gap-3 mt-8">
           <div class="text-xs text-slate-400">
             Exibindo <span class="font-bold text-white">{{ results.results|length }}</span> de <span class="font-bold text-white">{{ results.total }}</span> oportunidades (Página {{ results.page }} de {{ results.total_pages }})
@@ -495,7 +488,7 @@
 
           <div class="flex items-center gap-2">
             {% if results.page > 1 %}
-            <a href="?page={{ results.page - 1 }}&page_size={{ params.page_size }}&q={{ params.q or '' }}&state={{ params.state or '' }}&city={{ params.city or '' }}&category={{ params.category or '' }}&modality={{ params.modality or '' }}&administrative_sphere={{ params.administrative_sphere or '' }}&source_system={{ params.source_system or '' }}&portal={{ params.portal or '' }}&uasg_code={{ params.uasg_code or '' }}&value_min={{ params.value_min or '' }}&value_max={{ params.value_max or '' }}&sort_by={{ params.sort_by }}" class="px-3.5 py-2 bg-slate-800 border border-slate-700 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow-sm">
+            <a href="?{{ qs_paginacao|urlencode }}&page={{ results.page - 1 }}" class="px-3.5 py-2 bg-slate-800 border border-slate-700 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow-sm">
               <i class="fa-solid fa-chevron-left text-[10px]"></i> Anterior
             </a>
             {% else %}
@@ -509,7 +502,7 @@
             </span>
 
             {% if results.page < results.total_pages %}
-            <a href="?page={{ results.page + 1 }}&page_size={{ params.page_size }}&q={{ params.q or '' }}&state={{ params.state or '' }}&city={{ params.city or '' }}&category={{ params.category or '' }}&modality={{ params.modality or '' }}&administrative_sphere={{ params.administrative_sphere or '' }}&source_system={{ params.source_system or '' }}&portal={{ params.portal or '' }}&uasg_code={{ params.uasg_code or '' }}&value_min={{ params.value_min or '' }}&value_max={{ params.value_max or '' }}&sort_by={{ params.sort_by }}" class="px-3.5 py-2 bg-slate-800 border border-slate-700 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow-sm">
+            <a href="?{{ qs_paginacao|urlencode }}&page={{ results.page + 1 }}" class="px-3.5 py-2 bg-slate-800 border border-slate-700 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow-sm">
               Próxima <i class="fa-solid fa-chevron-right text-[10px]"></i>
             </a>
             {% else %}

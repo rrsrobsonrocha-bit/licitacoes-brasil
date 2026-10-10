@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+
+{% block title %}Redefinir Senha - Licitações Brasil{% endblock %}
+
+{% block content %}
+<div class="min-h-[75vh] flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+  <div class="max-w-md w-full space-y-6 bg-white p-8 rounded-2xl border border-slate-200 shadow-xl">
+    <div class="text-center">
+      <div class="w-12 h-12 rounded-xl bg-gradient-to-tr from-sky-400 to-emerald-400 flex items-center justify-center text-brand-900 font-black text-2xl mx-auto shadow-inner mb-3">
+        <i class="fa-solid fa-lock-open"></i>
+      </div>
+      <h2 class="text-2xl font-bold text-slate-900">Criar Nova Senha</h2>
+      <p class="text-xs text-slate-500 mt-1">Defina uma senha nova para a sua conta.</p>
+    </div>
+
+    {% if token_valido %}
+    <form id="form-redefinir" class="space-y-4 text-xs" onsubmit="redefinirSenha(event)" novalidate>
+      <input type="hidden" id="token-input" value="{{ token }}">
+      <!-- Ajuda gerenciadores de senha a associar a nova senha à conta -->
+      <input type="text" name="username" autocomplete="username" class="hidden" aria-hidden="true" tabindex="-1">
+
+      <div>
+        <label for="nova-senha" class="block font-semibold text-slate-700 mb-1">Nova senha (mínimo 8 caracteres)</label>
+        <div class="relative">
+          <input type="password" id="nova-senha" required minlength="8" maxlength="128" autocomplete="new-password"
+                 placeholder="••••••••••••"
+                 class="w-full p-3 pr-11 border border-slate-200 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none" />
+          <button type="button" data-toggle-password="nova-senha" aria-label="Mostrar senha" aria-pressed="false" title="Mostrar senha"
+                  class="absolute inset-y-0 right-0 px-3 flex items-center text-slate-400 hover:text-slate-700 focus:outline-none focus:text-sky-600">
+            <i class="fa-regular fa-eye"></i>
+          </button>
+        </div>
+        <div class="mt-2 flex items-center gap-2">
+          <div class="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden"><div id="forca-barra" class="h-1.5 rounded-full transition-all duration-300" style="width:0%"></div></div>
+          <span id="forca-rotulo" class="text-[11px] font-semibold text-slate-500 w-20 text-right"></span>
+        </div>
+        <p data-capslock-for="nova-senha" class="hidden mt-1 text-[11px] font-semibold text-amber-600">
+          <i class="fa-solid fa-triangle-exclamation"></i> Caps Lock está ativado.
+        </p>
+      </div>
+
+      <div>
+        <label for="confirmar-senha" class="block font-semibold text-slate-700 mb-1">Confirmar nova senha</label>
+        <div class="relative">
+          <input type="password" id="confirmar-senha" required minlength="8" maxlength="128" autocomplete="new-password"
+                 placeholder="••••••••••••"
+                 class="w-full p-3 pr-11 border border-slate-200 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none" />
+          <button type="button" data-toggle-password="confirmar-senha" aria-label="Mostrar senha" aria-pressed="false" title="Mostrar senha"
+                  class="absolute inset-y-0 right-0 px-3 flex items-center text-slate-400 hover:text-slate-700 focus:outline-none focus:text-sky-600">
+            <i class="fa-regular fa-eye"></i>
+          </button>
+        </div>
+      </div>
+
+      <p id="redefinir-erro" role="alert" class="hidden text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2"></p>
+
+      <button type="submit" id="btn-redefinir"
+              class="w-full bg-sky-600 hover:bg-sky-500 text-white font-bold py-3 rounded-xl transition shadow-md flex items-center justify-center gap-2 disabled:opacity-60">
+        <i class="fa-solid fa-check text-xs"></i> <span>Salvar nova senha</span>
+      </button>
+    </form>
+    {% else %}
+    <div id="token-invalido" class="space-y-4 text-xs">
+      <div class="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 leading-relaxed">
+        <div class="font-bold mb-1"><i class="fa-solid fa-link-slash"></i> Link inválido ou expirado</div>
+        Por segurança, cada link de redefinição vale por pouco tempo e pode ser usado uma única vez.
+      </div>
+      <a href="/recuperar-senha" class="w-full inline-flex justify-center bg-sky-600 hover:bg-sky-500 text-white font-bold py-3 rounded-xl transition shadow-md">
+        Solicitar novo link
+      </a>
+    </div>
+    {% endif %}
+
+    <div class="text-center pt-4 border-t border-slate-100 text-xs text-slate-500">
+      <a href="/login" class="font-bold text-sky-600 hover:underline">Voltar ao login</a>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function erroRedefinir(msg) {
+    const el = document.getElementById('redefinir-erro');
+    if (!el) return;
+    el.textContent = msg || '';
+    el.classList.toggle('hidden', !msg);
+  }
+
+  async function redefinirSenha(ev) {
+    ev.preventDefault();
+    erroRedefinir('');
+    const token = document.getElementById('token-input').value;
+    const nova = document.getElementById('nova-senha').value;
+    const confirmar = document.getElementById('confirmar-senha').value;
+
+    if (nova.length < 8) return erroRedefinir('A nova senha precisa ter pelo menos 8 caracteres.');
+    if (nova !== confirmar) return erroRedefinir('As senhas não coincidem.');
+
+    const btn = document.getElementById('btn-redefinir');
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner animate-spin"></i> Salvando...';
+    try {
+      const resp = await fetch('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, new_password: nova })
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        erroRedefinir(mensagemErroApi(data, 'Não foi possível redefinir a senha.'));
+        return;
+      }
+      AppSession.clear();
+      window.location.href = '/login?redefinida=1';
+    } catch {
+      erroRedefinir('Erro de comunicação. Tente novamente.');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = original;
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    ligarMedidorForca('nova-senha', 'forca-barra', 'forca-rotulo');
+    // Remove o token da barra de endereço/histórico após carregar a página
+    if (window.location.search.includes('token=')) {
+      window.history.replaceState({}, '', '/redefinir-senha');
+    }
+  });
+</script>
+{% endblock %}

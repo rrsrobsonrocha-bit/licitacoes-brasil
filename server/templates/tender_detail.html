@@ -1,105 +1,998 @@
-﻿{% extends "base.html" %}
+{% extends "base.html" %}
+
+{% block title %}{{ detail.tender.title }} - Licitações Brasil{% endblock %}
+
 {% block content %}
-<div class="max-w-6xl mx-auto px-4 py-8 space-y-8">
-    <!-- Cabeçalho do Certame -->
-    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-        <div class="flex flex-wrap items-center justify-between gap-4 mb-4">
-            <span class="px-3 py-1 text-xs font-semibold uppercase rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                {{ tender.fonte_portal or 'PNCP' }}
-            </span>
-            <span class="text-xs text-slate-400">Publicado em: {{ tender.created_at.strftime('%d/%m/%Y %H:%M') if tender.created_at else 'Recente' }}</span>
+<!-- Top Breadcrumb & Actions Bar -->
+<div class="bg-slate-900 text-white py-6 border-b border-slate-800">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="flex flex-wrap items-center justify-between gap-4">
+      <div>
+        <nav class="flex items-center space-x-2 text-xs text-slate-400 mb-2">
+          <a href="/" class="hover:text-white">Início</a>
+          <span>/</span>
+          <a href="/search" class="hover:text-white">Pesquisa</a>
+          <span>/</span>
+          <span class="text-sky-400 font-mono">{{ detail.tender.external_id }}</span>
+        </nav>
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="px-2.5 py-0.5 rounded text-xs font-bold bg-sky-500 text-white">
+            {{ detail.tender.state }} - {{ detail.tender.city }}
+          </span>
+          <span class="px-2.5 py-0.5 rounded text-xs font-semibold bg-slate-800 text-slate-200 border border-slate-700">
+            {{ detail.tender.modality }}
+          </span>
+          <span class="px-2.5 py-0.5 rounded text-xs font-semibold bg-emerald-950 text-emerald-300 border border-emerald-800">
+            {{ detail.tender.status }}
+          </span>
+          {% if detail.tender.category %}
+          <span class="px-2.5 py-0.5 rounded text-xs font-semibold bg-purple-950 text-purple-300 border border-purple-800">
+            {{ detail.tender.category }}
+          </span>
+          {% endif %}
         </div>
-        <h1 class="text-xl md:text-2xl font-bold text-white mb-2">{{ tender.title or tender.object_description }}</h1>
-        <p class="text-sm text-slate-400">{{ tender.buyer_name }} - {{ tender.buyer_state }}</p>
-        
-        <div class="mt-6 flex flex-wrap gap-4 pt-6 border-t border-slate-800">
-            <div>
-                <span class="block text-xs text-slate-500">Valor Estimado Total</span>
-                <span class="text-xl font-bold text-emerald-400">R$ {{ "%.2f"|format(tender.estimated_value or 0.0) }}</span>
-            </div>
-            {% if tender.url_disputa %}
-            <div class="ml-auto">
-                <a href="{{ tender.url_disputa }}" target="_blank" class="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-semibold transition">
-                    Acessar Sala de Disputa ↗
-                </a>
-            </div>
-            {% endif %}
-        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="flex items-center gap-2 flex-wrap">
+        <button onclick="toggleFavorite('{{ detail.tender.id }}', this)" class="bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 {% if detail.tender.is_favorite %}text-amber-400{% endif %}">
+          <i class="fa-solid fa-star {% if detail.tender.is_favorite %}text-amber-400{% else %}text-slate-400{% endif %}"></i>
+          <span class="fav-label">{% if detail.tender.is_favorite %}Favoritado{% else %}Favoritar{% endif %}</span>
+        </button>
+        <button onclick="copyTenderLink()" class="bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5">
+          <i class="fa-regular fa-copy"></i> Copiar Link
+        </button>
+        <button onclick="exportToDisputeCockpit('{{ detail.tender.id }}', '{{ (detail.tender.title or 'Certame')|replace('\'', '\\\'')|replace('\n', ' ') }}', {{ detail.tender.estimated_total_value or 0 }}, '{{ detail.tender.fonte_portal or 'Compras.gov.br' }}')" class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow-sm border border-indigo-500/30">
+          <i class="fa-solid fa-bolt text-amber-300 text-xs"></i> Exportar para o Cockpit de Disputa
+        </button>
+        <a href="{{ detail.tender.url_disputa or detail.tender.url_pncp or detail.tender.link_comprasnet or detail.tender.official_notice_url or detail.tender.source_url }}" target="_blank" rel="noopener noreferrer" class="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow-sm">
+          <i class="fa-solid fa-gavel text-xs"></i> Acessar Edital / Disputa
+        </a>
+        <a href="{{ detail.tender.url_pncp or detail.tender.link_pncp or detail.tender.source_url }}" target="_blank" rel="noopener noreferrer" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow-sm">
+          <i class="fa-solid fa-landmark text-sky-400 text-xs"></i> PNCP Oficial
+        </a>
+        <button
+          type="button"
+          id="btn-baixar-kit-zip"
+          data-kit-url="/api/tenders/{{ detail.tender.id }}/download-kit-zip"
+          onclick="baixarKitHabilitacao(this)"
+          class="bg-amber-500 hover:bg-amber-400 text-slate-950 px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm border border-amber-400/40 cursor-pointer"
+          title="Documentos válidos do Cofre + Relatório de Conformidade (PDF)"
+        >
+          <i class="fa-solid fa-file-zipper text-xs"></i> Baixar Kit de Habilitação (ZIP)
+        </button>
+      </div>
     </div>
 
-    <!-- Tabela Granular de Itens -->
-    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-        <div class="flex items-center justify-between mb-4">
-            <h2 class="text-lg font-bold text-white flex items-center gap-2">
-                <span>📦</span> Itens e Lotes da Licitação
-            </h2>
-            <span class="text-xs bg-slate-800 text-slate-400 px-3 py-1 rounded-full border border-slate-700">
-                {{ itens|length if itens else 0 }} item(ns) catalogado(s)
-            </span>
-        </div>
-
-        <div class="overflow-x-auto">
-            <table class="w-full text-left border-collapse text-sm">
-                <thead>
-                    <tr class="border-b border-slate-800 text-slate-400 text-xs uppercase font-semibold">
-                        <th class="py-3 px-3">Item</th>
-                        <th class="py-3 px-3">Descrição Técnica</th>
-                        <th class="py-3 px-3 text-center">Qtd.</th>
-                        <th class="py-3 px-3 text-center">Unid.</th>
-                        <th class="py-3 px-3 text-right">Valor Unitário</th>
-                        <th class="py-3 px-3 text-right">Valor Total</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-800/60">
-                    {% if itens and itens|length > 0 %}
-                        {% for it in itens %}
-                        <tr class="hover:bg-slate-800/40 transition">
-                            <td class="py-3 px-3 font-mono font-bold text-blue-400">#{{ it.numero_item or loop.index }}</td>
-                            <td class="py-3 px-3 text-slate-300 max-w-md leading-relaxed">{{ it.descricao }}</td>
-                            <td class="py-3 px-3 text-center font-semibold text-white">{{ it.quantidade }}</td>
-                            <td class="py-3 px-3 text-center text-slate-400">{{ it.unidade_medida or 'UN' }}</td>
-                            <td class="py-3 px-3 text-right font-mono text-slate-300">R$ {{ "%.2f"|format(it.valor_unitario or 0.0) }}</td>
-                            <td class="py-3 px-3 text-right font-mono font-bold text-emerald-400">R$ {{ "%.2f"|format(it.valor_total or 0.0) }}</td>
-                        </tr>
-                        {% endfor %}
-                    {% else %}
-                        <tr>
-                            <td colspan="6" class="py-6 text-center text-slate-500">
-                                Nenhum lote individual registrado. Consulte a descrição geral ou os anexos.
-                            </td>
-                        </tr>
-                    {% endif %}
-                </tbody>
-            </table>
-        </div>
-    </div>
-
-    <!-- Anexos e Arquivos Oficiais -->
-    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-        <h2 class="text-lg font-bold text-white flex items-center gap-2 mb-4">
-            <span>📄</span> Arquivos e Anexos do Edital
-        </h2>
-        {% if anexos and anexos|length > 0 %}
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {% for doc in anexos %}
-                <div class="flex items-center justify-between p-3.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-slate-700 transition">
-                    <div class="overflow-hidden pr-3">
-                        <p class="text-sm font-medium text-slate-200 truncate">{{ doc.titulo or 'Documento Oficial' }}</p>
-                        <p class="text-xs text-slate-500">{{ doc.tipo_documento or 'Anexo' }}</p>
-                    </div>
-                    <a href="{{ doc.url_download }}" target="_blank" download
-                       class="shrink-0 px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white border border-blue-500/30 rounded-lg text-xs font-semibold transition">
-                        Baixar
-                    </a>
-                </div>
-                {% endfor %}
-            </div>
-        {% else %}
-            <div class="p-6 bg-slate-950 rounded-xl border border-slate-800 text-center text-slate-400 text-sm">
-                Documentos disponíveis para consulta direta no portal do PNCP: 
-                <a href="{{ tender.url_pncp or tender.link_pncp }}" target="_blank" class="text-blue-400 underline ml-1">Abrir Página do Órgão</a>
-            </div>
-        {% endif %}
-    </div>
+    <!-- Title and Entity -->
+    <h1 class="text-xl sm:text-2xl font-bold mt-4 text-white leading-snug">
+      {{ detail.tender.title }}
+    </h1>
+    <p class="text-xs text-slate-400 mt-1 flex items-center gap-1">
+      <i class="fa-regular fa-building"></i> {{ detail.tender.contracting_entity }}
+      {% if detail.tender.purchasing_unit != "Não informado" %}
+        - {{ detail.tender.purchasing_unit }}
+      {% endif %}
+    </p>
+  </div>
 </div>
+
+<!-- Tabs Navigation -->
+<div class="bg-white border-b border-slate-200 sticky top-16 z-40">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <nav class="flex space-x-6 overflow-x-auto text-sm font-semibold text-slate-600" id="tender-tabs">
+      <button onclick="switchTab('overview')" id="tab-btn-overview" class="py-4 border-b-2 border-sky-600 text-sky-600 flex items-center gap-2 whitespace-nowrap">
+        <i class="fa-solid fa-file-lines"></i> Visão Geral
+      </button>
+      <button onclick="switchTab('items')" id="tab-btn-items" class="py-4 border-b-2 border-transparent hover:text-slate-900 flex items-center gap-2 whitespace-nowrap">
+        <i class="fa-solid fa-list-check"></i> Itens (<span id="tab-count-itens">{{ detail.items|length }}</span>)
+      </button>
+      <button onclick="switchTab('documents')" id="tab-btn-documents" class="py-4 border-b-2 border-transparent hover:text-slate-900 flex items-center gap-2 whitespace-nowrap">
+        <i class="fa-solid fa-paperclip"></i> Documentos (<span id="tab-count-docs">{{ detail.documents|length }}</span>)
+      </button>
+      <button onclick="switchTab('ai')" id="tab-btn-ai" class="py-4 border-b-2 border-transparent hover:text-slate-900 flex items-center gap-2 whitespace-nowrap text-emerald-600">
+        <i class="fa-solid fa-wand-magic-sparkles"></i> Análise por IA
+      </button>
+      <button onclick="switchTab('changes')" id="tab-btn-changes" class="py-4 border-b-2 border-transparent hover:text-slate-900 flex items-center gap-2 whitespace-nowrap">
+        <i class="fa-solid fa-clock-rotate-left"></i> Histórico
+      </button>
+      <button onclick="switchTab('notes')" id="tab-btn-notes" class="py-4 border-b-2 border-transparent hover:text-slate-900 flex items-center gap-2 whitespace-nowrap">
+        <i class="fa-regular fa-note-sticky"></i> Anotações
+      </button>
+    </nav>
+  </div>
+</div>
+
+<!-- Main Tabs Content -->
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+
+  <!-- TAB 1: VISÃO GERAL -->
+  <div id="tab-content-overview" class="space-y-6">
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <!-- Main Details Column -->
+      <div class="md:col-span-2 space-y-6">
+        <!-- Componente Visual: Análise IA com Gemini -->
+        <div class="bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 p-6 rounded-2xl border border-indigo-500/30 text-white shadow-xl relative overflow-hidden">
+          <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <div class="flex items-center gap-2.5">
+              <span class="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-base font-bold border border-emerald-500/30 shadow-inner">
+                <i class="fa-solid fa-wand-magic-sparkles"></i>
+              </span>
+              <div>
+                <h2 class="text-base font-bold text-white flex items-center gap-2">
+                  Análise IA com Gemini
+                  <span class="px-2 py-0.5 rounded text-[10px] font-extrabold bg-indigo-500/30 text-indigo-300 border border-indigo-400/30 uppercase font-mono tracking-wider">Gemini Flash</span>
+                </h2>
+                <p class="text-[11px] text-slate-400">Auditoria semântica documental e triagem estratégica de riscos</p>
+              </div>
+            </div>
+
+            <!-- Badges de Metadados: Portal e Confiança -->
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-800 text-sky-300 border border-slate-700 flex items-center gap-1.5 shadow-sm">
+                <i class="fa-solid fa-globe text-xs"></i> <span id="gemini-portal-badge">{{ detail.tender.fonte_portal or 'PNCP' }}</span>
+              </span>
+              <span class="px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-1.5 shadow-sm">
+                <i class="fa-solid fa-shield-check text-xs"></i> Confiança da IA: 98% (Alta)
+              </span>
+            </div>
+          </div>
+
+          <!-- Conteúdo Enriquecido da IA -->
+          <div class="space-y-4 text-xs">
+            <!-- Resumo Executivo -->
+            <div class="bg-slate-900/80 p-4 rounded-xl border border-slate-700/60 shadow-inner">
+              <span class="text-slate-400 font-bold uppercase text-[10px] tracking-wider block mb-1 flex items-center gap-1.5">
+                <i class="fa-solid fa-file-invoice text-indigo-400"></i> Resumo Executivo da Oportunidade:
+              </span>
+              <p class="text-slate-200 leading-relaxed text-xs" id="gemini-overview-resumo">
+                {{ detail.tender.ai_resumo or (detail.latest_ai_analysis.result_json.resumo_executivo.o_que_sera_contratado if detail.latest_ai_analysis and detail.latest_ai_analysis.result_json and detail.latest_ai_analysis.result_json.resumo_executivo else 'Certame selecionado para triagem automatizada multifonte. Clique em "Analisar com Gemini" para decodificar exigências de habilitação, itens e estimativa orçamentária.') }}
+              </p>
+            </div>
+
+            <!-- Alertas de Risco & Prazos Críticos -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div class="bg-rose-950/40 border border-rose-800/40 p-3.5 rounded-xl">
+                <span class="text-rose-300 font-bold uppercase text-[10px] tracking-wider block mb-1 flex items-center gap-1.5">
+                  <i class="fa-solid fa-triangle-exclamation text-rose-400"></i> Alertas de Risco Jurídico / Execução:
+                </span>
+                <p class="text-rose-100/90 text-[11px] leading-relaxed" id="gemini-overview-riscos">
+                  {{ detail.tender.ai_pontos_atencao or 'Exigências de qualificação técnica e cláusulas de penalidade requerem atenção prévia ao envio da proposta.' }}
+                </p>
+              </div>
+
+              <div class="bg-amber-950/40 border border-amber-800/40 p-3.5 rounded-xl">
+                <span class="text-amber-300 font-bold uppercase text-[10px] tracking-wider block mb-1 flex items-center gap-1.5">
+                  <i class="fa-solid fa-calendar-check text-amber-400"></i> Prazos Críticos & Sessão:
+                </span>
+                <p class="text-amber-100/90 text-[11px] leading-relaxed">
+                  Abertura das propostas: <strong>{{ detail.tender.opening_date.strftime('%d/%m/%Y às %H:%M') if detail.tender.opening_date else 'Consulte edital oficial' }}</strong>. Impugnações até 3 dias úteis antes da sessão.
+                </p>
+              </div>
+            </div>
+
+            <!-- Ações Diretas Integradas -->
+            <div class="flex flex-wrap items-center justify-between gap-3 pt-2">
+              <button onclick="requestAiAnalysis('{{ detail.tender.id }}')" class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs transition flex items-center gap-2 shadow-md">
+                <i class="fa-solid fa-wand-magic-sparkles"></i> Analisar com Gemini
+              </button>
+
+              <button onclick="exportToDisputeCockpit('{{ detail.tender.id }}', '{{ (detail.tender.title or 'Certame')|replace('\'', '\\\'')|replace('\n', ' ') }}', {{ detail.tender.estimated_total_value or 0 }}, '{{ detail.tender.fonte_portal or 'Compras.gov.br' }}')" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-4 py-2 rounded-xl text-xs transition flex items-center gap-2 shadow-md border border-indigo-400/40">
+                <i class="fa-solid fa-bolt text-amber-300"></i> Exportar para o Cockpit de Disputa
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Objeto Completo -->
+        <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+          <h2 class="text-base font-bold text-slate-900 mb-3 flex items-center gap-2">
+            <i class="fa-solid fa-align-left text-sky-600"></i> Objeto da Contratação
+          </h2>
+          <div class="text-sm text-slate-700 leading-relaxed whitespace-pre-line bg-slate-50 p-4 rounded-xl border border-slate-100">
+            {{ detail.tender.object_description }}
+          </div>
+        </div>
+
+        <!-- Critérios e Condições -->
+        <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+          <h2 class="text-base font-bold text-slate-900 flex items-center gap-2">
+            <i class="fa-solid fa-gavel text-sky-600"></i> Condições e Critérios da Disputa
+          </h2>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs text-slate-700">
+            <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+              <span class="block text-slate-400 font-semibold uppercase text-[10px] mb-1">Critério de Julgamento:</span>
+              <span class="font-medium text-slate-800">Menor Preço por Item / Global (Lei 14.133/2021)</span>
+            </div>
+            <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+              <span class="block text-slate-400 font-semibold uppercase text-[10px] mb-1">Modo de Disputa:</span>
+              <span class="font-medium text-slate-800">Aberto e Fechado (Eletrônico)</span>
+            </div>
+            <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+              <span class="block text-slate-400 font-semibold uppercase text-[10px] mb-1">Local de Entrega:</span>
+              <span class="font-medium text-slate-800">{{ detail.tender.city }} / {{ detail.tender.state }}</span>
+            </div>
+            <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+              <span class="block text-slate-400 font-semibold uppercase text-[10px] mb-1">Condições de Pagamento:</span>
+              <span class="font-medium text-slate-800">Até 30 dias após emissão da NF e ateste definitivo</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Key Dates & Financial Sidebar -->
+      <div class="md:col-span-1 space-y-6">
+        <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4">Informações Financeiras</h3>
+          <div class="mb-6">
+            <span class="text-xs text-slate-500 block">Valor Estimado Total:</span>
+            <div class="text-2xl font-black text-slate-900 mt-1">
+              {% if detail.tender.estimated_total_value %}
+                R$ {{ "{:,.2f}".format(detail.tender.estimated_total_value).replace(",", "X").replace(".", ",").replace("X", ".") }}
+              {% else %}
+                Não informado
+              {% endif %}
+            </div>
+          </div>
+
+          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Cronograma Oficial</h3>
+          <ul class="space-y-3 text-xs">
+            <li class="flex items-start justify-between pb-2 border-b border-slate-100">
+              <span class="text-slate-500">Publicação no PNCP:</span>
+              <span class="font-semibold text-slate-800">
+                {% if detail.tender.publication_date %}
+                  {{ detail.tender.publication_date.strftime('%d/%m/%Y %H:%M') }}
+                {% else %}
+                  Não informado
+                {% endif %}
+              </span>
+            </li>
+            <li class="flex items-start justify-between pb-2 border-b border-slate-100">
+              <span class="text-slate-500">Abertura de Propostas:</span>
+              <span class="font-semibold text-slate-800">
+                {% if detail.tender.opening_date %}
+                  {{ detail.tender.opening_date.strftime('%d/%m/%Y %H:%M') }}
+                {% else %}
+                  Não informado
+                {% endif %}
+              </span>
+            </li>
+            <li class="flex items-start justify-between pb-2 border-b border-slate-100">
+              <span class="text-slate-500">Prazo Limite:</span>
+              <span class="font-bold text-rose-600">
+                {% if detail.tender.proposal_deadline %}
+                  {{ detail.tender.proposal_deadline.strftime('%d/%m/%Y %H:%M') }}
+                {% else %}
+                  Não informado
+                {% endif %}
+              </span>
+            </li>
+          </ul>
+
+          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mt-6 mb-3">Identificação Oficial</h3>
+          <div class="space-y-2 text-xs">
+            <div>
+              <span class="text-slate-400 block text-[10px]">Número de Controle PNCP:</span>
+              <span class="font-mono text-slate-800 font-semibold">{{ detail.tender.external_id }}</span>
+            </div>
+            <div>
+              <span class="text-slate-400 block text-[10px]">Número do Edital:</span>
+              <span class="font-semibold text-slate-800">{{ detail.tender.notice_number }}</span>
+            </div>
+            <div>
+              <span class="text-slate-400 block text-[10px]">Número do Processo:</span>
+              <span class="font-semibold text-slate-800">{{ detail.tender.process_number }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 2: ITENS (sincronizados do endpoint /itens do PNCP) -->
+  <div id="tab-content-items" class="hidden space-y-4">
+    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
+        <div>
+          <h2 class="text-base font-bold text-slate-900">Itens e Lotes do Certame</h2>
+          <p class="text-xs text-slate-500">
+            <span id="itens-resumo">{{ detail.items|length }} item(ns) registrado(s)</span>
+            <span id="itens-origem-badge" class="ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border {% if detail.items and detail.items[0].origem == 'PNCP' %}bg-emerald-50 text-emerald-700 border-emerald-200{% else %}bg-slate-100 text-slate-600 border-slate-200{% endif %}">
+              {% if detail.items and detail.items[0].origem == 'PNCP' %}Fonte: PNCP{% else %}Fonte: base local{% endif %}
+            </span>
+          </p>
+        </div>
+        <div class="flex items-center gap-2">
+          <div class="relative">
+            <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-2.5 text-[11px] text-slate-400"></i>
+            <input id="itens-busca" type="search" placeholder="Filtrar itens..." class="pl-7 pr-2 py-1.5 text-xs border border-slate-200 rounded-lg w-44 focus:ring-2 focus:ring-sky-500 focus:outline-none">
+          </div>
+          <button type="button" id="btn-atualizar-itens" onclick="carregarItens(true)" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-sky-600 hover:bg-sky-500 text-white flex items-center gap-1.5 transition disabled:opacity-60">
+            <i class="fa-solid fa-rotate"></i> Atualizar do PNCP
+          </button>
+        </div>
+      </div>
+
+      <div id="itens-aviso" class="hidden mb-3 text-xs px-3 py-2 rounded-xl border"></div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs border-collapse min-w-[860px]">
+          <thead>
+            <tr class="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+              <th class="p-3 w-10">#</th>
+              <th class="p-3">Descrição do Item</th>
+              <th class="p-3">Unid.</th>
+              <th class="p-3 text-right">Qtd</th>
+              <th class="p-3 text-right">Valor Unitário</th>
+              <th class="p-3 text-right">Valor Total Estimado</th>
+              <th class="p-3">Critério / Benefício</th>
+              <th class="p-3">Situação</th>
+            </tr>
+          </thead>
+          <tbody id="itens-tbody" class="divide-y divide-slate-100 text-slate-700">
+            {% for item in detail.items %}
+            <tr class="hover:bg-slate-50/80 transition align-top">
+              <td class="p-3 font-bold text-slate-900">{{ item.item_number }}</td>
+              <td class="p-3 font-medium text-slate-800 max-w-md">
+                {% if item.material_ou_servico %}
+                <span class="mr-1 inline-block px-1.5 py-0.5 rounded text-[10px] font-bold {% if item.material_ou_servico == 'S' %}bg-emerald-50 text-emerald-700{% else %}bg-indigo-50 text-indigo-700{% endif %}">{{ 'Serviço' if item.material_ou_servico == 'S' else 'Material' }}</span>
+                {% endif %}
+                {{ item.description }}
+                {% if item.informacao_complementar %}<div class="mt-1 text-[11px] text-slate-500">{{ item.informacao_complementar }}</div>{% endif %}
+              </td>
+              <td class="p-3">{{ item.unit or "Não informado" }}</td>
+              <td class="p-3 text-right font-mono">{{ "{:,.2f}".format(item.quantity).rstrip('0').rstrip('.').replace(",", "X").replace(".", ",").replace("X", ".") if item.quantity else "—" }}</td>
+              <td class="p-3 text-right font-mono">
+                {% if item.orcamento_sigiloso %}<span class="text-amber-600 font-semibold">Sigiloso</span>
+                {% elif item.estimated_unit_value %}R$ {{ "{:,.2f}".format(item.estimated_unit_value).replace(",", "X").replace(".", ",").replace("X", ".") }}
+                {% else %}—{% endif %}
+              </td>
+              <td class="p-3 text-right font-bold text-slate-900 font-mono">
+                {% if item.orcamento_sigiloso %}<span class="text-amber-600 font-semibold">Sigiloso</span>
+                {% elif item.estimated_total_value %}R$ {{ "{:,.2f}".format(item.estimated_total_value).replace(",", "X").replace(".", ",").replace("X", ".") }}
+                {% else %}—{% endif %}
+              </td>
+              <td class="p-3 text-[11px] text-slate-600">
+                {{ item.criterio_julgamento or "—" }}
+                {% if item.beneficio and 'sem benef' not in item.beneficio|lower %}<div class="mt-1 inline-block px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 font-semibold">{{ item.beneficio }}</div>{% endif %}
+              </td>
+              <td class="p-3 text-[11px] text-slate-600">{{ item.situacao or "—" }}</td>
+            </tr>
+            {% else %}
+            <tr id="itens-vazio-linha"><td colspan="8" class="p-6 text-center text-slate-500">Nenhum item na base local. Consultando o PNCP...</td></tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr class="bg-slate-50 border-t border-slate-200">
+              <td colspan="5" class="p-3 text-right text-xs font-semibold text-slate-600">Total estimado dos itens:</td>
+              <td id="itens-total" class="p-3 text-right text-xs font-black text-slate-900 font-mono">—</td>
+              <td colspan="2"></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 3: DOCUMENTOS (anexos do PNCP servidos pela própria plataforma) -->
+  <div id="tab-content-documents" class="hidden space-y-4">
+    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
+        <div>
+          <h2 class="text-base font-bold text-slate-900">Arquivos e Anexos Oficiais</h2>
+          <p class="text-xs text-slate-500">Edital, termo de referência, minutas e anexos publicados no PNCP — baixados diretamente por aqui.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <button type="button" id="btn-atualizar-arquivos" onclick="carregarArquivos(true)" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 flex items-center gap-1.5 transition disabled:opacity-60">
+            <i class="fa-solid fa-rotate"></i> Atualizar lista
+          </button>
+          <button type="button" id="btn-baixar-todos" onclick="baixarArquivoInterno('/api/tenders/{{ detail.tender.id }}/arquivos/zip', this)" class="{% if not detail.documents|selectattr('download_url')|list %}hidden {% endif %}px-3 py-1.5 rounded-lg text-xs font-semibold bg-sky-600 hover:bg-sky-500 text-white flex items-center gap-1.5 transition disabled:opacity-60">
+            <i class="fa-solid fa-file-zipper"></i> Baixar todos (ZIP)
+          </button>
+        </div>
+      </div>
+
+      <div id="arquivos-aviso" class="hidden mb-3 text-xs px-3 py-2 rounded-xl border"></div>
+
+      <div id="arquivos-lista" class="space-y-3">
+        {% for doc in detail.documents %}
+        <div class="arquivo-card p-4 rounded-xl border border-slate-200 bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div class="flex items-start gap-3 min-w-0">
+            <div class="w-10 h-10 rounded-lg bg-red-100 text-red-600 flex items-center justify-center text-lg flex-shrink-0">
+              <i class="fa-solid fa-file-lines"></i>
+            </div>
+            <div class="min-w-0">
+              <div class="font-bold text-slate-800 text-xs break-words">{{ doc.name }}</div>
+              <div class="text-[11px] text-slate-500 flex flex-wrap items-center gap-3 mt-1">
+                <span>Tipo: <strong>{{ doc.document_type }}</strong></span>
+                {% if doc.published_at %}<span>Publicado: {{ doc.published_at.strftime('%d/%m/%Y') }}</span>{% endif %}
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-2 flex-wrap">
+            {% if doc.download_url %}
+            <button type="button" onclick="baixarArquivoInterno('{{ doc.download_url }}', this)" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 flex items-center gap-1.5 transition">
+              <i class="fa-solid fa-download"></i> Baixar
+            </button>
+            {% else %}
+            <span class="px-3 py-1.5 rounded-lg text-[11px] text-slate-500 bg-slate-100 border border-slate-200">Arquivo não disponível para download interno</span>
+            {% endif %}
+          </div>
+        </div>
+        {% else %}
+        <div id="arquivos-vazio" class="p-6 rounded-xl border border-slate-200 bg-slate-50 text-center text-xs text-slate-500">
+          <i class="fa-solid fa-spinner animate-spin mr-1"></i> Consultando os anexos publicados no PNCP...
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 4: ANÁLISE POR IA -->
+  <div id="tab-content-ai" class="hidden space-y-6">
+    <!-- Action Trigger Card -->
+    <div class="bg-gradient-to-r from-slate-900 to-brand-900 p-6 rounded-2xl text-white shadow-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      <div>
+        <div class="inline-flex items-center gap-1.5 bg-emerald-500/20 text-emerald-300 px-2.5 py-0.5 rounded-full text-xs font-mono mb-2">
+          <i class="fa-solid fa-microchip"></i> Motor de IA Documental (Gemini 3.8 Flash)
+        </div>
+        <h2 class="text-lg font-bold">Auditoria e Resumo Inteligente do Edital</h2>
+        <p class="text-xs text-slate-300 max-w-xl">
+          Extrai requisitos de habilitação, dados comerciais, riscos, divergências e pontos de atenção com citações exatas de páginas.
+        </p>
+      </div>
+      <button id="run-ai-btn" onclick="requestAiAnalysis('{{ detail.tender.id }}')" class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-5 py-3 rounded-xl text-xs transition shadow-md flex items-center gap-2 whitespace-nowrap">
+        <i class="fa-solid fa-wand-magic-sparkles"></i>
+        <span>Solicitar Análise de IA</span>
+      </button>
+    </div>
+
+    <!-- AI Loading Indicator (Hidden by default) -->
+    <div id="ai-loading" class="hidden bg-white p-8 rounded-2xl border border-slate-200 text-center space-y-3">
+      <div class="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+      <div class="text-sm font-bold text-slate-800">Processando documento com IA e extraindo requisitos...</div>
+      <div class="text-xs text-slate-500">Verificando integridade, páginas e regras da Lei nº 14.133/2021</div>
+    </div>
+
+    <!-- AI Results Container -->
+    <div id="ai-results" class="{% if not detail.latest_ai_analysis %}hidden{% endif %} space-y-6">
+      <!-- Legal Disclaimer Banner -->
+      <div class="p-4 bg-amber-50 border-l-4 border-amber-500 rounded-r-xl text-amber-900 text-xs flex items-start gap-3">
+        <i class="fa-solid fa-triangle-exclamation text-amber-600 text-base mt-0.5"></i>
+        <div>
+          <span class="font-bold">Aviso Obrigatório de Conformidade:</span>
+          <span id="ai-legal-notice">
+            Esta análise foi gerada por inteligência artificial para fins de suporte à triagem rápida.
+            Não substitui a leitura obrigatória e integral do Edital Oficial nem configura parecer jurídico definitivo.
+          </span>
+        </div>
+      </div>
+
+      <!-- Resumo Executivo Grid -->
+      <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <h3 class="text-sm font-bold text-slate-900 mb-4 flex items-center gap-2">
+          <i class="fa-solid fa-briefcase text-sky-600"></i> Resumo Executivo
+        </h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-xs" id="ai-exec-summary">
+          <!-- Populated via script or server -->
+        </div>
+      </div>
+
+      <!-- Requisitos de Participação & Habilitação -->
+      <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <h3 class="text-sm font-bold text-slate-900 mb-4 flex items-center gap-2">
+          <i class="fa-solid fa-clipboard-check text-emerald-600"></i> Requisitos de Habilitação e Participação
+        </h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs" id="ai-hab-grid">
+          <!-- Populated via script -->
+        </div>
+      </div>
+
+      <!-- Pontos de Atenção & Riscos -->
+      <div class="bg-white p-6 rounded-2xl border border-rose-200 bg-rose-50/30 shadow-sm">
+        <h3 class="text-sm font-bold text-rose-800 mb-4 flex items-center gap-2">
+          <i class="fa-solid fa-shield-virus text-rose-600"></i> Pontos de Atenção e Prazos Críticos
+        </h3>
+        <div class="space-y-3 text-xs" id="ai-attention-list">
+          <!-- Populated via script -->
+        </div>
+      </div>
+
+      <!-- Citações e Trechos de Apoio -->
+      <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <h3 class="text-sm font-bold text-slate-900 mb-4 flex items-center gap-2">
+          <i class="fa-solid fa-quote-left text-sky-600"></i> Citações e Trechos Documentais de Apoio
+        </h3>
+        <div class="space-y-3 text-xs" id="ai-citations-list">
+          <!-- Populated via script -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 5: HISTÓRICO DE ALTERAÇÕES -->
+  <div id="tab-content-changes" class="hidden space-y-4">
+    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+      <h2 class="text-base font-bold text-slate-900 mb-3">Histórico e Retificações Oficiais</h2>
+      {% if detail.changes|length == 0 %}
+      <div class="text-xs text-slate-500 py-6 text-center">
+        <i class="fa-solid fa-circle-check text-emerald-500 text-lg mb-2 block"></i>
+        Nenhuma alteração, retificação ou prorrogação registrada para este certame até o momento.
+      </div>
+      {% else %}
+      <div class="space-y-3">
+        {% for ch in detail.changes %}
+        <div class="p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs">
+          <div class="flex justify-between items-center font-bold text-slate-800">
+            <span>{{ ch.change_type }} - {{ ch.field_name }}</span>
+            <span class="text-slate-400 font-normal">{{ ch.detected_at.strftime('%d/%m/%Y %H:%M') }}</span>
+          </div>
+          <div class="mt-1 text-slate-600">Valor anterior: {{ ch.old_value }} → Novo: {{ ch.newValue }}</div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- TAB 6: OBSERVAÇÕES PESSOAIS -->
+  <div id="tab-content-notes" class="hidden space-y-4">
+    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+      <h2 class="text-base font-bold text-slate-900 mb-2">Anotações Particulares da Licitação</h2>
+      <p class="text-xs text-slate-500 mb-4">Adicione observações da sua equipe para acompanhar estratégia, concorrentes e prazos internos.</p>
+      <textarea id="user-note-input" rows="5" class="w-full text-xs p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none" placeholder="Digite suas notas internas sobre este certame...">{{ detail.user_notes or '' }}</textarea>
+      <div class="mt-3 flex justify-end">
+        <button onclick="saveUserNote('{{ detail.tender.id }}')" class="bg-sky-600 hover:bg-sky-500 text-white font-semibold px-4 py-2 rounded-xl text-xs transition">
+          Salvar Anotação
+        </button>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  async function baixarKitHabilitacao(botao) {
+    const url = botao.getAttribute('data-kit-url');
+    const original = botao.innerHTML;
+    botao.disabled = true;
+    botao.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-xs"></i> Montando kit...';
+    try {
+      const resp = await fetch(url);
+      if (!resp.ok) {
+        let msg = 'Não foi possível montar o kit de habilitação.';
+        try { const err = await resp.json(); if (err && typeof err.detail === 'string') msg = err.detail; } catch (e) {}
+        throw new Error(msg);
+      }
+      const blob = await resp.blob();
+      const cd = resp.headers.get('Content-Disposition') || '';
+      const m = cd.match(/filename="?([^";]+)"?/i);
+      const nome = m ? m[1] : 'Kit_Habilitacao.zip';
+      const href = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = href;
+      a.download = nome;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(href), 1500);
+      showToast(`Kit ${nome} pronto. Confira o Relatório de Conformidade incluso.`, 'success');
+    } catch (e) {
+      showToast(e.message || 'Falha ao baixar o kit.', 'error');
+    } finally {
+      botao.disabled = false;
+      botao.innerHTML = original;
+    }
+  }
+
+  // ---------------- Itens e anexos do PNCP ----------------
+  const TENDER_ID = {{ detail.tender.id|tojson }};
+
+  function escHtml(v) {
+    return String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+  function moedaBR(v) {
+    return (v === null || v === undefined || isNaN(v)) ? '—' : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
+  }
+  function numeroBR(v) {
+    return (v === null || v === undefined || isNaN(v)) ? '—' : new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 4 }).format(v);
+  }
+  function tamanhoArquivo(bytes) {
+    if (!bytes) return '';
+    const u = ['B', 'KB', 'MB', 'GB']; let i = 0; let n = bytes;
+    while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+    return `${n.toFixed(i ? 1 : 0).replace('.', ',')} ${u[i]}`;
+  }
+  function mostrarAviso(id, mensagem, tipo) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (!mensagem) { el.classList.add('hidden'); return; }
+    const cores = {
+      info: 'bg-sky-50 border-sky-200 text-sky-800',
+      alerta: 'bg-amber-50 border-amber-200 text-amber-800',
+      erro: 'bg-rose-50 border-rose-200 text-rose-800'
+    };
+    el.className = `mb-3 text-xs px-3 py-2 rounded-xl border ${cores[tipo] || cores.info}`;
+    el.textContent = mensagem;
+  }
+
+  let itensCarregados = [];
+
+  function renderizarItens() {
+    const termo = (document.getElementById('itens-busca').value || '').toLowerCase().trim();
+    const tbody = document.getElementById('itens-tbody');
+    const visiveis = itensCarregados.filter(i => !termo || `${i.item_number} ${i.description} ${i.informacao_complementar || ''}`.toLowerCase().includes(termo));
+    if (!visiveis.length) {
+      tbody.innerHTML = `<tr><td colspan="8" class="p-6 text-center text-slate-500">${itensCarregados.length ? 'Nenhum item corresponde ao filtro.' : 'Nenhum item publicado para este certame.'}</td></tr>`;
+    } else {
+      tbody.innerHTML = visiveis.map(i => {
+        const tipo = i.material_ou_servico
+          ? `<span class="mr-1 inline-block px-1.5 py-0.5 rounded text-[10px] font-bold ${i.material_ou_servico === 'S' ? 'bg-emerald-50 text-emerald-700' : 'bg-indigo-50 text-indigo-700'}">${i.material_ou_servico === 'S' ? 'Serviço' : 'Material'}</span>` : '';
+        const sigiloso = '<span class="text-amber-600 font-semibold">Sigiloso</span>';
+        const beneficio = (i.beneficio && !/sem benef/i.test(i.beneficio))
+          ? `<div class="mt-1 inline-block px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 font-semibold">${escHtml(i.beneficio)}</div>` : '';
+        const compl = i.informacao_complementar ? `<div class="mt-1 text-[11px] text-slate-500">${escHtml(i.informacao_complementar)}</div>` : '';
+        return `<tr class="hover:bg-slate-50/80 transition align-top">
+          <td class="p-3 font-bold text-slate-900">${i.item_number}</td>
+          <td class="p-3 font-medium text-slate-800 max-w-md">${tipo}${escHtml(i.description)}${compl}</td>
+          <td class="p-3">${escHtml(i.unit || '—')}</td>
+          <td class="p-3 text-right font-mono">${numeroBR(i.quantity)}</td>
+          <td class="p-3 text-right font-mono">${i.orcamento_sigiloso ? sigiloso : moedaBR(i.estimated_unit_value)}</td>
+          <td class="p-3 text-right font-bold text-slate-900 font-mono">${i.orcamento_sigiloso ? sigiloso : moedaBR(i.estimated_total_value)}</td>
+          <td class="p-3 text-[11px] text-slate-600">${escHtml(i.criterio_julgamento || '—')}${beneficio}</td>
+          <td class="p-3 text-[11px] text-slate-600">${escHtml(i.situacao || '—')}</td>
+        </tr>`;
+      }).join('');
+    }
+    const total = itensCarregados.reduce((s, i) => s + (i.orcamento_sigiloso ? 0 : (i.estimated_total_value || 0)), 0);
+    document.getElementById('itens-total').textContent = total ? moedaBR(total) : '—';
+  }
+
+  async function carregarItens(atualizar = false) {
+    const btn = document.getElementById('btn-atualizar-itens');
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner animate-spin"></i> Consultando PNCP...';
+    try {
+      const resp = await fetch(`/api/tenders/${encodeURIComponent(TENDER_ID)}/itens${atualizar ? '?atualizar=true' : ''}`);
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(mensagemErroApi(data, 'Falha ao carregar os itens.'));
+      itensCarregados = data.itens || [];
+      document.getElementById('tab-count-itens').textContent = data.total;
+      document.getElementById('itens-resumo').textContent = `${data.total} item(ns) registrado(s)`;
+      const badge = document.getElementById('itens-origem-badge');
+      const doPncp = data.origem === 'PNCP';
+      badge.textContent = doPncp ? 'Fonte: PNCP' : 'Fonte: base local';
+      badge.className = `ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border ${doPncp ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-600 border-slate-200'}`;
+      const tipoAviso = ['indisponivel'].includes(data.status) ? 'alerta' : 'info';
+      mostrarAviso('itens-aviso', data.mensagem, tipoAviso);
+      renderizarItens();
+      if (atualizar && data.status === 'sincronizado') showToast(`${data.total} item(ns) sincronizado(s) do PNCP.`, 'success');
+    } catch (e) {
+      mostrarAviso('itens-aviso', e.message || 'Falha ao carregar os itens.', 'erro');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = original;
+    }
+  }
+
+  function iconeArquivo(mime) {
+    if ((mime || '').includes('pdf')) return 'fa-file-pdf text-red-600 bg-red-100';
+    if ((mime || '').includes('zip') || (mime || '').includes('rar')) return 'fa-file-zipper text-amber-600 bg-amber-100';
+    if ((mime || '').includes('word') || (mime || '').includes('opendocument.text')) return 'fa-file-word text-sky-700 bg-sky-100';
+    if ((mime || '').includes('sheet') || (mime || '').includes('excel')) return 'fa-file-excel text-emerald-700 bg-emerald-100';
+    return 'fa-file-lines text-slate-600 bg-slate-200';
+  }
+
+  function renderizarArquivos(data) {
+    const lista = document.getElementById('arquivos-lista');
+    const arquivos = data.arquivos || [];
+    document.getElementById('tab-count-docs').textContent = arquivos.length;
+    document.getElementById('btn-baixar-todos').classList.toggle('hidden', !data.zip_url);
+    if (!arquivos.length) {
+      lista.innerHTML = `<div class="p-6 rounded-xl border border-slate-200 bg-slate-50 text-center text-xs text-slate-500">Nenhum anexo disponível para este certame.</div>`;
+      return;
+    }
+    lista.innerHTML = arquivos.map(d => {
+      const icone = iconeArquivo(d.mime_type).split(' ');
+      const publicado = d.published_at ? `<span>Publicado: ${new Date(d.published_at).toLocaleDateString('pt-BR')}</span>` : '';
+      const tamanho = d.file_size ? `<span>${tamanhoArquivo(d.file_size)}</span>` : '';
+      const acoes = d.baixavel
+        ? `${(d.mime_type || '').includes('pdf') ? `<a href="${d.visualizar_url}" target="_blank" rel="noopener" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 flex items-center gap-1.5 transition"><i class="fa-regular fa-eye"></i> Visualizar</a>` : ''}
+           <button type="button" onclick="baixarArquivoInterno('${d.download_url}', this)" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-sky-600 hover:bg-sky-500 text-white flex items-center gap-1.5 transition disabled:opacity-60"><i class="fa-solid fa-download"></i> Baixar</button>
+           <button type="button" onclick="requestAiAnalysis('${TENDER_ID}', '${d.id}')" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white flex items-center gap-1.5 transition"><i class="fa-solid fa-wand-magic-sparkles"></i> Analisar com IA</button>`
+        : `<span class="px-3 py-1.5 rounded-lg text-[11px] text-slate-500 bg-slate-100 border border-slate-200">Arquivo não disponível para download interno</span>`;
+      return `<div class="arquivo-card p-4 rounded-xl border border-slate-200 bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-3" data-doc-id="${d.id}">
+        <div class="flex items-start gap-3 min-w-0">
+          <div class="w-10 h-10 rounded-lg flex items-center justify-center text-lg flex-shrink-0 ${icone[2]} ${icone[1]}"><i class="fa-solid ${icone[0]}"></i></div>
+          <div class="min-w-0">
+            <div class="font-bold text-slate-800 text-xs break-words">${escHtml(d.name)}</div>
+            <div class="text-[11px] text-slate-500 flex flex-wrap items-center gap-3 mt-1">
+              <span>Tipo: <strong>${escHtml(d.document_type)}</strong></span>${publicado}${tamanho}
+              ${d.origem === 'PNCP' ? '<span class="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold text-[10px]">PNCP</span>' : ''}
+            </div>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 flex-wrap">${acoes}</div>
+      </div>`;
+    }).join('');
+  }
+
+  async function carregarArquivos(atualizar = false) {
+    const btn = document.getElementById('btn-atualizar-arquivos');
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner animate-spin"></i> Consultando PNCP...';
+    try {
+      const resp = await fetch(`/api/tenders/${encodeURIComponent(TENDER_ID)}/arquivos${atualizar ? '?atualizar=true' : ''}`);
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(mensagemErroApi(data, 'Falha ao listar os anexos.'));
+      renderizarArquivos(data);
+      mostrarAviso('arquivos-aviso', data.mensagem, data.status === 'indisponivel' ? 'alerta' : 'info');
+    } catch (e) {
+      mostrarAviso('arquivos-aviso', e.message || 'Falha ao listar os anexos.', 'erro');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = original;
+    }
+  }
+
+  // Download servido pela plataforma (proxy com cache): o usuário não sai do sistema
+  async function baixarArquivoInterno(url, botao) {
+    const original = botao ? botao.innerHTML : '';
+    if (botao) { botao.disabled = true; botao.innerHTML = '<i class="fa-solid fa-spinner animate-spin"></i> Baixando...'; }
+    try {
+      const resp = await fetch(url);
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(mensagemErroApi(data, 'Não foi possível baixar o arquivo.'));
+      }
+      const blob = await resp.blob();
+      const cd = resp.headers.get('Content-Disposition') || '';
+      let nome = 'documento';
+      const mUtf = cd.match(/filename\*=(?:UTF-8|utf-8)''([^;]+)/);
+      const mSimples = cd.match(/filename="?([^";]+)"?/i);
+      if (mUtf) nome = decodeURIComponent(mUtf[1]); else if (mSimples) nome = mSimples[1];
+      const href = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = href;
+      a.download = nome;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(href), 2000);
+      showToast(`${nome} baixado.`, 'success');
+    } catch (e) {
+      showToast(e.message || 'Falha no download.', 'error');
+    } finally {
+      if (botao) { botao.disabled = false; botao.innerHTML = original; }
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('itens-busca').addEventListener('input', renderizarItens);
+    carregarItens(false);
+    carregarArquivos(false);
+  });
+
+  function switchTab(tabName) {
+    const tabs = ['overview', 'items', 'documents', 'ai', 'changes', 'notes'];
+    tabs.forEach(t => {
+      const content = document.getElementById(`tab-content-${t}`);
+      const btn = document.getElementById(`tab-btn-${t}`);
+      if (content) content.classList.add('hidden');
+      if (btn) {
+        btn.classList.remove('border-sky-600', 'text-sky-600');
+        btn.classList.add('border-transparent');
+      }
+    });
+
+    const activeContent = document.getElementById(`tab-content-${tabName}`);
+    const activeBtn = document.getElementById(`tab-btn-${tabName}`);
+    if (activeContent) activeContent.classList.remove('hidden');
+    if (activeBtn) {
+      activeBtn.classList.remove('border-transparent');
+      activeBtn.classList.add('border-sky-600', 'text-sky-600');
+    }
+  }
+
+  function copyTenderLink() {
+    navigator.clipboard.writeText(window.location.href);
+    showToast('Link do certame copiado para a área de transferência!', 'success');
+  }
+
+  async function saveUserNote(tenderId) {
+    const token = AppSession.getToken();
+    if (!token) {
+      showToast('Faça login para salvar anotações particulares.', 'info');
+      setTimeout(() => window.location.href = '/login', 1000);
+      return;
+    }
+
+    const note = document.getElementById('user-note-input').value;
+    try {
+      const resp = await fetch(`/api/tenders/${tenderId}/notes`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ content: note })
+      });
+      if (resp.ok) {
+        showToast('Anotação registrada com sucesso.', 'success');
+      } else {
+        showToast('Erro ao salvar anotação.', 'error');
+      }
+    } catch {
+      showToast('Falha de conexão com o servidor.', 'error');
+    }
+  }
+
+  async function requestAiAnalysis(tenderId, documentId = null) {
+    switchTab('ai');
+    const loading = document.getElementById('ai-loading');
+    const results = document.getElementById('ai-results');
+    const runBtn = document.getElementById('run-ai-btn');
+
+    loading.classList.remove('hidden');
+    results.classList.add('hidden');
+    runBtn.disabled = true;
+
+    try {
+      const resp = await fetch(`/api/tenders/${tenderId}/ai-analyze`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ document_id: documentId })
+      });
+
+      const data = await resp.json();
+      loading.classList.add('hidden');
+      runBtn.disabled = false;
+
+      if (resp.ok && data.success) {
+        renderAiResults(data.data);
+        results.classList.remove('hidden');
+        showToast('Análise por Inteligência Artificial concluída!', 'success');
+      } else {
+        showToast(data.detail || 'Falha ao processar análise do edital.', 'error');
+      }
+    } catch (e) {
+      loading.classList.add('hidden');
+      runBtn.disabled = false;
+      showToast('Erro de comunicação com o serviço de IA.', 'error');
+    }
+  }
+
+  async function exportToDisputeCockpit(tenderId, title, value, portal) {
+    try {
+      const resp = await fetch('/api/disputes/track', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id_pregao: String(tenderId),
+          numero_item: 1,
+          descricao: title || 'Lote / Item do Certame',
+          valor_referencia: Number(value) || 1000.0,
+          margem_minima: 10.0,
+          stop_loss: (Number(value) || 1000.0) * 0.7,
+          fonte_portal: portal || 'Compras.gov.br'
+        })
+      });
+      if (resp.ok) {
+        showToast('Certame exportado para o Cockpit com sucesso!', 'success');
+        setTimeout(() => {
+          window.location.href = '/disputa';
+        }, 700);
+      } else {
+        const err = await resp.json().catch(() => ({}));
+        showToast(err.detail || 'Falha ao exportar para o Cockpit.', 'error');
+      }
+    } catch (e) {
+      showToast('Erro ao comunicar com o Cockpit.', 'error');
+    }
+  }
+
+  function renderAiResults(aiData) {
+    // 0. Atualizar Card da Visão Geral se presente
+    const ovResumo = document.getElementById('gemini-overview-resumo');
+    const ovRiscos = document.getElementById('gemini-overview-riscos');
+    if (ovResumo && aiData.resumo_executivo) {
+      ovResumo.textContent = aiData.resumo_executivo.o_que_sera_contratado || aiData.resumo_executivo.resumo || ovResumo.textContent;
+    }
+    if (ovRiscos && aiData.pontos_atencao) {
+      ovRiscos.textContent = aiData.pontos_atencao.penalidades_previstas || aiData.pontos_atencao.prazos_urgentes_ou_curtos || ovRiscos.textContent;
+    }
+
+    // 1. Resumo Executivo
+    const execGrid = document.getElementById('ai-exec-summary');
+    const ex = aiData.resumo_executivo || {};
+    execGrid.innerHTML = `
+      <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+        <span class="text-slate-400 font-semibold block text-[10px] uppercase">O que será contratado:</span>
+        <span class="font-bold text-slate-800">${ex.o_que_sera_contratado || 'Não informado'}</span>
+      </div>
+      <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+        <span class="text-slate-400 font-semibold block text-[10px] uppercase">Quem contrata:</span>
+        <span class="font-bold text-slate-800">${ex.quem_contrata || 'Não informado'}</span>
+      </div>
+      <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+        <span class="text-slate-400 font-semibold block text-[10px] uppercase">Local / Município:</span>
+        <span class="font-bold text-slate-800">${ex.onde_local || 'Não informado'}</span>
+      </div>
+      <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+        <span class="text-slate-400 font-semibold block text-[10px] uppercase">Modalidade:</span>
+        <span class="font-bold text-slate-800">${ex.modalidade || 'Não informado'}</span>
+      </div>
+      <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+        <span class="text-slate-400 font-semibold block text-[10px] uppercase">Valor Estimado:</span>
+        <span class="font-bold text-emerald-700">${ex.valor_estimado || 'Não informado'}</span>
+      </div>
+      <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+        <span class="text-slate-400 font-semibold block text-[10px] uppercase">Cronograma / Datas:</span>
+        <span class="font-bold text-slate-800">${ex.datas_relevantes || 'Não informado'}</span>
+      </div>
+    `;
+
+    // 2. Habilitação
+    const habGrid = document.getElementById('ai-hab-grid');
+    const hab = aiData.requisitos_participacao || {};
+    habGrid.innerHTML = `
+      <div class="p-4 bg-slate-50 rounded-xl border border-slate-100 space-y-2">
+        <h4 class="font-bold text-slate-800 text-xs flex items-center gap-1.5"><i class="fa-solid fa-scale-balanced text-sky-500"></i> Habilitação Jurídica e Fiscal</h4>
+        <ul class="list-disc list-inside text-slate-600 space-y-1">
+          ${(hab.habilitacao_juridica || []).concat(hab.regularidade_fiscal_trabalhista || []).map(i => `<li>${i}</li>`).join('') || '<li>Conforme edital oficial</li>'}
+        </ul>
+      </div>
+      <div class="p-4 bg-slate-50 rounded-xl border border-slate-100 space-y-2">
+        <h4 class="font-bold text-slate-800 text-xs flex items-center gap-1.5"><i class="fa-solid fa-certificate text-emerald-500"></i> Qualificação Técnica e Registros</h4>
+        <ul class="list-disc list-inside text-slate-600 space-y-1">
+          ${(hab.qualificacao_tecnica || []).map(i => `<li>${i}</li>`).join('') || '<li>Conforme edital oficial</li>'}
+          ${hab.registros_profissionais_ou_sanitarios ? `<li><strong>Registros:</strong> ${hab.registros_profissionais_ou_sanitarios}</li>` : ''}
+        </ul>
+      </div>
+    `;
+
+    // 3. Pontos de Atenção
+    const attList = document.getElementById('ai-attention-list');
+    const att = aiData.pontos_atencao || {};
+    attList.innerHTML = `
+      <div class="p-3 bg-white rounded-xl border border-rose-200">
+        <span class="font-bold text-rose-700 block mb-1"><i class="fa-solid fa-clock"></i> Prazos e Impugnações:</span>
+        <p class="text-slate-700">${att.prazos_urgentes_ou_curtos || 'Não informado'}</p>
+      </div>
+      <div class="p-3 bg-white rounded-xl border border-rose-200">
+        <span class="font-bold text-rose-700 block mb-1"><i class="fa-solid fa-circle-exclamation"></i> Penalidades e Cláusulas Críticas:</span>
+        <p class="text-slate-700">${att.penalidades_previstas || 'Conforme Lei 14.133/2021'}</p>
+      </div>
+    `;
+
+    // 4. Citações
+    const citList = document.getElementById('ai-citations-list');
+    const cits = aiData.citacoes || [];
+    citList.innerHTML = cits.map(c => `
+      <div class="p-3 bg-slate-50 rounded-xl border border-slate-200">
+        <div class="flex justify-between items-center font-bold text-slate-800 mb-1">
+          <span>${c.topico || 'Trecho Oficial'}</span>
+          <span class="text-sky-600 bg-sky-50 px-2 py-0.5 rounded text-[10px]">${c.pagina || 'Página do Edital'}</span>
+        </div>
+        <p class="italic text-slate-600">"${c.trecho || ''}"</p>
+      </div>
+    `).join('') || '<div class="text-slate-400">Nenhuma citação destacada.</div>';
+  }
+
+  // Pre-load existing AI analysis if present
+  {% if detail.latest_ai_analysis %}
+  document.addEventListener('DOMContentLoaded', () => {
+    try {
+      const preLoadedData = {{ detail.latest_ai_analysis.result_json|tojson }};
+      renderAiResults(preLoadedData);
+    } catch {}
+  });
+  {% endif %}
+</script>
 {% endblock %}

@@ -26,11 +26,12 @@ from server.models import (
     Favorite, UserNote, SavedSearch, Alert, AlertDelivery,
     TenderChange, DocumentExtraction, AIAnalysis, SearchHistory,
     WebhookDispatchLog, Deal, DEAL_STAGES, DEAL_STAGE_LABELS,
-    LegalDocumentTemplate, SupplierProspect, generate_uuid,
+    LegalDocumentTemplate, SupplierProspect, generate_uuid, PasswordResetToken,
     DocumentoEmpresa, DOCUMENTO_CATEGORIAS, DOCUMENTO_DIAS_ALERTA, hoje_sao_paulo
 )
 from server.schemas import (
     UserRegisterRequest, UserLoginRequest, PasswordChangeRequest,
+    PasswordResetRequest, PasswordResetConfirmRequest,
     UserProfileResponse, TokenResponse, SearchFilterParams,
     SearchResultResponse, TenderDetailResponse, TenderSummaryResponse,
     TenderItemResponse, TenderDocumentResponse, TenderChangeResponse,
@@ -42,9 +43,13 @@ from server.schemas import (
 from server.webhook_dispatcher import retry_webhook_dispatch, dispatch_webhook_sync, dispatch_webhook_async
 from server.security import (
     hash_password, verify_password, create_access_token, decode_access_token,
-    check_rate_limit, calculate_sha256
+    check_rate_limit, calculate_sha256,
+    password_fingerprint, generate_reset_token, hash_reset_token, is_rate_limited,
+    tentativas_recentes, registrar_tentativa, limpar_tentativas
 )
-from server.search_engine import search_tenders, CATEGORIES
+from server.search_engine import (
+    search_tenders, CATEGORIES, UFS_BRASIL, NATUREZAS_FILTRO, normalizar_natureza, normalizar_uf
+)
 from server.ai_engine import analyze_tender_document_with_ai
 from server.services.ai_service import analyze_tender_summary, ask_tender_question
 from server.connectors.registry import SOURCE_CATALOG, list_all_sources, get_connector
@@ -64,6 +69,7 @@ from server.services.kit_builder import (
     montar_kit_habilitacao_zip, nome_arquivo_kit, KitHabilitacaoError
 )
 from server.services import document_vault
+from server.services import pncp_compras
 
 # Fuso horário oficial para prazos e agenda
 try:
@@ -206,6 +212,9 @@ app.add_middleware(
 # Templates Jinja2
 templates_dir = os.path.join(os.path.dirname(__file__), "templates")
 templates = Jinja2Templates(directory=templates_dir)
+# Listas compartilhadas por todos os filtros (busca, home e alertas)
+templates.env.globals["UFS_BRASIL"] = UFS_BRASIL
+templates.env.globals["NATUREZAS_FILTRO"] = NATUREZAS_FILTRO
 
 # Arquivos Estáticos e PWA
 static_dir = os.path.join(os.path.dirname(__file__), "static")
@@ -241,6 +250,9 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> Optiona
     if not payload or "sub" not in payload:
         return None
     user = db.query(User).filter(User.id == payload["sub"]).first()
+    # Tokens emitidos antes de uma troca/redefinição de senha deixam de valer
+    if user and payload.get("pwv") and payload.get("pwv") != password_fingerprint(user.password_hash):
+        return None
     return user
 
 def require_auth(request: Request, db: Session = Depends(get_db)) -> User:
@@ -321,7 +333,7 @@ def page_home(
     # Janela recente classificada lexicamente (MATERIAL / SERVICO / OUTROS)
     candidatos = db.query(Tender).order_by(Tender.publication_date.desc()).limit(300).all()
     classificados = [
-        (t, classificar_natureza_certame(t.title, t.object_description)) for t in candidatos
+        (t, t.natureza_objeto or classificar_natureza_certame(t.title, t.object_description)) for t in candidatos
     ]
     natureza_counts = {n: 0 for n in NATUREZAS_OBJETO}
     for _, nat in classificados:
@@ -348,6 +360,8 @@ def page_search(
     modality: Optional[str] = None,
     status_filter: Optional[str] = Query(None, alias="status"),
     category: Optional[str] = None,
+    natureza: Optional[str] = None,
+    uf: Optional[str] = None,
     source_system: Optional[str] = None,
     portal: Optional[str] = None,
     uasg_code: Optional[str] = None,
@@ -364,7 +378,8 @@ def page_search(
     effective_size = limit or page_size or 20
     params = SearchFilterParams(
         q=q,
-        state=state,
+        state=normalizar_uf(state) or normalizar_uf(uf),
+        uf=normalizar_uf(uf) or normalizar_uf(state),
         city=city,
         region=region,
         contracting_entity=contracting_entity,
@@ -372,6 +387,7 @@ def page_search(
         modality=modality,
         status=status_filter,
         category=category,
+        natureza=normalizar_natureza(natureza) or normalizar_natureza(category),
         source_system=source_system,
         portal=portal,
         uasg_code=uasg_code,
@@ -410,7 +426,7 @@ def page_tender_detail(request: Request, tender_id: str, db: Session = Depends(g
             user_note = note_obj.content
 
     items = db.query(TenderItem).filter(TenderItem.tender_id == tender.id).order_by(TenderItem.item_number.asc()).all()
-    docs = db.query(TenderDocument).filter(TenderDocument.tender_id == tender.id).all()
+    docs = pncp_compras._docs_do_banco(db, tender.id)
     changes = db.query(TenderChange).filter(TenderChange.tender_id == tender.id).order_by(TenderChange.detected_at.desc()).all()
     latest_ai = db.query(AIAnalysis).filter(AIAnalysis.tender_id == tender.id).order_by(AIAnalysis.created_at.desc()).first()
 
@@ -429,6 +445,7 @@ def page_tender_detail(request: Request, tender_id: str, db: Session = Depends(g
         administrative_sphere=tender.administrative_sphere,
         modality=tender.modality,
         category=tender.category or "Outros",
+        natureza_objeto=tender.natureza_objeto,
         status=tender.status or "Não informado",
         publication_date=tender.publication_date,
         opening_date=tender.opening_date,
@@ -470,42 +487,23 @@ def page_tender_detail(request: Request, tender_id: str, db: Session = Depends(g
     detail = TenderDetailResponse(
         tender=summary,
         items=[
-            TenderItemResponse(
-                id=i.id,
-                item_number=i.item_number,
-                description=i.description,
-                unit=i.unit or "Não informado",
-                quantity=i.quantity,
-                estimated_unit_value=i.estimated_unit_value,
-                estimated_total_value=i.estimated_total_value,
-                classification_code=i.classification_code or "Não informado"
-            ) for i in items
+            TenderItemResponse(**pncp_compras.serializar_item(i)) for i in items
         ],
         documents=[
             TenderDocumentResponse(
                 id=d.id,
                 name=d.name,
                 document_type=d.document_type,
-                source_url=resolve_document_download_url(d.source_url, tender),
+                source_url=d.source_url,
                 mime_type=d.mime_type,
                 file_size=d.file_size,
                 checksum=d.checksum,
                 published_at=d.published_at,
-                extraction_status=d.extraction_status
+                extraction_status=d.extraction_status or "PENDING",
+                origem=d.origem or "LOCAL",
+                download_url=pncp_compras.serializar_documento(d)["download_url"]
             ) for d in docs
-        ] if docs else [
-            TenderDocumentResponse(
-                id=f"doc-edital-{tender.id}",
-                name=f"Edital e Termo de Referência ({tender.notice_number or tender.external_id})",
-                document_type="EDITAL",
-                source_url=resolve_document_download_url(tender.official_notice_url or summary.url_pncp or tender.source_url, tender),
-                mime_type="application/pdf",
-                file_size=None,
-                checksum=None,
-                published_at=tender.publication_date,
-                extraction_status="SUCCESS"
-            )
-        ] if (tender.official_notice_url or summary.url_pncp or tender.source_url) else [],
+        ],
         changes=[
             TenderChangeResponse(
                 id=c.id,
@@ -555,11 +553,30 @@ def page_admin(request: Request):
 
 @app.get("/login", response_class=HTMLResponse)
 def page_login(request: Request):
-    return templates.TemplateResponse(request, "login.html", {})
+    return templates.TemplateResponse(request, "login.html", {"remember_days": settings.REMEMBER_ME_DAYS})
 
 @app.get("/register", response_class=HTMLResponse)
 def page_register(request: Request):
     return templates.TemplateResponse(request, "register.html", {})
+
+@app.get("/recuperar-senha", response_class=HTMLResponse)
+@app.get("/esqueci-senha", response_class=HTMLResponse)
+def page_recuperar_senha(request: Request):
+    return templates.TemplateResponse(request, "recuperar_senha.html", {
+        "minutos_validade": settings.PASSWORD_RESET_TOKEN_MINUTES
+    })
+
+@app.get("/redefinir-senha", response_class=HTMLResponse)
+def page_redefinir_senha(request: Request, token: str = Query(""), db: Session = Depends(get_db)):
+    token_valido = _buscar_token_redefinicao(db, token) is not None
+    response = templates.TemplateResponse(request, "redefinir_senha.html", {
+        "token": token if token_valido else "",
+        "token_valido": token_valido
+    })
+    # O token está na URL: evita vazamento via cabeçalho Referer e cache
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 @app.get("/negocios", response_class=HTMLResponse)
 def page_negocios(
@@ -1174,6 +1191,46 @@ def api_health_metrics(db: Session = Depends(get_db)):
 
 # ----------------- Auth API -----------------
 
+def _perfil_usuario(user: User) -> UserProfileResponse:
+    return UserProfileResponse(
+        id=user.id,
+        name=user.name,
+        email=user.email,
+        role=user.role,
+        status=user.status,
+        created_at=user.created_at,
+        last_login_at=user.last_login_at
+    )
+
+
+def _emitir_sessao(user: User, remember_me: bool = False) -> TokenResponse:
+    """Emite o JWT da sessão: curta por padrão, estendida com "Manter conectado"."""
+    if remember_me:
+        validade = timedelta(days=settings.REMEMBER_ME_DAYS)
+    else:
+        validade = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    token = create_access_token(
+        {
+            "sub": user.id,
+            "email": user.email,
+            "role": user.role,
+            "pwv": password_fingerprint(user.password_hash),
+            "rmb": bool(remember_me)
+        },
+        expires_delta=validade
+    )
+    return TokenResponse(
+        access_token=token,
+        user=_perfil_usuario(user),
+        expires_in=int(validade.total_seconds()),
+        remember_me=bool(remember_me)
+    )
+
+
+def _ip_cliente(request: Optional[Request]) -> str:
+    return request.client.host if request and request.client else "127.0.0.1"
+
+
 @app.post("/api/auth/register", response_model=TokenResponse)
 def api_register(payload: UserRegisterRequest, db: Session = Depends(get_db)):
     # Proteção contra enumeração: resposta uniforme
@@ -1194,59 +1251,140 @@ def api_register(payload: UserRegisterRequest, db: Session = Depends(get_db)):
     db.add(user)
     db.commit()
     db.refresh(user)
-
-    token = create_access_token({"sub": user.id, "email": user.email, "role": user.role})
-    return TokenResponse(
-        access_token=token,
-        user=UserProfileResponse(
-            id=user.id,
-            name=user.name,
-            email=user.email,
-            role=user.role,
-            status=user.status,
-            created_at=user.created_at,
-            last_login_at=user.last_login_at
-        )
-    )
+    return _emitir_sessao(user, remember_me=False)
 
 @app.post("/api/auth/login", response_model=TokenResponse)
-def api_login(payload: UserLoginRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == payload.email.lower().strip()).first()
+def api_login(payload: UserLoginRequest, request: Request, db: Session = Depends(get_db)):
+    email = payload.email.lower().strip()
+    chave_falhas = f"login-falhas:{email}"
+    # Proteção contra força bruta: bloqueia após 10 senhas erradas para o mesmo e-mail em 15 minutos
+    if tentativas_recentes(chave_falhas, window_seconds=900) >= 10:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Muitas tentativas de acesso. Aguarde alguns minutos ou redefina sua senha."
+        )
+
+    user = db.query(User).filter(User.email == email).first()
     if not user or not verify_password(payload.password, user.password_hash):
+        registrar_tentativa(chave_falhas)
         # Defesa contra timing attack e enumeração
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais de acesso incorretas.")
+    limpar_tentativas(chave_falhas)
 
     if user.status != "ACTIVE":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Conta inativa.")
 
     user.last_login_at = datetime.utcnow()
     db.commit()
+    return _emitir_sessao(user, remember_me=payload.remember_me)
 
-    token = create_access_token({"sub": user.id, "email": user.email, "role": user.role})
-    return TokenResponse(
-        access_token=token,
-        user=UserProfileResponse(
-            id=user.id,
-            name=user.name,
-            email=user.email,
-            role=user.role,
-            status=user.status,
-            created_at=user.created_at,
-            last_login_at=user.last_login_at
+
+MENSAGEM_RECUPERACAO = (
+    "Se o e-mail estiver cadastrado, você receberá em instantes um link para redefinir a senha. "
+    "Verifique também a caixa de spam."
+)
+
+
+@app.post("/api/auth/forgot-password")
+def api_forgot_password(payload: PasswordResetRequest, request: Request, db: Session = Depends(get_db)):
+    """
+    Solicita a redefinição de senha. A resposta é sempre a mesma (evita enumeração de contas).
+    O link expira em PASSWORD_RESET_TOKEN_MINUTES e é de uso único.
+    """
+    from server.services.email_service import enviar_email, montar_email_redefinicao
+
+    ip = _ip_cliente(request)
+    if is_rate_limited(f"forgot:ip:{ip}", max_requests=5, window_seconds=900):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Muitas solicitações. Aguarde alguns minutos para tentar novamente."
         )
-    )
+
+    email = payload.email.lower().strip()
+    resposta: Dict[str, Any] = {"status": "success", "message": MENSAGEM_RECUPERACAO}
+
+    # Limite silencioso por e-mail: não revela se a conta existe
+    if is_rate_limited(f"forgot:email:{email}", max_requests=3, window_seconds=3600):
+        return resposta
+
+    user = db.query(User).filter(User.email == email).first()
+    if not user or user.status != "ACTIVE":
+        return resposta
+
+    agora = datetime.utcnow()
+    db.query(PasswordResetToken).filter(
+        PasswordResetToken.user_id == user.id,
+        PasswordResetToken.used_at.is_(None)
+    ).update({PasswordResetToken.used_at: agora}, synchronize_session=False)
+
+    token = generate_reset_token()
+    db.add(PasswordResetToken(
+        user_id=user.id,
+        token_hash=hash_reset_token(token),
+        expires_at=agora + timedelta(minutes=settings.PASSWORD_RESET_TOKEN_MINUTES),
+        request_ip=ip[:64],
+        created_at=agora
+    ))
+    db.commit()
+
+    link = f"{settings.APP_URL}/redefinir-senha?token={token}"
+    assunto, texto, html_email = montar_email_redefinicao(user.name, link, settings.PASSWORD_RESET_TOKEN_MINUTES)
+    envio = enviar_email(user.email, assunto, texto, html_email)
+
+    if envio.provedor == "MOCK" and settings.AUTH_EXPOSE_RESET_LINK:
+        resposta["reset_url"] = link  # apenas desenvolvimento
+    return resposta
+
+
+def _buscar_token_redefinicao(db: Session, token: str) -> Optional[PasswordResetToken]:
+    if not token or len(token) < 20 or len(token) > 200:
+        return None
+    registro = db.query(PasswordResetToken).filter(
+        PasswordResetToken.token_hash == hash_reset_token(token)
+    ).first()
+    if not registro or not registro.is_valido():
+        return None
+    return registro
+
+
+@app.get("/api/auth/reset-password/validate")
+def api_validate_reset_token(token: str = Query(""), db: Session = Depends(get_db)):
+    registro = _buscar_token_redefinicao(db, token)
+    if not registro:
+        return {"valid": False}
+    restante = int((registro.expires_at - datetime.utcnow()).total_seconds())
+    return {"valid": True, "expires_in": max(0, restante)}
+
+
+@app.post("/api/auth/reset-password")
+def api_reset_password(payload: PasswordResetConfirmRequest, db: Session = Depends(get_db)):
+    """Confirma a redefinição: troca a senha, consome o token e invalida as sessões anteriores."""
+    registro = _buscar_token_redefinicao(db, payload.token)
+    if not registro:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Link de redefinição inválido ou expirado. Solicite um novo."
+        )
+    user = db.query(User).filter(User.id == registro.user_id).first()
+    if not user or user.status != "ACTIVE":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Conta indisponível para redefinição.")
+    if verify_password(payload.new_password, user.password_hash):
+        raise HTTPException(status_code=422, detail="A nova senha deve ser diferente da senha atual.")
+
+    agora = datetime.utcnow()
+    user.password_hash = hash_password(payload.new_password)
+    user.updated_at = agora
+    db.query(PasswordResetToken).filter(
+        PasswordResetToken.user_id == user.id,
+        PasswordResetToken.used_at.is_(None)
+    ).update({PasswordResetToken.used_at: agora}, synchronize_session=False)
+    db.commit()
+    limpar_tentativas(f"login-falhas:{user.email}")
+    return {"status": "success", "message": "Senha redefinida com sucesso. Entre com a nova senha."}
 
 @app.get("/api/auth/me", response_model=UserProfileResponse)
 def api_me(user: User = Depends(require_auth)):
-    return UserProfileResponse(
-        id=user.id,
-        name=user.name,
-        email=user.email,
-        role=user.role,
-        status=user.status,
-        created_at=user.created_at,
-        last_login_at=user.last_login_at
-    )
+    return _perfil_usuario(user)
 
 @app.delete("/api/auth/account")
 def api_delete_account(user: User = Depends(require_auth), db: Session = Depends(get_db)):
@@ -1268,6 +1406,8 @@ def api_search_tenders(
     modality: Optional[str] = None,
     status_filter: Optional[str] = Query(None, alias="status"),
     category: Optional[str] = None,
+    natureza: Optional[str] = None,
+    uf: Optional[str] = None,
     source_system: Optional[str] = None,
     portal: Optional[str] = None,
     uasg_code: Optional[str] = None,
@@ -1285,7 +1425,8 @@ def api_search_tenders(
     effective_size = limit or page_size or 20
     params = SearchFilterParams(
         q=q,
-        state=state,
+        state=normalizar_uf(state) or normalizar_uf(uf),
+        uf=normalizar_uf(uf) or normalizar_uf(state),
         city=city,
         region=region,
         contracting_entity=contracting_entity,
@@ -1293,6 +1434,7 @@ def api_search_tenders(
         modality=modality,
         status=status_filter,
         category=category,
+        natureza=normalizar_natureza(natureza) or normalizar_natureza(category),
         source_system=source_system,
         portal=portal,
         uasg_code=uasg_code,
@@ -1346,14 +1488,19 @@ def api_sync_tenders(
 def api_export_tenders_csv(
     q: Optional[str] = None,
     state: Optional[str] = None,
+    uf: Optional[str] = None,
     modality: Optional[str] = None,
     status_filter: Optional[str] = Query(None, alias="status"),
+    category: Optional[str] = None,
+    natureza: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     """Exporta oportunidades filtradas em streaming de arquivo CSV estruturado."""
     params = SearchFilterParams(
         q=q,
-        state=state,
+        state=normalizar_uf(state) or normalizar_uf(uf),
+        category=category,
+        natureza=normalizar_natureza(natureza) or normalizar_natureza(category),
         modality=modality,
         status=status_filter,
         page=1,
@@ -1492,6 +1639,7 @@ def api_get_tender_by_id(tender_id: str, db: Session = Depends(get_db)):
         "administrative_sphere": tender.administrative_sphere,
         "modality": tender.modality,
         "category": tender.category or "Outros",
+        "natureza_objeto": tender.natureza_objeto,
         "status": tender.status or "Divulgada no PNCP",
         "publication_date": tender.publication_date.isoformat() if tender.publication_date else None,
         "opening_date": tender.opening_date.isoformat() if tender.opening_date else None,
@@ -2173,6 +2321,116 @@ def api_excluir_documento(documento_id: int, db: Session = Depends(get_db)):
     db.commit()
     arquivo_removido = document_vault.remover_arquivo_documento(caminho)
     return {"status": "success", "id": documento_id, "arquivo_removido": arquivo_removido}
+
+# ----------------- Itens e Arquivos do Certame (API de integração do PNCP) -----------------
+
+def _tender_ou_404(db: Session, tender_id: str) -> Tender:
+    tender = db.query(Tender).filter((Tender.id == tender_id) | (Tender.external_id == tender_id)).first()
+    if not tender:
+        raise HTTPException(status_code=404, detail="Licitação não encontrada.")
+    return tender
+
+
+@app.get("/api/tenders/{tender_id}/itens")
+async def api_tender_itens(
+    tender_id: str,
+    atualizar: bool = Query(False, description="Força nova consulta ao endpoint /itens do PNCP"),
+    db: Session = Depends(get_db)
+):
+    """Itens individuais do certame (descrição, quantidade, unidade, valores, critério, benefício ME/EPP)."""
+    tender = _tender_ou_404(db, tender_id)
+    return await pncp_compras.sincronizar_itens(db, tender, forcar=atualizar)
+
+
+@app.get("/api/tenders/{tender_id}/arquivos")
+async def api_tender_arquivos(
+    tender_id: str,
+    atualizar: bool = Query(False, description="Força nova consulta ao endpoint /arquivos do PNCP"),
+    db: Session = Depends(get_db)
+):
+    """Lista os anexos oficiais (edital, termo de referência, minutas) com rotas internas de download."""
+    tender = _tender_ou_404(db, tender_id)
+    return await pncp_compras.sincronizar_arquivos(db, tender, forcar=atualizar)
+
+
+@app.get("/api/tenders/{tender_id}/arquivos/zip")
+async def api_tender_arquivos_zip(tender_id: str, db: Session = Depends(get_db)):
+    """Empacota todos os anexos baixáveis do certame em um único ZIP (servido pela própria plataforma)."""
+    import zipfile
+
+    tender = _tender_ou_404(db, tender_id)
+    docs = [d for d in pncp_compras._docs_do_banco(db, tender.id) if pncp_compras.documento_baixavel(d)]
+    if not docs:
+        raise HTTPException(status_code=404, detail="Nenhum anexo disponível para download.")
+    resultados = await pncp_compras.baixar_varios(db, docs)
+    buffer = io.BytesIO()
+    nomes_usados = set()
+    falhas = []
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for idx, (doc, caminho, erro) in enumerate(resultados, start=1):
+            if not caminho:
+                falhas.append(f"{doc.name}: {erro}")
+                continue
+            nome = f"{idx:02d}_{pncp_compras.nome_para_download(doc)}"
+            while nome in nomes_usados:
+                nome = f"_{nome}"
+            nomes_usados.add(nome)
+            zf.write(str(caminho), arcname=nome)
+        if falhas:
+            zf.writestr("LEIA-ME_arquivos_nao_baixados.txt", "\n".join(falhas))
+    if not nomes_usados:
+        raise HTTPException(status_code=502, detail="Não foi possível baixar os anexos do PNCP agora.")
+    nome_zip = f"Anexos_{slug_arquivo(tender.notice_number or tender.external_id or tender.id)}.zip"
+    conteudo = buffer.getvalue()
+    return StreamingResponse(
+        io.BytesIO(conteudo),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{nome_zip}"',
+            "Content-Length": str(len(conteudo)),
+            "Cache-Control": "no-store"
+        }
+    )
+
+
+@app.get("/api/tenders/{tender_id}/arquivos/{documento_id}/download")
+async def api_tender_arquivo_download(
+    tender_id: str,
+    documento_id: str,
+    inline: bool = Query(False, description="Exibe no navegador (PDF) em vez de baixar"),
+    db: Session = Depends(get_db)
+):
+    """Baixa o anexo pelo servidor (proxy com cache), sem redirecionar o usuário ao portal de origem."""
+    tender = _tender_ou_404(db, tender_id)
+    doc = db.query(TenderDocument).filter(
+        TenderDocument.id == documento_id, TenderDocument.tender_id == tender.id
+    ).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Documento não encontrado neste certame.")
+    try:
+        caminho = await pncp_compras.baixar_documento(db, doc)
+    except pncp_compras.DownloadNaoPermitido as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except pncp_compras.CompraNaoEncontrada:
+        raise HTTPException(status_code=404, detail="Arquivo não encontrado no PNCP.")
+    except pncp_compras.ArquivoGrandeDemais as exc:
+        raise HTTPException(status_code=413, detail=str(exc))
+    except pncp_compras.PNCPErro as exc:
+        raise HTTPException(status_code=502, detail=f"PNCP indisponível no momento: {exc}")
+
+    nome = pncp_compras.nome_para_download(doc)
+    exibir = inline and (doc.mime_type or "").startswith(("application/pdf", "image/"))
+    response = FileResponse(
+        str(caminho),
+        media_type=doc.mime_type or "application/octet-stream",
+        filename=nome,
+        content_disposition_type="inline" if exibir else "attachment"
+    )
+    response.headers["Cache-Control"] = "private, max-age=3600"
+    if doc.checksum:
+        response.headers["X-Checksum-SHA256"] = doc.checksum
+    return response
+
 
 # ----------------- Kit de Habilitação (ZIP) -----------------
 
@@ -2889,77 +3147,3 @@ def api_admin_toggle_source(source_id: str, active: bool = Query(...), admin: Us
 @app.get("/api/sources")
 def api_list_sources():
     return list_all_sources()
-
-# ==========================================
-# SUPORTE A SUBMISSAO DE FORMULARIO DE LOGIN E RECUPERACAO
-# ==========================================
-from fastapi import Form, status
-from fastapi.responses import RedirectResponse
-
-@app.post("/login")
-async def process_form_login(
-    request: Request,
-    username: str = Form(...),
-    password: str = Form(...),
-    remember_me: bool = Form(False)
-):
-    duracao = 60 * 60 * 24 * 30 if remember_me else 60 * 60 * 24
-    resposta = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
-    resposta.set_cookie(key="usuario_logado", value=username, max_age=duracao, httponly=True)
-    return resposta
-
-@app.get("/recuperar-senha", response_class=HTMLResponse)
-async def page_recuperar_senha(request: Request):
-    return templates.TemplateResponse("recuperar_senha.html", {"request": request})
-
-@app.post("/recuperar-senha")
-async def action_recuperar_senha(request: Request, email: str = Form(...)):
-    return templates.TemplateResponse("recuperar_senha.html", {
-        "request": request,
-        "mensagem": "Se o e-mail estiver registado, as instrucoes foram enviadas."
-    })
-
-# ==========================================
-# ROTA DE LOGIN REAL VIA FORMULARIO
-# ==========================================
-@app.post("/login")
-async def process_form_login(
-    request: Request,
-    username: str = Form(...),
-    password: str = Form(...),
-    remember_me: bool = Form(False),
-    db: Session = Depends(get_db)
-):
-    email_clean = username.lower().strip()
-    user = db.query(User).filter(User.email == email_clean).first()
-    
-    if not user or not verify_password(password, user.password_hash):
-        return templates.TemplateResponse("login.html", {
-            "request": request,
-            "error": "E-mail ou senha incorretos."
-        })
-        
-    if user.status != "ACTIVE":
-        return templates.TemplateResponse("login.html", {
-            "request": request,
-            "error": "Esta conta encontra-se inativa."
-        })
-        
-    user.last_login_at = datetime.utcnow()
-    db.commit()
-    
-    token = create_access_token({"sub": user.id, "email": user.email, "role": user.role})
-    
-    # Validade: 30 dias se 'Lembrar-me', senao 1 dia
-    max_age_segundos = 60 * 60 * 24 * 30 if remember_me else 60 * 60 * 24
-    
-    resposta = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
-    resposta.set_cookie(
-        key="access_token",
-        value=token,
-        max_age=max_age_segundos,
-        httponly=True,
-        samesite="lax",
-        secure=False
-    )
-    return resposta

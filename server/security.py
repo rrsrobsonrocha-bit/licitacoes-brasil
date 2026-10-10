@@ -85,3 +85,49 @@ def sanitize_tender_text_for_ai(raw_text: str) -> str:
 def calculate_sha256(content_bytes: bytes) -> str:
     """Gera hash SHA-256 para integridade e deduplicação de documentos"""
     return hashlib.sha256(content_bytes).hexdigest()
+
+
+# ------------------------------------------------------------------------------
+# Sessão e recuperação de senha
+# ------------------------------------------------------------------------------
+import secrets as _secrets
+
+
+def password_fingerprint(password_hash: str) -> str:
+    """
+    Impressão digital da senha atual embutida no JWT (claim "pwv").
+    Ao redefinir a senha o hash muda e todos os tokens emitidos antes deixam de valer.
+    """
+    return hmac.new(
+        settings.AUTH_SECRET.encode("utf-8"), (password_hash or "").encode("utf-8"), hashlib.sha256
+    ).hexdigest()[:16]
+
+
+def generate_reset_token() -> str:
+    """Token aleatório (256 bits, URL-safe) enviado por e-mail; nunca é persistido em claro."""
+    return _secrets.token_urlsafe(32)
+
+
+def hash_reset_token(token: str) -> str:
+    return hashlib.sha256((token or "").encode("utf-8")).hexdigest()
+
+
+def is_rate_limited(key: str, max_requests: int, window_seconds: int) -> bool:
+    """Registra uma ocorrência e retorna True quando a chave (ex.: 'forgot:ip:1.2.3.4') excedeu o limite."""
+    return not check_rate_limit(key, max_requests=max_requests, window_seconds=window_seconds)
+
+
+def tentativas_recentes(key: str, window_seconds: int) -> int:
+    """Conta ocorrências da chave na janela, sem registrar uma nova."""
+    now = time.time()
+    records = [t for t in _rate_limit_records.get(key, []) if now - t < window_seconds]
+    _rate_limit_records[key] = records
+    return len(records)
+
+
+def registrar_tentativa(key: str) -> None:
+    _rate_limit_records.setdefault(key, []).append(time.time())
+
+
+def limpar_tentativas(key: str) -> None:
+    _rate_limit_records.pop(key, None)

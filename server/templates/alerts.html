@@ -189,11 +189,9 @@
           <label class="block font-semibold text-slate-700 mb-1">Estado (UF)</label>
           <select id="modal-alert-uf" class="w-full p-2.5 border border-slate-200 rounded-xl bg-white">
             <option value="">Todos</option>
-            <option value="AL">Alagoas (AL)</option>
-            <option value="SP">São Paulo (SP)</option>
-            <option value="DF">Distrito Federal (DF)</option>
-            <option value="MG">Minas Gerais (MG)</option>
-            <option value="RS">Rio Grande do Sul (RS)</option>
+            {% for sigla, nome in UFS_BRASIL %}
+            <option value="{{ sigla }}">{{ nome }} ({{ sigla }})</option>
+            {% endfor %}
           </select>
         </div>
         <div>

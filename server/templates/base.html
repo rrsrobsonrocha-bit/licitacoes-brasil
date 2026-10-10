@@ -431,21 +431,53 @@
     }
 
     // Gerenciador de Sessão no Frontend
+    // "Manter conectado" => localStorage (persiste ao fechar o navegador);
+    // sem a opção => sessionStorage (encerra ao fechar a aba/navegador).
     const AppSession = {
-      getToken: () => localStorage.getItem('token'),
-      getUser: () => {
-        try {
-          return JSON.parse(localStorage.getItem('user'));
-        } catch { return null; }
+      _ler: (chave) => {
+        try { return sessionStorage.getItem(chave) || localStorage.getItem(chave); } catch { return null; }
       },
-      setSession: (token, user) => {
-        localStorage.setItem('token', token);
-        localStorage.setItem('user', JSON.stringify(user));
+      _limparArmazenamento: () => {
+        ['token', 'user', 'token_exp'].forEach(chave => {
+          try { localStorage.removeItem(chave); } catch {}
+          try { sessionStorage.removeItem(chave); } catch {}
+        });
+      },
+      tokenExpirado: (token) => {
+        try {
+          const base64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+          const payload = JSON.parse(atob(base64.padEnd(base64.length + (4 - base64.length % 4) % 4, '=')));
+          return typeof payload.exp === 'number' && payload.exp * 1000 <= Date.now();
+        } catch { return false; }
+      },
+      getToken: () => {
+        const token = AppSession._ler('token');
+        if (token && AppSession.tokenExpirado(token)) {
+          AppSession._limparArmazenamento();
+          return null;
+        }
+        return token;
+      },
+      getUser: () => {
+        if (!AppSession.getToken()) return null;
+        try { return JSON.parse(AppSession._ler('user')); } catch { return null; }
+      },
+      isPersistente: () => {
+        try { return !!localStorage.getItem('token'); } catch { return false; }
+      },
+      setSession: (token, user, manterConectado = true) => {
+        AppSession._limparArmazenamento();
+        try {
+          const destino = manterConectado ? localStorage : sessionStorage;
+          destino.setItem('token', token);
+          destino.setItem('user', JSON.stringify(user));
+        } catch {
+          showToast('Seu navegador bloqueou o armazenamento local; a sessão não será mantida.', 'error');
+        }
         AppSession.refreshUI();
       },
       clear: () => {
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
+        AppSession._limparArmazenamento();
         AppSession.refreshUI();
       },
       refreshUI: () => {
@@ -483,6 +515,83 @@
         }
       }
     };
+
+    // Mensagem legível a partir de respostas de erro da API (inclui validações 422 do FastAPI)
+    function mensagemErroApi(data, padrao = 'Não foi possível concluir a operação.') {
+      if (!data) return padrao;
+      if (typeof data.detail === 'string') return data.detail;
+      if (Array.isArray(data.detail) && data.detail.length) {
+        const erro = data.detail[0];
+        const campo = Array.isArray(erro.loc) ? erro.loc[erro.loc.length - 1] : '';
+        const nomes = { email: 'E-mail', password: 'Senha', new_password: 'Nova senha', name: 'Nome', token: 'Link' };
+        if (erro.type === 'string_too_short' && erro.ctx && erro.ctx.min_length) {
+          return `${nomes[campo] || 'Campo'}: mínimo de ${erro.ctx.min_length} caracteres.`;
+        }
+        if (campo === 'email') return 'Informe um e-mail válido.';
+        return `${nomes[campo] || 'Campo'}: ${erro.msg}`;
+      }
+      return padrao;
+    }
+
+    // Botão "olho" para mostrar/ocultar senha: <button data-toggle-password="id-do-input">
+    function alternarVisibilidadeSenha(botao) {
+      const campo = document.getElementById(botao.dataset.togglePassword);
+      if (!campo) return;
+      const mostrar = campo.type === 'password';
+      campo.type = mostrar ? 'text' : 'password';
+      botao.setAttribute('aria-pressed', mostrar ? 'true' : 'false');
+      botao.setAttribute('aria-label', mostrar ? 'Ocultar senha' : 'Mostrar senha');
+      botao.title = mostrar ? 'Ocultar senha' : 'Mostrar senha';
+      const icone = botao.querySelector('i');
+      if (icone) icone.className = mostrar ? 'fa-regular fa-eye-slash' : 'fa-regular fa-eye';
+      campo.focus({ preventScroll: true });
+    }
+
+    // Avaliação simples de força da senha (0 a 4) para orientar o usuário
+    function avaliarForcaSenha(senha) {
+      let pontos = 0;
+      if (!senha) return { pontos: 0, rotulo: '', cor: 'bg-slate-200' };
+      if (senha.length >= 8) pontos++;
+      if (senha.length >= 12) pontos++;
+      if (/[a-z]/.test(senha) && /[A-Z]/.test(senha)) pontos++;
+      if (/\d/.test(senha) && /[^A-Za-z0-9]/.test(senha)) pontos++;
+      if (senha.length < 8) pontos = Math.min(pontos, 1);
+      const niveis = [
+        { rotulo: 'Muito fraca', cor: 'bg-rose-500' },
+        { rotulo: 'Fraca', cor: 'bg-rose-400' },
+        { rotulo: 'Razoável', cor: 'bg-amber-400' },
+        { rotulo: 'Boa', cor: 'bg-emerald-400' },
+        { rotulo: 'Forte', cor: 'bg-emerald-600' }
+      ];
+      return { pontos, ...niveis[pontos] };
+    }
+
+    function ligarMedidorForca(inputId, barraId, rotuloId) {
+      const campo = document.getElementById(inputId);
+      const barra = document.getElementById(barraId);
+      const rotulo = document.getElementById(rotuloId);
+      if (!campo || !barra || !rotulo) return;
+      campo.addEventListener('input', () => {
+        const r = avaliarForcaSenha(campo.value);
+        barra.className = `h-1.5 rounded-full transition-all duration-300 ${r.cor}`;
+        barra.style.width = campo.value ? `${Math.max(10, r.pontos * 25)}%` : '0%';
+        rotulo.textContent = r.rotulo;
+      });
+    }
+
+    // Aviso de Caps Lock ativado em campos de senha: <p data-capslock-for="id-do-input" class="hidden">
+    function ligarAvisoCapsLock() {
+      document.querySelectorAll('[data-capslock-for]').forEach(aviso => {
+        const campo = document.getElementById(aviso.dataset.capslockFor);
+        if (!campo) return;
+        const verificar = (ev) => {
+          if (ev.getModifierState) aviso.classList.toggle('hidden', !ev.getModifierState('CapsLock'));
+        };
+        campo.addEventListener('keydown', verificar);
+        campo.addEventListener('keyup', verificar);
+        campo.addEventListener('blur', () => aviso.classList.add('hidden'));
+      });
+    }
 
     function handleAuthAction() {
       if (AppSession.getToken()) {
@@ -529,6 +638,10 @@
     document.addEventListener('DOMContentLoaded', () => {
       AppSession.refreshUI();
       refreshAlertBadge();
+      document.querySelectorAll('[data-toggle-password]').forEach(botao => {
+        botao.addEventListener('click', () => alternarVisibilidadeSenha(botao));
+      });
+      ligarAvisoCapsLock();
       // Fechar drawer ao clicar em qualquer link interno do drawer
       const drawerLinks = document.querySelectorAll('#mobile-menu-drawer a');
       drawerLinks.forEach(link => {

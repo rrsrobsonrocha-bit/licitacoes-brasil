@@ -52,9 +52,26 @@ class Settings(BaseModel):
     STORAGE_LOCAL_PATH: str = os.getenv("STORAGE_LOCAL_PATH", "./storage/documents")
     
     # Email / Notifications
-    EMAIL_PROVIDER: str = os.getenv("EMAIL_PROVIDER", "MOCK")
+    EMAIL_PROVIDER: str = os.getenv("EMAIL_PROVIDER", "MOCK")  # MOCK, SMTP ou RESEND
     EMAIL_FROM: str = os.getenv("EMAIL_FROM", "alertas@licitacoesbrasil.gov.br")
-    
+    EMAIL_API_KEY: str = os.getenv("EMAIL_API_KEY", "")
+    SMTP_HOST: str = os.getenv("SMTP_HOST", "")
+    SMTP_PORT: int = int(os.getenv("SMTP_PORT", "587"))
+    SMTP_USER: str = os.getenv("SMTP_USER", "")
+    SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
+    SMTP_USE_SSL: bool = os.getenv("SMTP_USE_SSL", "false").lower() in ("1", "true", "yes")
+
+    # Autenticação: sessão persistente e recuperação de senha
+    APP_URL: str = os.getenv("APP_URL", "http://localhost:8000").rstrip("/")
+    REMEMBER_ME_DAYS: int = int(os.getenv("REMEMBER_ME_DAYS", "30"))
+    PASSWORD_RESET_TOKEN_MINUTES: int = int(os.getenv("PASSWORD_RESET_TOKEN_MINUTES", "30"))
+    # Somente para desenvolvimento: devolve o link de redefinição na resposta da API quando EMAIL_PROVIDER=MOCK
+    AUTH_EXPOSE_RESET_LINK: bool = os.getenv("AUTH_EXPOSE_RESET_LINK", "false").lower() in ("1", "true", "yes")
+
+    # PNCP — API de integração (itens e arquivos das compras)
+    PNCP_INTEGRACAO_BASE_URL: str = os.getenv("PNCP_INTEGRACAO_BASE_URL", "https://pncp.gov.br/api/pncp/v1").rstrip("/")
+    PNCP_DOWNLOAD_MAX_MB: int = int(os.getenv("PNCP_DOWNLOAD_MAX_MB", "100"))
+
     # Security
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
     RATE_LIMIT_REQUESTS_PER_MINUTE: int = int(os.getenv("RATE_LIMIT_REQUESTS_PER_MINUTE", "120"))

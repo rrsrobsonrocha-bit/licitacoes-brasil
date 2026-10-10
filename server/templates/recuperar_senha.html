@@ -1,34 +1,143 @@
-﻿<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Recuperar Senha - Licitações Brasil</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-slate-950 text-slate-100 flex items-center justify-center min-h-screen p-4">
-    <div class="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-2xl">
-        <div class="text-center mb-6">
-            <h1 class="text-xl font-bold text-white">Recuperação de Acesso</h1>
-            <p class="text-xs text-slate-400 mt-1">Informe seu e-mail cadastrado para redefinir sua credencial</p>
-        </div>
+{% extends "base.html" %}
 
-        <form method="POST" action="/recuperar-senha" class="space-y-4">
-            <div>
-                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">E-mail</label>
-                <input type="email" name="email" required 
-                       class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500 transition text-sm">
-            </div>
+{% block title %}Recuperar Senha - Licitações Brasil{% endblock %}
 
-            <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-3 rounded-xl transition text-sm">
-                Enviar Instruções
-            </button>
-
-            <div class="text-center pt-2">
-                <a href="/login" class="text-xs text-slate-400 hover:text-white transition">Voltar ao Login</a>
-            </div>
-        </form>
+{% block content %}
+<div class="min-h-[75vh] flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+  <div class="max-w-md w-full space-y-6 bg-white p-8 rounded-2xl border border-slate-200 shadow-xl">
+    <div class="text-center">
+      <div class="w-12 h-12 rounded-xl bg-gradient-to-tr from-sky-400 to-emerald-400 flex items-center justify-center text-brand-900 font-black text-2xl mx-auto shadow-inner mb-3">
+        <i class="fa-solid fa-key"></i>
+      </div>
+      <h2 class="text-2xl font-bold text-slate-900">Recuperar Senha</h2>
+      <p class="text-xs text-slate-500 mt-1">Informe o e-mail da sua conta. Enviaremos um link para criar uma nova senha.</p>
     </div>
-</body>
-</html>
 
+    <!-- Etapa 1: formulário -->
+    <form id="form-recuperar" class="space-y-4 text-xs" onsubmit="solicitarRecuperacao(event)" novalidate>
+      <div>
+        <label for="email-input" class="block font-semibold text-slate-700 mb-1">E-mail cadastrado</label>
+        <input
+          type="email"
+          id="email-input"
+          required
+          autocomplete="email"
+          autocapitalize="none"
+          spellcheck="false"
+          placeholder="seu.email@empresa.com.br"
+          class="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none"
+        />
+      </div>
+
+      <p id="recuperar-erro" role="alert" class="hidden text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2"></p>
+
+      <button
+        type="submit"
+        id="btn-recuperar"
+        class="w-full bg-sky-600 hover:bg-sky-500 text-white font-bold py-3 rounded-xl transition shadow-md flex items-center justify-center gap-2 disabled:opacity-60"
+      >
+        <i class="fa-regular fa-paper-plane text-xs"></i> <span>Enviar link de redefinição</span>
+      </button>
+    </form>
+
+    <!-- Etapa 2: confirmação (resposta sempre igual, exista ou não a conta) -->
+    <div id="recuperar-enviado" class="hidden space-y-4 text-xs" aria-live="polite">
+      <div class="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 leading-relaxed">
+        <div class="font-bold mb-1"><i class="fa-regular fa-envelope"></i> Verifique seu e-mail</div>
+        <p id="recuperar-mensagem"></p>
+        <p class="mt-2 text-emerald-700">O link vale por {{ minutos_validade }} minutos e só pode ser usado uma vez.</p>
+      </div>
+      <div id="recuperar-dev-link" class="hidden p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 break-all">
+        <div class="font-bold mb-1">Ambiente de desenvolvimento (e-mail simulado)</div>
+        <a id="recuperar-dev-href" href="#" class="underline font-semibold">Abrir link de redefinição</a>
+      </div>
+      <button type="button" id="btn-reenviar" onclick="reenviar()" class="w-full bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold py-2.5 rounded-xl transition disabled:opacity-50">
+        Não recebeu? Enviar novamente
+      </button>
+    </div>
+
+    <div class="text-center pt-4 border-t border-slate-100 text-xs text-slate-500">
+      Lembrou a senha?
+      <a href="/login" class="font-bold text-sky-600 hover:underline">Voltar ao login</a>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const BOTAO_RECUPERAR_HTML = '<i class="fa-regular fa-paper-plane text-xs"></i> <span>Enviar link de redefinição</span>';
+
+  function erroRecuperar(msg) {
+    const el = document.getElementById('recuperar-erro');
+    el.textContent = msg || '';
+    el.classList.toggle('hidden', !msg);
+  }
+
+  async function solicitarRecuperacao(ev) {
+    if (ev) ev.preventDefault();
+    erroRecuperar('');
+    const email = document.getElementById('email-input').value.trim();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      erroRecuperar('Informe um e-mail válido.');
+      return;
+    }
+    const btn = document.getElementById('btn-recuperar');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner animate-spin"></i> Enviando...';
+    try {
+      const resp = await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        erroRecuperar(mensagemErroApi(data, 'Não foi possível enviar o link agora.'));
+        return;
+      }
+      document.getElementById('recuperar-mensagem').textContent = data.message;
+      document.getElementById('form-recuperar').classList.add('hidden');
+      document.getElementById('recuperar-enviado').classList.remove('hidden');
+      if (data.reset_url) {
+        document.getElementById('recuperar-dev-href').href = data.reset_url;
+        document.getElementById('recuperar-dev-link').classList.remove('hidden');
+      }
+      bloquearReenvio();
+    } catch {
+      erroRecuperar('Erro de comunicação. Verifique sua conexão e tente novamente.');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = BOTAO_RECUPERAR_HTML;
+    }
+  }
+
+  function bloquearReenvio() {
+    const btn = document.getElementById('btn-reenviar');
+    let restante = 60;
+    btn.disabled = true;
+    const tick = () => {
+      if (restante <= 0) {
+        btn.disabled = false;
+        btn.textContent = 'Não recebeu? Enviar novamente';
+        return;
+      }
+      btn.textContent = `Enviar novamente em ${restante}s`;
+      restante--;
+      setTimeout(tick, 1000);
+    };
+    tick();
+  }
+
+  function reenviar() {
+    document.getElementById('recuperar-enviado').classList.add('hidden');
+    document.getElementById('form-recuperar').classList.remove('hidden');
+    solicitarRecuperacao(null);
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const email = new URLSearchParams(window.location.search).get('email');
+    if (email) document.getElementById('email-input').value = email;
+  });
+</script>
+{% endblock %}

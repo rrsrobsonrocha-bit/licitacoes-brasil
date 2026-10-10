@@ -1,81 +1,166 @@
-﻿<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Entrar - Licitações Brasil</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-slate-950 text-slate-100 flex items-center justify-center min-h-screen p-4">
-    <div class="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-2xl">
-        <div class="text-center mb-8">
-            <h1 class="text-2xl font-bold text-white tracking-tight">Acesso ao Licitações Brasil</h1>
-            <p class="text-sm text-slate-400 mt-1">Gestão inteligente de contratações públicas</p>
-        </div>
+{% extends "base.html" %}
 
-        
-        {% if error %}
-        <div class="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-semibold text-center mb-4">{{ error }}</div>
-        {% endif %}
-        <form method="POST" action="/login" class="space-y-5">
-            <div>
-                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">E-mail ou Usuário</label>
-                <input type="text" name="username" required 
-                       class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500 transition text-sm">
-            </div>
+{% block title %}Entrar na Plataforma - Licitações Brasil{% endblock %}
 
-            <div>
-                <div class="flex justify-between items-center mb-2">
-                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400">Senha</label>
-                    <a href="/recuperar-senha" class="text-xs text-blue-400 hover:text-blue-300 transition">Esqueceu a senha?</a>
-                </div>
-                <div class="relative">
-                    <input type="password" id="campo_senha" name="password" required 
-                           class="w-full bg-slate-950 border border-slate-800 rounded-xl pl-4 pr-11 py-3 text-white focus:outline-none focus:border-blue-500 transition text-sm">
-                    <button type="button" onclick="alternarVisibilidadeSenha()" 
-                            class="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-white transition cursor-pointer">
-                        <svg id="icone_olho_aberto" class="h-5 w-5 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                        </svg>
-                        <svg id="icone_olho_fechado" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18" />
-                        </svg>
-                    </button>
-                </div>
-            </div>
-
-            <div class="flex items-center">
-                <input type="checkbox" id="manter_conectado" name="remember_me" value="true"
-                       class="w-4 h-4 rounded bg-slate-950 border-slate-700 text-blue-600 focus:ring-0 cursor-pointer">
-                <label for="manter_conectado" class="ml-2.5 text-xs text-slate-300 cursor-pointer select-none">
-                    Manter conectado neste navegador
-                </label>
-            </div>
-
-            <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-3 rounded-xl transition duration-150 text-sm">
-                Acessar Plataforma
-            </button>
-        </form>
+{% block content %}
+<div class="min-h-[75vh] flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+  <div class="max-w-md w-full space-y-8 bg-white p-8 rounded-2xl border border-slate-200 shadow-xl">
+    <div class="text-center">
+      <div class="w-12 h-12 rounded-xl bg-gradient-to-tr from-sky-400 to-emerald-400 flex items-center justify-center text-brand-900 font-black text-2xl mx-auto shadow-inner mb-3">
+        <i class="fa-solid fa-scale-balanced"></i>
+      </div>
+      <h2 class="text-2xl font-bold text-slate-900">Acesse sua Conta</h2>
+      <p class="text-xs text-slate-500 mt-1">Pesquise, monitore e resuma editais com inteligência artificial</p>
     </div>
 
-    <script>
-    function alternarVisibilidadeSenha() {
-        const input = document.getElementById("campo_senha");
-        const aberto = document.getElementById("icone_olho_aberto");
-        const fechado = document.getElementById("icone_olho_fechado");
-        if (input.type === "password") {
-            input.type = "text";
-            aberto.classList.remove("hidden");
-            fechado.classList.add("hidden");
-        } else {
-            input.type = "password";
-            aberto.classList.add("hidden");
-            fechado.classList.remove("hidden");
-        }
+    <form id="login-form" class="space-y-4 text-xs" onsubmit="handleLogin(event)" novalidate>
+      <div>
+        <label for="email-input" class="block font-semibold text-slate-700 mb-1">E-mail Corporativo ou Pessoal</label>
+        <input
+          type="email"
+          id="email-input"
+          name="email"
+          required
+          autocomplete="username"
+          autocapitalize="none"
+          spellcheck="false"
+          placeholder="seu.email@empresa.com.br"
+          class="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none"
+        />
+      </div>
+
+      <div>
+        <div class="flex items-center justify-between mb-1">
+          <label for="password-input" class="block font-semibold text-slate-700">Senha de Acesso</label>
+          <a href="/recuperar-senha" id="link-esqueci-senha" class="font-semibold text-sky-600 hover:underline">Esqueci minha senha</a>
+        </div>
+        <div class="relative">
+          <input
+            type="password"
+            id="password-input"
+            name="password"
+            required
+            autocomplete="current-password"
+            placeholder="••••••••••••"
+            class="w-full p-3 pr-11 border border-slate-200 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none"
+          />
+          <button
+            type="button"
+            data-toggle-password="password-input"
+            aria-label="Mostrar senha"
+            aria-pressed="false"
+            title="Mostrar senha"
+            class="absolute inset-y-0 right-0 px-3 flex items-center text-slate-400 hover:text-slate-700 focus:outline-none focus:text-sky-600"
+          >
+            <i class="fa-regular fa-eye"></i>
+          </button>
+        </div>
+        <p data-capslock-for="password-input" class="hidden mt-1 text-[11px] font-semibold text-amber-600">
+          <i class="fa-solid fa-triangle-exclamation"></i> Caps Lock está ativado.
+        </p>
+      </div>
+
+      <label class="flex items-start gap-2 cursor-pointer select-none text-slate-600">
+        <input type="checkbox" id="remember-input" name="remember_me" class="mt-0.5 w-4 h-4 rounded border-slate-300 accent-sky-600">
+        <span>
+          <span class="font-semibold text-slate-700">Manter conectado</span>
+          <span class="block text-[11px] text-slate-500">Sua sessão fica ativa neste dispositivo por até {{ remember_days or 30 }} dias. Não use em computadores compartilhados.</span>
+        </span>
+      </label>
+
+      <p id="login-erro" role="alert" class="hidden text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2"></p>
+
+      <button
+        type="submit"
+        id="submit-btn"
+        class="w-full bg-sky-600 hover:bg-sky-500 text-white font-bold py-3 rounded-xl transition shadow-md flex items-center justify-center gap-2 disabled:opacity-60"
+      >
+        <span>Entrar na Plataforma</span>
+        <i class="fa-solid fa-arrow-right text-xs"></i>
+      </button>
+    </form>
+
+    <div class="text-center pt-4 border-t border-slate-100 text-xs text-slate-500">
+      Não tem uma conta cadastrada?
+      <a href="/register" class="font-bold text-sky-600 hover:underline">Criar conta gratuita</a>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const BOTAO_LOGIN_HTML = '<span>Entrar na Plataforma</span> <i class="fa-solid fa-arrow-right text-xs"></i>';
+
+  function destinoAposLogin(user) {
+    // Retorno seguro somente para caminhos internos (evita open redirect)
+    const proximo = new URLSearchParams(window.location.search).get('next') || '';
+    if (proximo.startsWith('/') && !proximo.startsWith('//') && !proximo.startsWith('/\\')) return proximo;
+    return user && user.role === 'ADMIN' ? '/admin' : '/dashboard';
+  }
+
+  function mostrarErroLogin(msg) {
+    const el = document.getElementById('login-erro');
+    el.textContent = msg || '';
+    el.classList.toggle('hidden', !msg);
+  }
+
+  async function handleLogin(e) {
+    e.preventDefault();
+    mostrarErroLogin('');
+    const btn = document.getElementById('submit-btn');
+    const email = document.getElementById('email-input').value.trim();
+    const password = document.getElementById('password-input').value;
+    const rememberMe = document.getElementById('remember-input').checked;
+
+    if (!email || !password) {
+      mostrarErroLogin('Informe e-mail e senha.');
+      return;
     }
-    </script>
-</body>
-</html>
 
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner animate-spin"></i> Autenticando...';
 
+    try {
+      const resp = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, remember_me: rememberMe })
+      });
+      const data = await resp.json().catch(() => ({}));
+
+      if (resp.ok) {
+        try { localStorage.setItem('lb_ultimo_email', rememberMe ? email : ''); } catch {}
+        AppSession.setSession(data.access_token, data.user, rememberMe);
+        showToast(`Bem-vindo de volta, ${data.user.name}!`, 'success');
+        setTimeout(() => { window.location.href = destinoAposLogin(data.user); }, 600);
+        return;
+      }
+      mostrarErroLogin(mensagemErroApi(data, 'E-mail ou senha incorretos.'));
+    } catch {
+      mostrarErroLogin('Erro de comunicação ao autenticar. Verifique sua conexão.');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = BOTAO_LOGIN_HTML;
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    let ultimoEmail = '';
+    try { ultimoEmail = localStorage.getItem('lb_ultimo_email') || ''; } catch {}
+    if (ultimoEmail) {
+      document.getElementById('email-input').value = ultimoEmail;
+      document.getElementById('remember-input').checked = true;
+      document.getElementById('password-input').focus();
+    }
+    // Leva o e-mail digitado para a tela de recuperação
+    document.getElementById('link-esqueci-senha').addEventListener('click', (ev) => {
+      const email = document.getElementById('email-input').value.trim();
+      if (email) ev.currentTarget.href = `/recuperar-senha?email=${encodeURIComponent(email)}`;
+    });
+    if (new URLSearchParams(window.location.search).get('redefinida') === '1') {
+      showToast('Senha redefinida. Entre com a nova senha.', 'success');
+    }
+  });
+</script>
+{% endblock %}

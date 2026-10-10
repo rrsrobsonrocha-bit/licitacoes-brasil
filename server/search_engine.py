@@ -21,6 +21,42 @@ CATEGORIES = [
     "Outros"
 ]
 
+# As 27 unidades federativas (26 estados + Distrito Federal), em ordem alfabética de sigla
+UFS_BRASIL = [
+    ("AC", "Acre"), ("AL", "Alagoas"), ("AM", "Amazonas"), ("AP", "Amapá"), ("BA", "Bahia"),
+    ("CE", "Ceará"), ("DF", "Distrito Federal"), ("ES", "Espírito Santo"), ("GO", "Goiás"),
+    ("MA", "Maranhão"), ("MG", "Minas Gerais"), ("MS", "Mato Grosso do Sul"), ("MT", "Mato Grosso"),
+    ("PA", "Pará"), ("PB", "Paraíba"), ("PE", "Pernambuco"), ("PI", "Piauí"), ("PR", "Paraná"),
+    ("RJ", "Rio de Janeiro"), ("RN", "Rio Grande do Norte"), ("RO", "Rondônia"), ("RR", "Roraima"),
+    ("RS", "Rio Grande do Sul"), ("SC", "Santa Catarina"), ("SE", "Sergipe"), ("SP", "São Paulo"),
+    ("TO", "Tocantins"),
+]
+SIGLAS_UF = {sigla for sigla, _ in UFS_BRASIL}
+
+# Filtro simplificado de categoria (natureza do objeto)
+NATUREZAS_FILTRO = [("MATERIAL", "Material"), ("SERVICO", "Serviço"), ("OUTROS", "Outros")]
+_NATUREZAS_VALIDAS = {codigo for codigo, _ in NATUREZAS_FILTRO}
+_ALIASES_NATUREZA = {
+    "MATERIAL": "MATERIAL", "MATERIAIS": "MATERIAL", "M": "MATERIAL",
+    "SERVICO": "SERVICO", "SERVIÇO": "SERVICO", "SERVICOS": "SERVICO", "SERVIÇOS": "SERVICO", "S": "SERVICO",
+    "OUTROS": "OUTROS", "OUTRO": "OUTROS",
+}
+
+
+def normalizar_natureza(valor: Optional[str]) -> Optional[str]:
+    """Converte 'Material', 'serviço', 'SERVICOS'... no código MATERIAL / SERVICO / OUTROS (ou None)."""
+    if not valor:
+        return None
+    return _ALIASES_NATUREZA.get(valor.strip().upper())
+
+
+def normalizar_uf(valor: Optional[str]) -> Optional[str]:
+    if not valor:
+        return None
+    sigla = valor.strip().upper()
+    return sigla if sigla in SIGLAS_UF else None
+
+
 UF_TO_REGION = {
     "AC": "Norte", "AP": "Norte", "AM": "Norte", "PA": "Norte", "RO": "Norte", "RR": "Norte", "TO": "Norte",
     "AL": "Nordeste", "BA": "Nordeste", "CE": "Nordeste", "MA": "Nordeste", "PB": "Nordeste",
@@ -100,8 +136,9 @@ def search_tenders(db: Session, params: SearchFilterParams, user_id: Optional[st
     query = db.query(Tender)
 
     # 1. Filtros Estruturados
-    if params.state:
-        query = query.filter(Tender.state == params.state.upper().strip())
+    uf_sel = (params.state or params.uf or "").strip().upper()
+    if uf_sel:
+        query = query.filter(Tender.state == uf_sel)
 
     if params.city:
         query = query.filter(Tender.city.ilike(f"%{params.city.strip()}%"))
@@ -125,7 +162,11 @@ def search_tenders(db: Session, params: SearchFilterParams, user_id: Optional[st
     if params.status:
         query = query.filter(Tender.status.ilike(f"%{params.status.strip()}%"))
 
-    if params.category:
+    # Categoria simplificada (MATERIAL / SERVICO / OUTROS); valores legados seguem filtrando Tender.category
+    natureza_sel = normalizar_natureza(params.natureza) or normalizar_natureza(params.category)
+    if natureza_sel:
+        query = query.filter(Tender.natureza_objeto == natureza_sel)
+    elif params.category:
         query = query.filter(Tender.category.ilike(f"%{params.category.strip()}%"))
 
     if params.source_system:
@@ -274,6 +315,7 @@ def search_tenders(db: Session, params: SearchFilterParams, user_id: Optional[st
             administrative_sphere=t.administrative_sphere,
             modality=t.modality,
             category=t.category or "Outros",
+            natureza_objeto=t.natureza_objeto,
             status=t.status or "Não informado",
             publication_date=t.publication_date,
             opening_date=t.opening_date,
