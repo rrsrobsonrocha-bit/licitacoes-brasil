@@ -217,11 +217,12 @@ def test_api_tender_ai_analyze_endpoint(sample_tender):
 
 def test_dispute_monitor_enriched_item_and_telemetry():
     """Valida rastreamento de item com 'fonte_portal' e persistência de telemetria em HistoricoDisputa."""
+    # ID exclusivo: test_dispute_monitor.py também grava telemetria para "PE 505/2026"
     service = DisputeMonitorService()
 
     # Rastrear item com fonte de portal específica
     item = service.track_item({
-        "id_pregao": "PE 505/2026",
+        "id_pregao": "PE 505-FUSION/2026",
         "numero_item": 1,
         "descricao": "Nobreaks Senoidais Corporativos",
         "valor_referencia": 30000.0,
@@ -236,7 +237,7 @@ def test_dispute_monitor_enriched_item_and_telemetry():
 
     assert item.fonte_portal == "Compras.gov.br"
     snapshot = service.get_active_snapshot()
-    tracked = next((it for it in snapshot if it["id_pregao"] == "PE 505/2026"), None)
+    tracked = next((it for it in snapshot if it["id_pregao"] == "PE 505-FUSION/2026"), None)
     assert tracked is not None
     assert tracked["fonte_portal"] == "Compras.gov.br"
 
@@ -248,9 +249,9 @@ def test_dispute_monitor_enriched_item_and_telemetry():
     # Verifica se telemetria foi gravada em HistoricoDisputa no SQLite
     db = SessionLocal()
     try:
-        telemetry = db.query(HistoricoDisputa).filter(HistoricoDisputa.id_pregao == "PE 505/2026").first()
+        telemetry = db.query(HistoricoDisputa).filter(HistoricoDisputa.id_pregao == "PE 505-FUSION/2026").first()
         assert telemetry is not None
-        assert telemetry.id_pregao == "PE 505/2026"
+        assert telemetry.id_pregao == "PE 505-FUSION/2026"
         assert telemetry.tipo_evento == "AUTO_BID"
         assert telemetry.valor_ofertado == 27950.0
         assert telemetry.posicao == 1

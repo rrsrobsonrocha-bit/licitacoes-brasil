@@ -134,7 +134,11 @@ async def test_direct_service_mock_gemini(sample_tender):
     mock_response = MagicMock()
     mock_response.text = json_dumps = __import__("json").dumps(mock_summary_json)
 
-    with patch("google.genai.Client") as MockGenaiClient:
+    # Sem chave o serviço usa o fallback local; a chave fictícia ativa o cliente (mockado)
+    with (
+        patch("server.services.ai_service._get_api_key", return_value="test-gemini-key"),
+        patch("google.genai.Client") as MockGenaiClient,
+    ):
         mock_instance = MockGenaiClient.return_value
         mock_instance.aio.models.generate_content = AsyncMock(return_value=mock_response)
 
@@ -154,7 +158,11 @@ async def test_direct_service_chat_mock(sample_tender):
     mock_response = MagicMock()
     mock_response.text = "O prazo de impugnação é de até 3 dias úteis antes da abertura conforme art. 164 da Lei 14.133/2021."
 
-    with patch("google.genai.Client") as MockGenaiClient:
+    # Sem chave o serviço usa o fallback local; a chave fictícia ativa o cliente (mockado)
+    with (
+        patch("server.services.ai_service._get_api_key", return_value="test-gemini-key"),
+        patch("google.genai.Client") as MockGenaiClient,
+    ):
         mock_instance = MockGenaiClient.return_value
         mock_instance.aio.models.generate_content = AsyncMock(return_value=mock_response)
 

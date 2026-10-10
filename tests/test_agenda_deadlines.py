@@ -57,6 +57,11 @@ def test_agenda_critical_events_strictly_within_24h():
     assert diff_sec_past < 0
 
 
+# ID exclusivo do teste: reaproveitar o external_id do seed (certame de medicamentos/AL)
+# apagava esse registro e quebrava os testes de busca executados depois.
+TEST_EXTERNAL_ID = "TESTE-AGENDA-PRAZO-FUTURO-0001"
+
+
 def test_future_tender_falls_into_future_columns_not_critical():
     db = SessionLocal()
     tender_id = generate_uuid()
@@ -66,7 +71,7 @@ def test_future_tender_falls_into_future_columns_not_critical():
     try:
         # Limpa execuções anteriores caso tenham ficado pendentes
         db.query(Deal).filter(Deal.notes == "Teste de prazo futuro superior a 24h").delete()
-        db.query(Tender).filter(Tender.external_id == "12200135000180-1-000042/2025").delete()
+        db.query(Tender).filter(Tender.external_id == TEST_EXTERNAL_ID).delete()
         db.commit()
 
         # Simula o edital PE 042/2025 agendado para 16/10/2026 (ou +5 dias à frente)
@@ -76,7 +81,7 @@ def test_future_tender_falls_into_future_columns_not_critical():
         t = Tender(
             id=tender_id,
             source_id="pncp-source-01",
-            external_id="12200135000180-1-000042/2025",
+            external_id=TEST_EXTERNAL_ID,
             notice_number="PE 042/2025",
             title="Aquisição de equipamentos de tecnologia da informação",
             object_description="Aquisição de equipamentos de tecnologia da informação",

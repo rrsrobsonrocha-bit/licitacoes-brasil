@@ -13,6 +13,7 @@ passlib[bcrypt]
 python-jose[cryptography]
 httpx
 pytest
+pytest-asyncio
 requests
 pypdf
 psycopg2-binary
