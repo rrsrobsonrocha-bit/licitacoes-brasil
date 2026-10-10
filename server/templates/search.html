@@ -934,7 +934,15 @@
       filesBtn.href = docUrl;
 
       document.getElementById('drawer-link-full').href = `/tenders/${data.id}`;
-
+	try {
+  const itensResp = await fetch(`/api/tenders/${tenderId}/itens`);
+  if (itensResp.ok) {
+    const itensJson = await itensResp.json();
+    if (itensJson && Array.isArray(itensJson.itens) && itensJson.itens.length > 0) {
+      data.items = itensJson.itens;
+    }
+  }
+} catch (e) {}
       // Items Table
       const items = data.items || [];
       document.getElementById('drawer-items-count').textContent = `${items.length} item(ns)`;
