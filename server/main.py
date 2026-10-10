@@ -2918,3 +2918,48 @@ async def action_recuperar_senha(request: Request, email: str = Form(...)):
         "request": request,
         "mensagem": "Se o e-mail estiver registado, as instrucoes foram enviadas."
     })
+
+# ==========================================
+# ROTA DE LOGIN REAL VIA FORMULARIO
+# ==========================================
+@app.post("/login")
+async def process_form_login(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    remember_me: bool = Form(False),
+    db: Session = Depends(get_db)
+):
+    email_clean = username.lower().strip()
+    user = db.query(User).filter(User.email == email_clean).first()
+    
+    if not user or not verify_password(password, user.password_hash):
+        return templates.TemplateResponse("login.html", {
+            "request": request,
+            "error": "E-mail ou senha incorretos."
+        })
+        
+    if user.status != "ACTIVE":
+        return templates.TemplateResponse("login.html", {
+            "request": request,
+            "error": "Esta conta encontra-se inativa."
+        })
+        
+    user.last_login_at = datetime.utcnow()
+    db.commit()
+    
+    token = create_access_token({"sub": user.id, "email": user.email, "role": user.role})
+    
+    # Validade: 30 dias se 'Lembrar-me', senao 1 dia
+    max_age_segundos = 60 * 60 * 24 * 30 if remember_me else 60 * 60 * 24
+    
+    resposta = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+    resposta.set_cookie(
+        key="access_token",
+        value=token,
+        max_age=max_age_segundos,
+        httponly=True,
+        samesite="lax",
+        secure=False
+    )
+    return resposta

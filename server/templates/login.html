@@ -13,6 +13,10 @@
             <p class="text-sm text-slate-400 mt-1">Gestão inteligente de contratações públicas</p>
         </div>
 
+        
+        {% if error %}
+        <div class="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-semibold text-center mb-4">{{ error }}</div>
+        {% endif %}
         <form method="POST" action="/login" class="space-y-5">
             <div>
                 <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">E-mail ou Usuário</label>
@@ -73,4 +77,5 @@
     </script>
 </body>
 </html>
+
 
