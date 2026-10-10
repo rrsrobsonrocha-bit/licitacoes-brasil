@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 
 {% block title %}Pesquisa de Editais e Oportunidades - LicitaçõesBrasil{% endblock %}
 
@@ -36,26 +36,7 @@
       </div>
 
       <!-- Quick Filter Pills: Estados Prioritários -->
-      <div class="mt-4 pt-3 border-t border-slate-800/80 flex items-center gap-2 flex-wrap text-xs">
-        <span class="text-slate-400 font-medium text-[11px] flex items-center gap-1.5">
-          <i class="fa-solid fa-bolt text-amber-400"></i> Estados:
-        </span>
-        {% set priority_states = [('Todos', ''), ('SP', 'SP'), ('RJ', 'RJ'), ('MG', 'MG'), ('DF', 'DF'), ('BA', 'BA'), ('AL', 'AL'), ('PR', 'PR'), ('RS', 'RS')] %}
-        {% for label, uf in priority_states %}
-          {% set is_active = ((params.state or params.uf) == uf if uf else not (params.state or params.uf)) %}
-          {% set qs_uf = {} %}
-          {% for chave, valor in [('q', params.q), ('modality', params.modality), ('status', params.status), ('category', params.natureza or params.category), ('uf', uf)] %}
-            {% if valor %}{% set _ = qs_uf.update({chave: valor}) %}{% endif %}
-          {% endfor %}
-          <a 
-            href="/search?{{ qs_uf|urlencode }}"
-            class="px-2.5 py-1 rounded-lg font-semibold transition text-[11px] {% if is_active %}bg-sky-600 text-white shadow-sm shadow-sky-600/30{% else %}bg-slate-800/90 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/80{% endif %}"
-          >
-            {{ label }}
-          </a>
-        {% endfor %}
-      </div>
-    </div>
+      <div class="flex items-center gap-2 mb-4 overflow-x-auto pb-1 scrollbar-thin"><span class="text-xs font-semibold text-slate-400 whitespace-nowrap"><i class="fa-solid fa-bolt text-amber-400"></i> Estados:</span><a href="?" class="px-3 py-1 text-xs rounded-lg border transition font-medium whitespace-nowrap {% if not request.query_params.get('uf') and not request.query_params.get('state') %}bg-blue-600 border-blue-500 text-white{% else %}bg-slate-900 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700{% endif %}">Todos</a>{% for sigla in ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'] %}<a href="?uf={{ sigla }}" class="px-2.5 py-1 text-xs rounded-lg border transition font-medium whitespace-nowrap {% if request.query_params.get('uf') == sigla or request.query_params.get('state') == sigla %}bg-blue-600 border-blue-500 text-white font-bold{% else %}bg-slate-900 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700{% endif %}">{{ sigla }}</a>{% endfor %}</div>
   </div>
 
   <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -1451,3 +1432,4 @@
   }
 </script>
 {% endblock %}
+
