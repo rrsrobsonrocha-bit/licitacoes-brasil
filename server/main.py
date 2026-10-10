@@ -3179,3 +3179,44 @@ async def loop_coleta_automatica():
 @app.on_event("startup")
 async def iniciar_busca_automatica():
     asyncio.create_task(loop_coleta_automatica())
+
+# ==========================================================
+# ENDPOINT DE HEALTH CHECK (DIAGNOSTICO DO SITE E BANCO)
+# ==========================================================
+from sqlalchemy import text
+
+@app.get("/healthz")
+def health_check(db: Session = Depends(get_db)):
+    """Verifica a integridade basica do servidor e da base de dados."""
+    status_diag = {"status": "ok", "app": "Licitações Brasil", "database": "unknown"}
+    try:
+        # Teste rapido de conexao com o banco
+        db.execute(text("SELECT 1"))
+        status_diag["database"] = "connected"
+    except Exception as e:
+        status_diag["status"] = "error"
+        status_diag["database"] = f"unreachable: {str(e)}"
+        return JSONResponse(status_code=500, content=status_diag)
+        
+    return status_diag
+
+# ==========================================================
+# VARREDURA INTERNA DE INTEGRIDADE A CADA 15 MINUTOS
+# ==========================================================
+async def loop_varredura_integridade():
+    """Checa periodicamente se o sistema e o banco estao saudaveis."""
+    await asyncio.sleep(20)
+    while True:
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            print("[DIAGNOSTICO-15M] Sistema operacional e conexao com banco OK.")
+        except Exception as e:
+            print(f"[DIAGNOSTICO-15M] ALERTA: Falha na conexao com o banco: {e}")
+            
+        await asyncio.sleep(15 * 60) # 15 minutos
+
+# Disparado junto com a inicializacao
+@app.on_event("startup")
+async def iniciar_varredura():
+    asyncio.create_task(loop_varredura_integridade())
