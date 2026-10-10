@@ -2889,3 +2889,32 @@ def api_admin_toggle_source(source_id: str, active: bool = Query(...), admin: Us
 @app.get("/api/sources")
 def api_list_sources():
     return list_all_sources()
+
+# ==========================================
+# SUPORTE A SUBMISSAO DE FORMULARIO DE LOGIN E RECUPERACAO
+# ==========================================
+from fastapi import Form, status
+from fastapi.responses import RedirectResponse
+
+@app.post("/login")
+async def process_form_login(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    remember_me: bool = Form(False)
+):
+    duracao = 60 * 60 * 24 * 30 if remember_me else 60 * 60 * 24
+    resposta = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+    resposta.set_cookie(key="usuario_logado", value=username, max_age=duracao, httponly=True)
+    return resposta
+
+@app.get("/recuperar-senha", response_class=HTMLResponse)
+async def page_recuperar_senha(request: Request):
+    return templates.TemplateResponse("recuperar_senha.html", {"request": request})
+
+@app.post("/recuperar-senha")
+async def action_recuperar_senha(request: Request, email: str = Form(...)):
+    return templates.TemplateResponse("recuperar_senha.html", {
+        "request": request,
+        "mensagem": "Se o e-mail estiver registado, as instrucoes foram enviadas."
+    })
