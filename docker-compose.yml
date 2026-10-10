@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: licitacoes-app
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://licitacoes_user:licitacoes_secret_pass@postgres:5432/licitacoes_db?schema=public
+      - REDIS_URL=redis://redis:6379/0
+      - AUTH_SECRET=f3a5e82b7d91c04f9812e345a98b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b
+      - AI_PROVIDER=GEMINI
+      - AI_MODEL=gemini-3.8-flash
+      - LOG_LEVEL=INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - app_storage:/app/storage/documents
+      - app_logs:/app/logs
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: licitacoes-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: licitacoes_user
+      POSTGRES_PASSWORD: licitacoes_secret_pass
+      POSTGRES_DB: licitacoes_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U licitacoes_user -d licitacoes_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: licitacoes-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:
+  app_storage:
+  app_logs:

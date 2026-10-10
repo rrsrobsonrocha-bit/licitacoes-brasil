@@ -1,0 +1,434 @@
+// Prisma Schema for Licitações Brasil
+// Plataforma Web Inteligente de Pesquisa de Licitações Públicas Brasileiras
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum SourceType {
+  FEDERAL
+  ESTADUAL
+  MUNICIPAL
+  SISTEMA_S
+  OUTRO
+}
+
+enum IntegrationType {
+  API_OFICIAL
+  EXPORTACAO_ARQUIVO
+  IMPORTACAO_MANUAL
+  DESATIVADO
+}
+
+enum Modality {
+  PREGAO_ELETRONICO
+  CONCORRENCIA
+  DISPENSA_ELETRONICA
+  INEXIGIBILIDADE
+  CREDENCIAMENTO
+  LEILAO
+  OUTRA
+}
+
+enum AdministrativeSphere {
+  FEDERAL
+  ESTADUAL
+  MUNICIPAL
+  OUTRO
+}
+
+enum DocumentExtractionStatus {
+  PENDING
+  SUCCESS
+  PARTIAL
+  FAILED
+  SKIPPED
+}
+
+enum AlertFrequency {
+  DAILY
+  WEEKLY
+  REALTIME
+}
+
+enum WebhookChannel {
+  N8N
+  EVOLUTION_API
+  ZAPI
+  GENERIC
+}
+
+model User {
+  id            String         @id @default(uuid())
+  name          String
+  email         String         @unique
+  passwordHash  String
+  role          Role           @default(USER)
+  status        UserStatus     @default(ACTIVE)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  lastLoginAt   DateTime?
+  
+  // Relations
+  favorites     Favorite[]
+  notes         UserNote[]
+  savedSearches SavedSearch[]
+  alerts        Alert[]
+  searchHistory SearchHistory[]
+
+  @@index([email])
+}
+
+model Source {
+  id                 String          @id @default(uuid())
+  name               String
+  baseUrl            String
+  officialDomain     String
+  sourceType         SourceType
+  integrationType    IntegrationType @default(API_OFICIAL)
+  active             Boolean         @default(true)
+  authorizationNotes String?
+  lastSyncAt         DateTime?
+  lastSyncStatus     String?
+  lastError          String?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  // Relations
+  tenders            Tender[]
+
+  @@index([officialDomain])
+  @@index([active])
+}
+
+model Tender {
+  id                   String               @id @default(uuid())
+  sourceId             String
+  externalId           String               // Ex: numeroControlePNCP
+  processNumber        String?
+  noticeNumber         String?              // Número do edital
+  title                String
+  objectDescription    String
+  contractingEntity    String               // Órgão comprador
+  purchasingUnit       String?              // Unidade compradora
+  state                String               // UF (ex: AL, SP, DF)
+  city                 String?              // Município
+  region               String?              // Nordeste, Sudeste, etc.
+  administrativeSphere AdministrativeSphere @default(FEDERAL)
+  modality             Modality             @default(PREGAO_ELETRONICO)
+  category             String?              // Medicamentos, TI, etc.
+  status               String               // Divulgada, Em andamento, etc.
+  publicationDate      DateTime?
+  openingDate          DateTime?
+  proposalDeadline     DateTime?
+  estimatedTotalValue  Decimal?             @db.Decimal(15, 2)
+  sourceUrl            String
+  officialNoticeUrl    String?
+  sourceSystem         String               @default("pncp") @map("source_system")
+  uasgCode             String?              @map("uasg_code")
+  sicafReady           Boolean              @default(false) @map("sicaf_ready")
+  linkComprasnet       String?              @map("link_comprasnet")
+  linkPncp             String?              @map("link_pncp")
+  dataCompleteness     String               @default("COMPLETO") // COMPLETO, PARCIAL, DADOS_AUSENTES
+  rawDataReference     String?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  lastSyncedAt         DateTime             @default(now())
+
+  // Relations
+  source               Source               @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  items                TenderItem[]
+  documents            TenderDocument[]
+  favorites            Favorite[]
+  notes                UserNote[]
+  changes              TenderChange[]
+  aiAnalyses           AIAnalysis[]
+  alertDeliveries      AlertDelivery[]
+  webhookLogs          WebhookDispatchLog[]
+  deals                Deal[]
+
+  @@unique([sourceId, externalId])
+  @@index([state])
+  @@index([city])
+  @@index([modality])
+  @@index([status])
+  @@index([publicationDate])
+  @@index([proposalDeadline])
+  @@index([estimatedTotalValue])
+  @@index([category])
+}
+
+model TenderItem {
+  id                  String   @id @default(uuid())
+  tenderId            String
+  itemNumber          Int
+  description         String
+  unit                String?  // UN, CX, KG, etc.
+  quantity            Decimal? @db.Decimal(15, 3)
+  estimatedUnitValue  Decimal? @db.Decimal(15, 4)
+  estimatedTotalValue Decimal? @db.Decimal(15, 2)
+  classificationCode  String?  // Código CATMAT / CATSER
+  rawData             Json?
+
+  tender              Tender   @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+
+  @@index([tenderId])
+  @@index([classificationCode])
+}
+
+model TenderDocument {
+  id               String                   @id @default(uuid())
+  tenderId         String
+  name             String
+  documentType     String                   // Edital, Termo de Referência, Anexo, etc.
+  sourceUrl        String
+  storageKey       String?
+  mimeType         String                   @default("application/pdf")
+  fileSize         Int?
+  checksum         String?                  // SHA-256
+  publishedAt      DateTime?
+  downloadedAt     DateTime?
+  extractionStatus DocumentExtractionStatus @default(PENDING)
+  extractionError  String?
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+
+  tender           Tender                   @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  extraction       DocumentExtraction?
+  aiAnalyses       AIAnalysis[]
+
+  @@index([tenderId])
+  @@index([checksum])
+}
+
+model Favorite {
+  id        String   @id @default(uuid())
+  userId    String
+  tenderId  String
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tender    Tender   @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, tenderId])
+  @@index([userId])
+  @@index([tenderId])
+}
+
+model UserNote {
+  id        String   @id @default(uuid())
+  userId    String
+  tenderId  String
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tender    Tender   @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+
+  @@index([userId, tenderId])
+}
+
+model SavedSearch {
+  id        String   @id @default(uuid())
+  userId    String
+  name      String
+  keywords  String?
+  filters   Json     // JSON contendo UF, modalidade, datas, categorias, etc.
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Alert {
+  id         String         @id @default(uuid())
+  userId     String
+  name       String
+  keywords   String?
+  filters    Json
+  frequency  AlertFrequency @default(DAILY)
+  channels   String         @default("IN_APP") // IN_APP, EMAIL, IN_APP,EMAIL
+  active     Boolean        @default(true)
+  lastRunAt  DateTime?
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deliveries AlertDelivery[]
+  webhookLogs WebhookDispatchLog[]
+
+  @@index([userId])
+  @@index([active])
+}
+
+model AlertDelivery {
+  id          String   @id @default(uuid())
+  alertId     String
+  tenderId    String
+  channel     String   // IN_APP, EMAIL
+  deliveredAt DateTime @default(now())
+  status      String   @default("SENT") // SENT, READ, FAILED
+
+  alert       Alert    @relation(fields: [alertId], references: [id], onDelete: Cascade)
+  tender      Tender   @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+
+  @@index([alertId])
+  @@index([tenderId])
+}
+
+model TenderChange {
+  id              String   @id @default(uuid())
+  tenderId        String
+  changeType      String   // RETIFICACAO, PRORROGACAO, CANCELAMENTO, SUSPENSAO, DADO_ATUALIZADO
+  fieldName       String
+  oldValue        String?
+  newValue        String?
+  detectedAt      DateTime @default(now())
+  sourceReference String?
+
+  tender          Tender   @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+
+  @@index([tenderId])
+}
+
+model DocumentExtraction {
+  id                     String                   @id @default(uuid())
+  documentId             String                   @unique
+  extractionStatus       DocumentExtractionStatus @default(PENDING)
+  extractedTextReference String?                  // Caminho ou storage reference
+  extractedTextHash      String?
+  pageCount              Int                      @default(0)
+  ocrUsed                Boolean                  @default(false)
+  processedAt            DateTime                 @default(now())
+  errorMessage           String?
+
+  document               TenderDocument           @relation(fields: [documentId], references: [id], onDelete: Cascade)
+}
+
+model AIAnalysis {
+  id             String   @id @default(uuid())
+  tenderId       String
+  documentId     String?
+  modelProvider  String   // GEMINI, ANTHROPIC, OPENAI
+  modelName      String   // gemini-3.8-flash, claude-3-7-sonnet, etc.
+  promptVersion  String   @default("v1.0")
+  analysisType   String   // RESUMO_EXECUTIVO, ANALISE_COMPLETA, REQUISITOS, PONTOS_ATENCAO
+  resultJson     Json     // Estrutura completa: resumo, comercial, habilitacao, atencao, citacoes
+  sourceTextHash String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tender         Tender          @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  document       TenderDocument? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  @@index([tenderId])
+  @@index([documentId])
+}
+
+model SearchHistory {
+  id          String   @id @default(uuid())
+  userId      String?
+  query       String
+  filters     Json?
+  resultCount Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  user        User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model WebhookDispatchLog {
+  id               String         @id @default(uuid())
+  ruleId           String?        @map("rule_id")
+  tenderId         String?        @map("tender_id")
+  targetUrl        String         @map("target_url")
+  canal            WebhookChannel @default(GENERIC)
+  statusCode       Int?           @map("status_code")
+  tentativaAtual   Int            @default(1) @map("tentativa_atual")
+  sucesso          Boolean        @default(false)
+  tempoRespostaMs  Float          @default(0) @map("tempo_resposta_ms")
+  payloadEnviado   Json?          @map("payload_enviado")
+  respostaServidor String?        @map("resposta_servidor")
+  criadoEm         DateTime       @default(now()) @map("criado_em")
+
+  rule             Alert?         @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+  tender           Tender?        @relation(fields: [tenderId], references: [id], onDelete: SetNull)
+
+  @@index([ruleId])
+  @@index([tenderId])
+  @@index([sucesso])
+  @@index([criadoEm])
+  @@map("webhook_dispatch_logs")
+}
+
+model Deal {
+  id        Int      @id @default(autoincrement())
+  tenderId  String   @map("tender_id")
+  stage     String   @default("oportunidades")
+  notes     String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tender    Tender   @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+
+  @@index([tenderId])
+  @@index([stage])
+  @@map("deals")
+}
+
+model LegalDocumentTemplate {
+  id                 Int      @id @default(autoincrement())
+  tipo               String
+  titulo             String
+  fundamentacaoLegal String   @default("Lei 14.133/2021") @map("fundamentacao_legal")
+  corpo              String
+  isNovaLei          Boolean  @default(true) @map("is_nova_lei")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@index([tipo])
+  @@index([isNovaLei])
+  @@map("legal_document_templates")
+}
+
+model SupplierProspect {
+  id           Int      @id @default(autoincrement())
+  name         String
+  cnpj         String?
+  state        String?
+  city         String?
+  segment      String?
+  totalTenders Int      @default(0) @map("total_tenders")
+  totalValue   Float    @default(0.0) @map("total_value")
+  aiSummary    String?  @map("ai_summary")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@index([name])
+  @@index([cnpj])
+  @@index([state])
+  @@map("supplier_prospects")
+}
