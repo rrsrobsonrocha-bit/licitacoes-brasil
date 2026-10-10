@@ -3147,3 +3147,35 @@ def api_admin_toggle_source(source_id: str, active: bool = Query(...), admin: Us
 @app.get("/api/sources")
 def api_list_sources():
     return list_all_sources()
+
+# ==========================================================
+# AGENDADOR AUTOMATICO DE OPORTUNIDADES A CADA 2 HORAS
+# ==========================================================
+import asyncio
+from server.services.portal_collector import PortalCollector
+
+async def loop_coleta_automatica():
+    """Executa a coleta de novas licitacoes a cada 2 horas em background."""
+    await asyncio.sleep(15)  # Aguarda 15s para estabilizar o boot do servidor
+    
+    intervalo_minutos = 120  # Execucao a cada 2 horas
+    
+    while True:
+        try:
+            print("[AUTO-COLETA] Iniciando busca automatica de oportunidades no PNCP...")
+            collector = PortalCollector()
+            if hasattr(collector, "collect_all"):
+                resultado = await collector.collect_all()
+                print(f"[AUTO-COLETA] Concluido: {resultado}")
+            elif hasattr(collector, "sync_pipeline"):
+                resultado = await collector.sync_pipeline()
+                print(f"[AUTO-COLETA] Concluido: {resultado}")
+        except Exception as e:
+            print(f"[AUTO-COLETA] Falha na execucao: {e}")
+            
+        print(f"[AUTO-COLETA] Proxima busca em {intervalo_minutos} minutos (2 horas)...")
+        await asyncio.sleep(intervalo_minutos * 60)
+
+@app.on_event("startup")
+async def iniciar_busca_automatica():
+    asyncio.create_task(loop_coleta_automatica())
