@@ -38,7 +38,8 @@ ENV PORT=8000 \
     HOST=0.0.0.0 \
     PYTHONUNBUFFERED=1
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:8000/api/health || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD curl -f http://localhost:${PORT}/healthz || exit 1
 
-CMD ["python3", "-m", "uvicorn", "server.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Render injeta $PORT em tempo de execucao; usa 8000 como padrao local
+CMD ["sh", "-c", "python3 -m uvicorn server.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

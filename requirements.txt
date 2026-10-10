@@ -13,3 +13,7 @@ passlib[bcrypt]
 python-jose[cryptography]
 httpx
 pytest
+requests
+pypdf
+psycopg2-binary
+tzdata

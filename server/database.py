@@ -4,6 +4,9 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 from server.config import settings
 
 db_url = settings.DATABASE_URL
+# Render/Heroku fornecem "postgres://", que o SQLAlchemy 2.x nao aceita
+if db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgres://", "postgresql://", 1)
 connect_args = {}
 if db_url.startswith("sqlite"):
     connect_args = {

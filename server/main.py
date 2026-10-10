@@ -3151,72 +3151,92 @@ def api_list_sources():
 # ==========================================================
 # AGENDADOR AUTOMATICO DE OPORTUNIDADES A CADA 2 HORAS
 # ==========================================================
-import asyncio
-from server.services.portal_collector import PortalCollector
+from server.services.portal_collector import PortalCollectorService
+
+# Referências fortes às tarefas de background (evita coleta pelo GC e permite cancelar no shutdown)
+_background_tasks: set = set()
+
+def _start_background_task(coro):
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+    return task
 
 async def loop_coleta_automatica():
     """Executa a coleta de novas licitacoes a cada 2 horas em background."""
     await asyncio.sleep(15)  # Aguarda 15s para estabilizar o boot do servidor
-    
+
     intervalo_minutos = 120  # Execucao a cada 2 horas
-    
+
     while True:
         try:
             print("[AUTO-COLETA] Iniciando busca automatica de oportunidades no PNCP...")
-            collector = PortalCollector()
-            if hasattr(collector, "collect_all"):
-                resultado = await collector.collect_all()
-                print(f"[AUTO-COLETA] Concluido: {resultado}")
-            elif hasattr(collector, "sync_pipeline"):
-                resultado = await collector.sync_pipeline()
-                print(f"[AUTO-COLETA] Concluido: {resultado}")
+            collector = PortalCollectorService()
+            resultado = await collector.collect_all()
+            print(f"[AUTO-COLETA] Concluido: {len(resultado)} oportunidades coletadas.")
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             print(f"[AUTO-COLETA] Falha na execucao: {e}")
-            
+
         print(f"[AUTO-COLETA] Proxima busca em {intervalo_minutos} minutos (2 horas)...")
         await asyncio.sleep(intervalo_minutos * 60)
 
 @app.on_event("startup")
 async def iniciar_busca_automatica():
-    asyncio.create_task(loop_coleta_automatica())
+    _start_background_task(loop_coleta_automatica())
 
 # ==========================================================
-# ENDPOINT DE HEALTH CHECK (DIAGNOSTICO DO SITE E BANCO)
+# HEALTH CHECKS
 # ==========================================================
-from sqlalchemy import text
-
 @app.get("/healthz")
-def health_check(db: Session = Depends(get_db)):
-    """Verifica a integridade basica do servidor e da base de dados."""
+@app.get("/ping")
+def health_check():
+    """Health check leve (sem I/O) para o Render e balanceadores."""
+    return {"status": "ok"}
+
+@app.get("/healthz/db")
+def health_check_db(db: Session = Depends(get_db)):
+    """Verifica a integridade do servidor e da conexao com o banco de dados."""
     status_diag = {"status": "ok", "app": "Licitações Brasil", "database": "unknown"}
     try:
-        # Teste rapido de conexao com o banco
         db.execute(text("SELECT 1"))
         status_diag["database"] = "connected"
     except Exception as e:
         status_diag["status"] = "error"
         status_diag["database"] = f"unreachable: {str(e)}"
         return JSONResponse(status_code=500, content=status_diag)
-        
+
     return status_diag
 
 # ==========================================================
 # VARREDURA INTERNA DE INTEGRIDADE A CADA 15 MINUTOS
 # ==========================================================
+def _ping_database():
+    with engine.connect() as conn:
+        conn.execute(text("SELECT 1"))
+
 async def loop_varredura_integridade():
     """Checa periodicamente se o sistema e o banco estao saudaveis."""
     await asyncio.sleep(20)
     while True:
         try:
-            with engine.connect() as conn:
-                conn.execute(text("SELECT 1"))
+            # Executa em thread para nao bloquear o event loop caso o banco demore a responder
+            await asyncio.wait_for(asyncio.to_thread(_ping_database), timeout=30)
             print("[DIAGNOSTICO-15M] Sistema operacional e conexao com banco OK.")
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
-            print(f"[DIAGNOSTICO-15M] ALERTA: Falha na conexao com o banco: {e}")
-            
+            print(f"[DIAGNOSTICO-15M] ALERTA: Falha na conexao com o banco: {e!r}")
+
         await asyncio.sleep(15 * 60) # 15 minutos
 
 # Disparado junto com a inicializacao
 @app.on_event("startup")
 async def iniciar_varredura():
-    asyncio.create_task(loop_varredura_integridade())
+    _start_background_task(loop_varredura_integridade())
+
+@app.on_event("shutdown")
+async def parar_tarefas_background():
+    for task in list(_background_tasks):
+        task.cancel()
