@@ -1,0 +1,1 @@
+﻿param([string]$m="feat: atualizacoes no sistema"); git add .; $s = git status --porcelain; if ($s) { git commit -m "$m" } else { Write-Host "Sem alteracoes para commit." }; git push origin main; Write-Host "Deploy disparado no Render com sucesso!" -ForegroundColor Green
