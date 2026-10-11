@@ -99,132 +99,39 @@
   <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
       
-      <!-- 1. OPORTUNIDADES -->
-      <div class="kanban-column flex flex-col bg-slate-900/50 border border-slate-800 rounded-2xl p-3 shadow-lg" data-stage="oportunidades" ondragover="allowDrop(event)" ondrop="handleDrop(event, 'oportunidades')">
+      {% for etapa in ETAPAS_FUNIL %}
+      {% set st = etapa.chave %}
+      <!-- {{ loop.index }}. {{ etapa.rotulo|upper }} -->
+      <div class="kanban-column flex flex-col bg-slate-900/50 border border-slate-800 rounded-2xl p-3 shadow-lg" data-stage="{{ st }}" ondragover="allowDrop(event)" ondrop="handleDrop(event, '{{ st }}')">
         <div class="flex items-center justify-between pb-3 mb-3 border-b border-slate-800">
-          <div class="flex items-center gap-2">
-            <span class="w-2.5 h-2.5 rounded-full bg-sky-400 ring-4 ring-sky-400/20"></span>
-            <h2 class="text-xs font-black tracking-wider uppercase text-sky-400">Oportunidades</h2>
+          <div class="flex items-center gap-2 min-w-0">
+            <span class="w-2.5 h-2.5 shrink-0 rounded-full bg-{{ etapa.cor }}-400 ring-4 ring-{{ etapa.cor }}-400/20"></span>
+            <h2 class="text-xs font-black tracking-wider uppercase text-{{ etapa.cor }}-400 truncate" title="{{ etapa.descricao }}">{{ etapa.rotulo }}</h2>
           </div>
-          <span id="count-oportunidades" class="bg-slate-800/90 text-sky-400 font-mono text-xs font-bold px-2 py-0.5 rounded-full border border-sky-500/20 shadow-sm">
-            {{ counts.oportunidades }}
+          <span id="count-{{ st }}" class="bg-slate-800/90 text-{{ etapa.cor }}-400 font-mono text-xs font-bold px-2 py-0.5 rounded-full border border-{{ etapa.cor }}-500/20 shadow-sm">
+            {{ counts[st] }}
           </span>
         </div>
-        <p id="resumo-oportunidades" class="kanban-resumo -mt-1 mb-3 text-[11px] font-mono text-slate-400">{{ counts.oportunidades }} {{ 'negócio' if counts.oportunidades == 1 else 'negócios' }} · <span class="text-emerald-300 font-bold">{{ valores.oportunidades|brl }}</span></p>
-        <div id="cards-oportunidades" class="cards-container flex-1 space-y-3 min-h-[350px]">
-          {% for deal in grouped_deals.oportunidades %}
+        <p id="resumo-{{ st }}" class="kanban-resumo -mt-1 mb-3 text-[11px] font-mono text-slate-400">{{ counts[st] }} {{ 'negócio' if counts[st] == 1 else 'negócios' }} · <span class="text-emerald-300 font-bold">{{ valores[st]|brl }}</span></p>
+        <div id="cards-{{ st }}" class="cards-container flex-1 space-y-3 min-h-[350px]">
+          {% for deal in grouped_deals[st] %}
             {% include "partials_deal_card.html" %}
           {% else %}
             <div class="empty-state text-center py-10 px-2 text-slate-500 text-xs border border-dashed border-slate-800 rounded-xl">
-              <i class="fa-solid fa-inbox text-xl text-slate-600 block mb-2"></i>
-              Nenhuma oportunidade triada
+              <i class="fa-solid {{ etapa.icone }} text-xl text-slate-600 block mb-2"></i>
+              {{ etapa.vazio }}
             </div>
           {% endfor %}
         </div>
       </div>
-
-      <!-- 2. QUALIFICAÇÃO -->
-      <div class="kanban-column flex flex-col bg-slate-900/50 border border-slate-800 rounded-2xl p-3 shadow-lg" data-stage="qualificacao" ondragover="allowDrop(event)" ondrop="handleDrop(event, 'qualificacao')">
-        <div class="flex items-center justify-between pb-3 mb-3 border-b border-slate-800">
-          <div class="flex items-center gap-2">
-            <span class="w-2.5 h-2.5 rounded-full bg-amber-400 ring-4 ring-amber-400/20"></span>
-            <h2 class="text-xs font-black tracking-wider uppercase text-amber-400">Qualificação</h2>
-          </div>
-          <span id="count-qualificacao" class="bg-slate-800/90 text-amber-400 font-mono text-xs font-bold px-2 py-0.5 rounded-full border border-amber-500/20 shadow-sm">
-            {{ counts.qualificacao }}
-          </span>
-        </div>
-        <p id="resumo-qualificacao" class="kanban-resumo -mt-1 mb-3 text-[11px] font-mono text-slate-400">{{ counts.qualificacao }} {{ 'negócio' if counts.qualificacao == 1 else 'negócios' }} · <span class="text-emerald-300 font-bold">{{ valores.qualificacao|brl }}</span></p>
-        <div id="cards-qualificacao" class="cards-container flex-1 space-y-3 min-h-[350px]">
-          {% for deal in grouped_deals.qualificacao %}
-            {% include "partials_deal_card.html" %}
-          {% else %}
-            <div class="empty-state text-center py-10 px-2 text-slate-500 text-xs border border-dashed border-slate-800 rounded-xl">
-              <i class="fa-solid fa-clipboard-check text-xl text-slate-600 block mb-2"></i>
-              Nenhum certame em qualificação
-            </div>
-          {% endfor %}
-        </div>
-      </div>
-
-      <!-- 3. DISPUTA -->
-      <div class="kanban-column flex flex-col bg-slate-900/50 border border-slate-800 rounded-2xl p-3 shadow-lg" data-stage="disputa" ondragover="allowDrop(event)" ondrop="handleDrop(event, 'disputa')">
-        <div class="flex items-center justify-between pb-3 mb-3 border-b border-slate-800">
-          <div class="flex items-center gap-2">
-            <span class="w-2.5 h-2.5 rounded-full bg-rose-400 ring-4 ring-rose-400/20"></span>
-            <h2 class="text-xs font-black tracking-wider uppercase text-rose-400">Disputa</h2>
-          </div>
-          <span id="count-disputa" class="bg-slate-800/90 text-rose-400 font-mono text-xs font-bold px-2 py-0.5 rounded-full border border-rose-500/20 shadow-sm">
-            {{ counts.disputa }}
-          </span>
-        </div>
-        <p id="resumo-disputa" class="kanban-resumo -mt-1 mb-3 text-[11px] font-mono text-slate-400">{{ counts.disputa }} {{ 'negócio' if counts.disputa == 1 else 'negócios' }} · <span class="text-emerald-300 font-bold">{{ valores.disputa|brl }}</span></p>
-        <div id="cards-disputa" class="cards-container flex-1 space-y-3 min-h-[350px]">
-          {% for deal in grouped_deals.disputa %}
-            {% include "partials_deal_card.html" %}
-          {% else %}
-            <div class="empty-state text-center py-10 px-2 text-slate-500 text-xs border border-dashed border-slate-800 rounded-xl">
-              <i class="fa-solid fa-gavel text-xl text-slate-600 block mb-2"></i>
-              Nenhuma disputa ao vivo
-            </div>
-          {% endfor %}
-        </div>
-      </div>
-
-      <!-- 4. CLASSIFICAÇÃO -->
-      <div class="kanban-column flex flex-col bg-slate-900/50 border border-slate-800 rounded-2xl p-3 shadow-lg" data-stage="classificacao" ondragover="allowDrop(event)" ondrop="handleDrop(event, 'classificacao')">
-        <div class="flex items-center justify-between pb-3 mb-3 border-b border-slate-800">
-          <div class="flex items-center gap-2">
-            <span class="w-2.5 h-2.5 rounded-full bg-purple-400 ring-4 ring-purple-400/20"></span>
-            <h2 class="text-xs font-black tracking-wider uppercase text-purple-400">Classificação</h2>
-          </div>
-          <span id="count-classificacao" class="bg-slate-800/90 text-purple-400 font-mono text-xs font-bold px-2 py-0.5 rounded-full border border-purple-500/20 shadow-sm">
-            {{ counts.classificacao }}
-          </span>
-        </div>
-        <p id="resumo-classificacao" class="kanban-resumo -mt-1 mb-3 text-[11px] font-mono text-slate-400">{{ counts.classificacao }} {{ 'negócio' if counts.classificacao == 1 else 'negócios' }} · <span class="text-emerald-300 font-bold">{{ valores.classificacao|brl }}</span></p>
-        <div id="cards-classificacao" class="cards-container flex-1 space-y-3 min-h-[350px]">
-          {% for deal in grouped_deals.classificacao %}
-            {% include "partials_deal_card.html" %}
-          {% else %}
-            <div class="empty-state text-center py-10 px-2 text-slate-500 text-xs border border-dashed border-slate-800 rounded-xl">
-              <i class="fa-solid fa-trophy text-xl text-slate-600 block mb-2"></i>
-              Aguardando homologação/julgamento
-            </div>
-          {% endfor %}
-        </div>
-      </div>
-
-      <!-- 5. CONTRATO -->
-      <div class="kanban-column flex flex-col bg-slate-900/50 border border-slate-800 rounded-2xl p-3 shadow-lg" data-stage="contrato" ondragover="allowDrop(event)" ondrop="handleDrop(event, 'contrato')">
-        <div class="flex items-center justify-between pb-3 mb-3 border-b border-slate-800">
-          <div class="flex items-center gap-2">
-            <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 ring-4 ring-emerald-400/20"></span>
-            <h2 class="text-xs font-black tracking-wider uppercase text-emerald-400">Contrato</h2>
-          </div>
-          <span id="count-contrato" class="bg-slate-800/90 text-emerald-400 font-mono text-xs font-bold px-2 py-0.5 rounded-full border border-emerald-500/20 shadow-sm">
-            {{ counts.contrato }}
-          </span>
-        </div>
-        <p id="resumo-contrato" class="kanban-resumo -mt-1 mb-3 text-[11px] font-mono text-slate-400">{{ counts.contrato }} {{ 'negócio' if counts.contrato == 1 else 'negócios' }} · <span class="text-emerald-300 font-bold">{{ valores.contrato|brl }}</span></p>
-        <div id="cards-contrato" class="cards-container flex-1 space-y-3 min-h-[350px]">
-          {% for deal in grouped_deals.contrato %}
-            {% include "partials_deal_card.html" %}
-          {% else %}
-            <div class="empty-state text-center py-10 px-2 text-slate-500 text-xs border border-dashed border-slate-800 rounded-xl">
-              <i class="fa-solid fa-file-signature text-xl text-slate-600 block mb-2"></i>
-              Nenhum contrato assinado
-            </div>
-          {% endfor %}
-        </div>
-      </div>
+      {% endfor %}
 
     </div>
   </div>
 </div>
 
 <script>
-  const STAGES = ["oportunidades", "qualificacao", "disputa", "classificacao", "contrato"];
+  const STAGES = {{ ETAPAS_FUNIL|map(attribute='chave')|list|tojson }};
 
   function formatCurrency(val) {
     if (!val && val !== 0) return 'Sob demanda';

@@ -86,10 +86,14 @@ def test_api_get_deals_grouped_by_stage(usuario_auth):
     assert resp.status_code == 200
     data = resp.json()
 
-    # 5 estágios fundamentais do Kanban
-    for stage in ["oportunidades", "qualificacao", "disputa", "classificacao", "contrato"]:
+    # 5 etapas oficiais do Kanban, na ordem do funil
+    assert DEAL_STAGES == ["oportunidades", "qualificacao", "proposta", "disputa", "homologado"]
+    for stage in DEAL_STAGES:
         assert stage in data
         assert isinstance(data[stage], list)
+    assert [e["label"] for e in data["stages"]] == [
+        "Oportunidades", "Qualificação", "Proposta Feita", "Disputa", "Homologado / Ganho"]
+    assert "classificacao" not in data and "contrato" not in data
 
     assert "total" in data
     assert isinstance(data["total"], int)
@@ -107,11 +111,16 @@ def test_api_patch_deal_stage_transitions(usuario_auth):
     finally:
         db.close()
 
-    # Movimentação sequencial: qualificacao -> disputa -> classificacao -> contrato
-    for target in ["qualificacao", "disputa", "classificacao", "contrato", "oportunidades"]:
+    # Movimentação sequencial: qualificacao -> proposta -> disputa -> homologado
+    for target in ["qualificacao", "proposta", "disputa", "homologado", "oportunidades"]:
         resp = client.patch(f"/api/deals/{deal_id}/stage", json={"stage": target}, headers=usuario_auth.headers)
         assert resp.status_code == 200
         assert resp.json()["stage"] == target
+
+    # Chaves antigas continuam aceitas e viram "homologado"
+    for antiga in ("classificacao", "contrato"):
+        resp = client.patch(f"/api/deals/{deal_id}/stage", json={"stage": antiga}, headers=usuario_auth.headers)
+        assert resp.status_code == 200 and resp.json()["stage"] == "homologado"
 
     # Estágio inválido -> 400
     resp_bad = client.patch(f"/api/deals/{deal_id}/stage", json={"stage": "estagio_invalido"}, headers=usuario_auth.headers)
@@ -135,19 +144,19 @@ def test_kanban_html_view_and_cards(usuario_auth):
     assert resp.status_code == 200
     html = resp.text
 
-    # Validar presença das 5 colunas no Kanban
-    assert "Oportunidades" in html
-    assert "Qualificação" in html
-    assert "Disputa" in html
-    assert "Classificação" in html
-    assert "Contrato" in html
+    # Validar presença das 5 colunas no Kanban, na ordem oficial
+    rotulos = ["Oportunidades", "Qualificação", "Proposta Feita", "Disputa", "Homologado / Ganho"]
+    posicoes = [html.index(f'truncate" title="{d}">{r}</h2>') for d, r in zip(
+        ["Leads e editais identificados", "Análise técnica e viabilidade", "Proposta enviada no portal oficial",
+         "Sala de disputa / lances ao vivo", "Adjudicado / vencido"], rotulos)]
+    assert posicoes == sorted(posicoes)
+    assert "Classificação</h2>" not in html and ">Contrato</h2>" not in html
 
-    # Validar contadores de negócios ativos
-    assert "count-oportunidades" in html
-    assert "count-qualificacao" in html
-    assert "count-disputa" in html
-    assert "count-classificacao" in html
-    assert "count-contrato" in html
+    # Contadores e colunas de destino do arraste com as novas chaves
+    for st in DEAL_STAGES:
+        assert f'id="count-{st}"' in html
+        assert f"handleDrop(event, '{st}')" in html
+    assert 'const STAGES = ["oportunidades", "qualificacao", "proposta", "disputa", "homologado"];' in html
 
     # Validar botões de movimentação
     assert "← voltar" in html
@@ -173,3 +182,35 @@ def test_pipeline_add_endpoint_integration(usuario_auth):
     assert data["status"] == "success"
     assert "deal_id" in data
     assert data["tender_id"] == t_id
+
+
+def test_migracao_de_etapas_legadas_para_homologado(usuario_auth):
+    from sqlalchemy import text
+    from server.database import engine
+    from server.migrate import _migrar_etapas_legadas_do_funil
+
+    db = SessionLocal()
+    tender = db.query(Tender).first()
+    ids = []
+    for antiga in ("classificacao", "contrato", "disputa"):
+        deal = Deal(tender_id=tender.id, user_id=usuario_auth.id, stage="oportunidades")
+        db.add(deal)
+        db.commit()
+        ids.append(deal.id)
+        with engine.begin() as conn:  # grava a etapa antiga direto no banco, como em bases anteriores
+            conn.execute(text("UPDATE deals SET stage = :s WHERE id = :i"), {"s": antiga, "i": deal.id})
+    db.close()
+
+    # Antes da migração a página já agrupa as antigas em "Homologado / Ganho"
+    dados = client.get("/api/deals", headers=usuario_auth.headers).json()
+    assert {d["id"] for d in dados["homologado"]} >= set(ids[:2])
+
+    _migrar_etapas_legadas_do_funil()
+    _migrar_etapas_legadas_do_funil()  # idempotente
+    db = SessionLocal()
+    etapas = {d.id: d.stage for d in db.query(Deal).filter(Deal.id.in_(ids))}
+    db.close()
+    assert etapas == {ids[0]: "homologado", ids[1]: "homologado", ids[2]: "disputa"}
+
+    dados = client.get("/api/deals", headers=usuario_auth.headers).json()
+    assert dados["counts"]["homologado"] >= 2 and "valores" in dados and "valor_pipeline" in dados

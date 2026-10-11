@@ -54,7 +54,7 @@ def test_api_dashboard_summary_structure_and_metrics():
     # 7. Barra de status do funil com contadores por etapa
     assert "funnel_stages" in data
     fs = data["funnel_stages"]
-    for stage in ["oportunidades", "qualificacao", "disputa", "classificacao", "contrato"]:
+    for stage in ["oportunidades", "qualificacao", "proposta", "disputa", "homologado"]:
         assert stage in fs
         assert isinstance(fs[stage], int)
 
@@ -92,10 +92,10 @@ def test_page_dashboard_html_rendering_executive_cards():
     assert "funnel-count-oportunidades" in html
     assert "funnel-count-qualificacao" in html
     assert "funnel-count-disputa" in html
-    assert "funnel-count-classificacao" in html
-    assert "funnel-count-contrato" in html
+    assert "funnel-count-proposta" in html
+    assert "funnel-count-homologado" in html
     assert "funnel-bar-oportunidades" in html
-    assert "funnel-bar-contrato" in html
+    assert "funnel-bar-homologado" in html
 
     # Validar seção de Agenda da semana
     assert "Agenda da semana" in html

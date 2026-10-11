@@ -208,80 +208,24 @@
 
       <!-- Grid com os contadores por etapa -->
       <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        <!-- Oportunidades -->
-        <a href="/negocios?view=quadros" class="bg-slate-950/60 border border-sky-500/20 hover:border-sky-500/50 rounded-xl p-3.5 transition group block">
-          <div class="flex items-center justify-between">
-            <span class="text-[11px] font-bold uppercase tracking-wide text-sky-400">Oportunidades</span>
-            <span class="w-2 h-2 rounded-full bg-sky-400"></span>
+        {% for etapa in ETAPAS_FUNIL %}
+        {% set st = etapa.chave %}
+        {% set qtd = summary.funnel_stages[st] if summary and summary.funnel_stages and summary.funnel_stages[st] is defined else 0 %}
+        <!-- {{ etapa.rotulo }} -->
+        <a href="/negocios?view=quadros" class="bg-slate-950/60 border border-{{ etapa.cor }}-500/20 hover:border-{{ etapa.cor }}-500/50 rounded-xl p-3.5 transition group block{% if loop.last %} col-span-2 sm:col-span-1{% endif %}">
+          <div class="flex items-center justify-between gap-1">
+            <span class="text-[11px] font-bold uppercase tracking-wide text-{{ etapa.cor }}-400 truncate">{{ etapa.rotulo }}</span>
+            <span class="w-2 h-2 shrink-0 rounded-full bg-{{ etapa.cor }}-400"></span>
           </div>
-          <div class="text-2xl font-black font-mono text-white mt-2 group-hover:text-sky-300 transition" id="funnel-count-oportunidades">
-            {{ summary.funnel_stages.oportunidades if summary and summary.funnel_stages else 0 }}
-          </div>
-          <div class="w-full bg-slate-800/80 rounded-full h-1.5 mt-2 overflow-hidden">
-            <div id="funnel-bar-oportunidades" class="bg-sky-400 h-full rounded-full transition-all duration-500" style="width: {% if summary and summary.active_deals_count and summary.funnel_stages and summary.active_deals_count > 0 %}{{ [(summary.funnel_stages.oportunidades / summary.active_deals_count * 100)|round, 100]|min }}%{% else %}20%{% endif %}"></div>
-          </div>
-          <span class="text-[10px] text-slate-500 block mt-1">Triagem inicial</span>
-        </a>
-
-        <!-- Qualificação -->
-        <a href="/negocios?view=quadros" class="bg-slate-950/60 border border-amber-500/20 hover:border-amber-500/50 rounded-xl p-3.5 transition group block">
-          <div class="flex items-center justify-between">
-            <span class="text-[11px] font-bold uppercase tracking-wide text-amber-400">Qualificação</span>
-            <span class="w-2 h-2 rounded-full bg-amber-400"></span>
-          </div>
-          <div class="text-2xl font-black font-mono text-white mt-2 group-hover:text-amber-300 transition" id="funnel-count-qualificacao">
-            {{ summary.funnel_stages.qualificacao if summary and summary.funnel_stages else 0 }}
+          <div class="text-2xl font-black font-mono text-white mt-2 group-hover:text-{{ etapa.cor }}-300 transition" id="funnel-count-{{ st }}">
+            {{ qtd }}
           </div>
           <div class="w-full bg-slate-800/80 rounded-full h-1.5 mt-2 overflow-hidden">
-            <div id="funnel-bar-qualificacao" class="bg-amber-400 h-full rounded-full transition-all duration-500" style="width: {% if summary and summary.active_deals_count and summary.funnel_stages and summary.active_deals_count > 0 %}{{ [(summary.funnel_stages.qualificacao / summary.active_deals_count * 100)|round, 100]|min }}%{% else %}20%{% endif %}"></div>
+            <div id="funnel-bar-{{ st }}" class="bg-{{ etapa.cor }}-400 h-full rounded-full transition-all duration-500" style="width: {% if summary and summary.active_deals_count and summary.active_deals_count > 0 %}{{ [(qtd / summary.active_deals_count * 100)|round, 100]|min }}%{% else %}20%{% endif %}"></div>
           </div>
-          <span class="text-[10px] text-slate-500 block mt-1">Análise técnica/edital</span>
+          <span class="text-[10px] text-slate-500 block mt-1">{{ etapa.descricao }}</span>
         </a>
-
-        <!-- Disputa -->
-        <a href="/negocios?view=quadros" class="bg-slate-950/60 border border-rose-500/20 hover:border-rose-500/50 rounded-xl p-3.5 transition group block">
-          <div class="flex items-center justify-between">
-            <span class="text-[11px] font-bold uppercase tracking-wide text-rose-400">Disputa</span>
-            <span class="w-2 h-2 rounded-full bg-rose-400"></span>
-          </div>
-          <div class="text-2xl font-black font-mono text-white mt-2 group-hover:text-rose-300 transition" id="funnel-count-disputa">
-            {{ summary.funnel_stages.disputa if summary and summary.funnel_stages else 0 }}
-          </div>
-          <div class="w-full bg-slate-800/80 rounded-full h-1.5 mt-2 overflow-hidden">
-            <div id="funnel-bar-disputa" class="bg-rose-400 h-full rounded-full transition-all duration-500" style="width: {% if summary and summary.active_deals_count and summary.funnel_stages and summary.active_deals_count > 0 %}{{ [(summary.funnel_stages.disputa / summary.active_deals_count * 100)|round, 100]|min }}%{% else %}20%{% endif %}"></div>
-          </div>
-          <span class="text-[10px] text-slate-500 block mt-1">Sessão pública de lances</span>
-        </a>
-
-        <!-- Classificação -->
-        <a href="/negocios?view=quadros" class="bg-slate-950/60 border border-purple-500/20 hover:border-purple-500/50 rounded-xl p-3.5 transition group block">
-          <div class="flex items-center justify-between">
-            <span class="text-[11px] font-bold uppercase tracking-wide text-purple-400">Classificação</span>
-            <span class="w-2 h-2 rounded-full bg-purple-400"></span>
-          </div>
-          <div class="text-2xl font-black font-mono text-white mt-2 group-hover:text-purple-300 transition" id="funnel-count-classificacao">
-            {{ summary.funnel_stages.classificacao if summary and summary.funnel_stages else 0 }}
-          </div>
-          <div class="w-full bg-slate-800/80 rounded-full h-1.5 mt-2 overflow-hidden">
-            <div id="funnel-bar-classificacao" class="bg-purple-400 h-full rounded-full transition-all duration-500" style="width: {% if summary and summary.active_deals_count and summary.funnel_stages and summary.active_deals_count > 0 %}{{ [(summary.funnel_stages.classificacao / summary.active_deals_count * 100)|round, 100]|min }}%{% else %}20%{% endif %}"></div>
-          </div>
-          <span class="text-[10px] text-slate-500 block mt-1">Aguardando julgamento</span>
-        </a>
-
-        <!-- Contrato -->
-        <a href="/negocios?view=quadros" class="bg-slate-950/60 border border-emerald-500/20 hover:border-emerald-500/50 rounded-xl p-3.5 transition group block col-span-2 sm:col-span-1">
-          <div class="flex items-center justify-between">
-            <span class="text-[11px] font-bold uppercase tracking-wide text-emerald-400">Contrato</span>
-            <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
-          </div>
-          <div class="text-2xl font-black font-mono text-white mt-2 group-hover:text-emerald-300 transition" id="funnel-count-contrato">
-            {{ summary.funnel_stages.contrato if summary and summary.funnel_stages else 0 }}
-          </div>
-          <div class="w-full bg-slate-800/80 rounded-full h-1.5 mt-2 overflow-hidden">
-            <div id="funnel-bar-contrato" class="bg-emerald-400 h-full rounded-full transition-all duration-500" style="width: {% if summary and summary.active_deals_count and summary.funnel_stages and summary.active_deals_count > 0 %}{{ [(summary.funnel_stages.contrato / summary.active_deals_count * 100)|round, 100]|min }}%{% else %}20%{% endif %}"></div>
-          </div>
-          <span class="text-[10px] text-slate-500 block mt-1">Homologado e assinado</span>
-        </a>
+        {% endfor %}
       </div>
     </div>
 
@@ -409,7 +353,7 @@
               <div class="p-3.5 bg-slate-950/70 rounded-xl border border-slate-800 hover:border-slate-700 transition flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center gap-2 mb-1 flex-wrap">
-                    <span class="text-[10px] font-mono px-1.5 py-0.5 rounded font-bold uppercase {% if ev.stage == 'disputa' %}bg-rose-500/20 text-rose-300 border border-rose-500/30{% elif ev.stage == 'contrato' %}bg-emerald-500/20 text-emerald-300 border border-emerald-500/30{% else %}bg-sky-500/20 text-sky-300 border border-sky-500/30{% endif %}">
+                    <span class="text-[10px] font-mono px-1.5 py-0.5 rounded font-bold uppercase {% if ev.stage == 'disputa' %}bg-rose-500/20 text-rose-300 border border-rose-500/30{% elif ev.stage == 'homologado' %}bg-emerald-500/20 text-emerald-300 border border-emerald-500/30{% else %}bg-sky-500/20 text-sky-300 border border-sky-500/30{% endif %}">
                       {{ ev.stage }}
                     </span>
                     <span class="text-[10px] text-slate-400 font-mono">{{ ev.notice_number }}</span>
@@ -557,7 +501,7 @@
         // 2. Funil Stages
         if (data.funnel_stages) {
           const totalDeals = (data.active_deals_count !== undefined ? data.active_deals_count : data.deals_count) || 1;
-          ['oportunidades', 'qualificacao', 'disputa', 'classificacao', 'contrato'].forEach(st => {
+          {{ ETAPAS_FUNIL|map(attribute='chave')|list|tojson }}.forEach(st => {
             const el = document.getElementById(`funnel-count-${st}`);
             if (el && data.funnel_stages[st] !== undefined) {
               el.textContent = data.funnel_stages[st];

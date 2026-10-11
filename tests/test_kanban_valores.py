@@ -82,5 +82,5 @@ def test_kanban_exibe_valores_etiquetas_e_totais(certames, usuario_auth):
 def test_kanban_atualiza_totais_ao_mover_cartoes():
     html = client.get("/negocios").text
     for marcador in ("function updateColumnCounts", "resumo-${st}", "dataset.valor", "kanban-total-valor",
-                     'id="resumo-contrato"'):
+                     'id="resumo-homologado"'):
         assert marcador in html, marcador

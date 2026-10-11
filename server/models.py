@@ -373,14 +373,30 @@ class WebhookDispatchLog(Base):
     tender = relationship("Tender", backref="webhook_logs")
 
 
-DEAL_STAGES = ["oportunidades", "qualificacao", "disputa", "classificacao", "contrato"]
-DEAL_STAGE_LABELS = {
-    "oportunidades": "Oportunidades",
-    "qualificacao": "Qualificação",
-    "disputa": "Disputa",
-    "classificacao": "Classificação",
-    "contrato": "Contrato"
-}
+# Etapas oficiais do Funil de Negócios (ordem do Kanban): cor Tailwind, ícone do estado vazio e legenda
+ETAPAS_FUNIL = [
+    {"chave": "oportunidades", "rotulo": "Oportunidades", "cor": "sky", "icone": "fa-inbox",
+     "descricao": "Leads e editais identificados", "vazio": "Nenhuma oportunidade triada"},
+    {"chave": "qualificacao", "rotulo": "Qualificação", "cor": "amber", "icone": "fa-magnifying-glass-chart",
+     "descricao": "Análise técnica e viabilidade", "vazio": "Nenhum certame em análise"},
+    {"chave": "proposta", "rotulo": "Proposta Feita", "cor": "indigo", "icone": "fa-paper-plane",
+     "descricao": "Proposta enviada no portal oficial", "vazio": "Nenhuma proposta enviada"},
+    {"chave": "disputa", "rotulo": "Disputa", "cor": "rose", "icone": "fa-gavel",
+     "descricao": "Sala de disputa / lances ao vivo", "vazio": "Nenhuma sessão de lances"},
+    {"chave": "homologado", "rotulo": "Homologado / Ganho", "cor": "emerald", "icone": "fa-trophy",
+     "descricao": "Adjudicado / vencido", "vazio": "Nenhum certame ganho ainda"},
+]
+DEAL_STAGES = [e["chave"] for e in ETAPAS_FUNIL]
+DEAL_STAGE_LABELS = {e["chave"]: e["rotulo"] for e in ETAPAS_FUNIL}
+# Etapas antigas (até out/2026) e o equivalente atual: migradas no boot e aceitas pela API
+ETAPAS_LEGADAS = {"classificacao": "homologado", "contrato": "homologado"}
+
+
+def normalizar_etapa(etapa: Optional[str]) -> Optional[str]:
+    """Chave atual da etapa (aceita as antigas); None se não for uma etapa conhecida."""
+    chave = (etapa or "").strip().lower()
+    chave = ETAPAS_LEGADAS.get(chave, chave)
+    return chave if chave in DEAL_STAGES else None
 
 class Deal(Base):
     __tablename__ = "deals"
@@ -390,7 +406,7 @@ class Deal(Base):
     # Dono do negócio (multitenancy): cada usuário só enxerga o próprio funil.
     # NULL = negócio legado criado antes do isolamento por usuário (não aparece para ninguém).
     user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
-    stage = Column(String(50), default="oportunidades", nullable=False, index=True) # oportunidades, qualificacao, disputa, classificacao, contrato
+    stage = Column(String(50), default="oportunidades", nullable=False, index=True) # oportunidades, qualificacao, proposta, disputa, homologado
     notes = Column(Text, nullable=True)
     # Itens do certame que a empresa decidiu disputar (lista de dicts com item_number, description, ...).
     # None = nenhuma seleção feita (o negócio vale para o certame inteiro).

@@ -52,6 +52,9 @@ FastAPI + Jinja2 + SQLAlchemy (SQLite em desenvolvimento, PostgreSQL em produç�
 - **Ambiente de produção, sem dados fictícios.** Nenhum certame, conta, negócio, evento, lote de
   disputa ou concorrente pode ser inventado. Sem resposta da API oficial, a coleta não insere nada.
   Dados de exemplo existem apenas na suíte de testes (`seed_dados_de_teste`, `tests/pncp_simulado.py`).
+- **Etapas do funil** (`ETAPAS_FUNIL` em server/models.py, fonte única do Kanban e do painel): Oportunidades,
+  Qualificação, Proposta Feita (`proposta`), Disputa e Homologado / Ganho (`homologado`). As antigas
+  `classificacao`/`contrato` são migradas no boot para `homologado` e ainda aceitas pela API (`normalizar_etapa`).
 - **Catálogo global, acompanhamento privado.** Editais sincronizados são compartilhados por todas as
   contas. Negócios (funil), Favoritos, Agenda, Alertas, Cofre de Documentos, logs de webhooks e lotes da Sala de Disputa
   são isolados por usuário (`user_id` / `owner_id`).

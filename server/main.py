@@ -31,7 +31,7 @@ from server.models import (
     User, Source, Tender, TenderItem, TenderDocument,
     Favorite, UserNote, SavedSearch, Alert, AlertDelivery,
     TenderChange, DocumentExtraction, AIAnalysis, SearchHistory,
-    WebhookDispatchLog, Deal, DEAL_STAGES, DEAL_STAGE_LABELS,
+    WebhookDispatchLog, Deal, DEAL_STAGES, DEAL_STAGE_LABELS, ETAPAS_FUNIL, normalizar_etapa,
     LegalDocumentTemplate, SupplierProspect, generate_uuid, PasswordResetToken,
     DocumentoEmpresa, DOCUMENTO_CATEGORIAS, DOCUMENTO_DIAS_ALERTA, hoje_sao_paulo, PLANOS,
     MENSAGEM_ACESSO_EXPIRADO, MENSAGEM_ACESSO_SUSPENSO
@@ -262,6 +262,7 @@ def formatar_brl(valor: Any) -> str:
 
 templates.env.filters["brl"] = formatar_brl
 templates.env.globals["UFS_BRASIL"] = UFS_BRASIL
+templates.env.globals["ETAPAS_FUNIL"] = ETAPAS_FUNIL
 templates.env.globals["NATUREZAS_FILTRO"] = NATUREZAS_FILTRO
 templates.env.globals["ESFERAS_FILTRO"] = ESFERAS_FILTRO
 templates.env.globals["BENEFICIOS_FILTRO"] = BENEFICIOS_FILTRO
@@ -767,7 +768,7 @@ def page_negocios(
     deals = _deals_do_usuario(db, user).order_by(Deal.updated_at.desc()).all()
     grouped = {stage: [] for stage in DEAL_STAGES}
     for d in deals:
-        stage_key = d.stage if d.stage in grouped else "oportunidades"
+        stage_key = normalizar_etapa(d.stage) or "oportunidades"
         grouped[stage_key].append(serialize_deal(d))
 
     counts = {stage: len(items) for stage, items in grouped.items()}
@@ -2200,8 +2201,7 @@ async def api_create_deal(
     if not target_tender_id:
         raise HTTPException(status_code=422, detail="tender_id é obrigatório.")
 
-    if target_stage not in DEAL_STAGES:
-        target_stage = "oportunidades"
+    target_stage = normalizar_etapa(target_stage) or "oportunidades"
 
     tender = db.query(Tender).filter(
         (Tender.id == str(target_tender_id)) | (Tender.external_id == str(target_tender_id))
@@ -2266,8 +2266,8 @@ def api_get_deals(
 ):
     """Lista os negócios do funil do usuário autenticado, agrupados por estágio."""
     query = _deals_do_usuario(db, user).order_by(Deal.updated_at.desc())
-    if stage and stage in DEAL_STAGES:
-        query = query.filter(Deal.stage == stage)
+    if normalizar_etapa(stage):
+        query = query.filter(Deal.stage == normalizar_etapa(stage))
 
     deals = query.all()
     grouped: Dict[str, List[Dict[str, Any]]] = {s: [] for s in DEAL_STAGES}
@@ -2275,16 +2275,13 @@ def api_get_deals(
 
     for d in deals:
         serialized = serialize_deal(d)
-        stage_key = d.stage if d.stage in grouped else "oportunidades"
+        stage_key = normalizar_etapa(d.stage) or "oportunidades"
         grouped[stage_key].append(serialized)
         deals_list.append(serialized)
 
     return {
-        "oportunidades": grouped["oportunidades"],
-        "qualificacao": grouped["qualificacao"],
-        "disputa": grouped["disputa"],
-        "classificacao": grouped["classificacao"],
-        "contrato": grouped["contrato"],
+        **{s: grouped[s] for s in DEAL_STAGES},
+        "stages": [{"key": e["chave"], "label": e["rotulo"]} for e in ETAPAS_FUNIL],
         "grouped": grouped,
         "deals": deals_list,
         "total": len(deals),
@@ -2313,7 +2310,8 @@ async def api_update_deal_stage(
     except Exception:
         pass
 
-    if not target_stage or target_stage not in DEAL_STAGES:
+    target_stage = normalizar_etapa(target_stage)
+    if not target_stage:
         raise HTTPException(
             status_code=400,
             detail=f"Estágio inválido. Opções permitidas: {', '.join(DEAL_STAGES)}"
