@@ -269,6 +269,7 @@ def sync_procurement_opportunities(
             t.external_id: t
             for t in db.query(Tender).filter(Tender.external_id.in_([o["external_id"] for o in lote]))
         }
+        novos_da_pagina: List[Tender] = []
         for opp in lote:
             ext_id = opp["external_id"]
             existing = existentes.get(ext_id)
@@ -342,11 +343,13 @@ def sync_procurement_opportunities(
                     created_at=now,
                     last_synced_at=now
                 )
-                db.add(new_tender)
-                db.flush()
                 # Os itens reais são obtidos do endpoint /itens do PNCP sob demanda (pncp_compras.sincronizar_itens)
-                new_tenders.append(new_tender)
+                novos_da_pagina.append(new_tender)
                 novos_inseridos += 1
+        # Insert em lote: um único flush por página (no PostgreSQL, INSERT multi-linha), em vez de
+        # uma ida ao banco por edital, o que pesa num banco remoto como o Supabase.
+        db.add_all(novos_da_pagina)
+        new_tenders.extend(novos_da_pagina)
         if dry_run:
             db.flush()
         else:

@@ -16,5 +16,6 @@ pytest
 pytest-asyncio
 requests
 pypdf
-psycopg2-binary
+psycopg[binary]>=3.1.18
+psycopg2-binary>=2.9.9
 tzdata

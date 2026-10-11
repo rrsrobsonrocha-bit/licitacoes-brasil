@@ -120,7 +120,7 @@
       btn.innerHTML = '<span>Criar Minha Conta</span> <i class="fa-solid fa-arrow-right text-xs"></i>';
 
       if (resp.ok) {
-        AppSession.setSession(data.access_token, data.user, false);
+        AppSession.setSession(data.access_token, data.user, true);
         showToast('Conta criada com sucesso! Bem-vindo!', 'success');
         setTimeout(() => window.location.href = '/dashboard', 800);
       } else {

@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 from pydantic import BaseModel
+import hashlib
 from typing import List
 
 # Auto-load .env if present
@@ -20,6 +21,28 @@ if _env_path.exists():
     except Exception:
         pass
 
+SEGREDO_DESENVOLVIMENTO = "f3a5e82b7d91c04f9812e345a98b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b"
+
+
+def segredo_de_assinatura() -> str:
+    """
+    Chave dos JWT de sessão, sempre constante entre boots (nunca aleatória em memória: isso
+    derrubaria todas as sessões a cada deploy ou cold start). Ordem: AUTH_SECRET, SECRET_KEY;
+    sem nenhuma, deriva de forma estável da DATABASE_URL de produção (privada, ao contrário de
+    uma constante do repositório); em desenvolvimento (SQLite), uma chave fixa local.
+    """
+    for nome in ("AUTH_SECRET", "SECRET_KEY"):
+        valor = (os.getenv(nome) or "").strip()
+        if valor:
+            return valor
+    banco = (os.getenv("DATABASE_URL") or "").strip()
+    if banco and not banco.startswith("sqlite"):
+        print("[CONFIG] AUTH_SECRET/SECRET_KEY ausente: chave de sessão derivada da DATABASE_URL. "
+              "Defina AUTH_SECRET no ambiente.")
+        return hashlib.sha256(f"licitacoes-brasil:sessao:{banco}".encode("utf-8")).hexdigest()
+    return SEGREDO_DESENVOLVIMENTO
+
+
 class Settings(BaseModel):
     PROJECT_NAME: str = "Licitações Brasil"
     VERSION: str = "1.0.0"
@@ -29,9 +52,10 @@ class Settings(BaseModel):
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./dev_licitacoes.db")
     
     # Auth
-    AUTH_SECRET: str = os.getenv("AUTH_SECRET", "f3a5e82b7d91c04f9812e345a98b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b")
+    AUTH_SECRET: str = segredo_de_assinatura()
     JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))
+    # Sessão padrão de 30 dias (cookie persistente): o usuário não é deslogado ao fechar o navegador
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "43200"))
     
     # AI Engine
     AI_PROVIDER: str = os.getenv("AI_PROVIDER", "GEMINI")

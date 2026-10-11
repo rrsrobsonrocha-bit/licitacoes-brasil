@@ -86,7 +86,7 @@ def test_login_sessao_padrao_e_manter_conectado(usuario_temporario):
     assert curto.status_code == 200
     dados = curto.json()
     assert dados["remember_me"] is False
-    assert dados["expires_in"] == settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+    assert dados["expires_in"] == settings.REMEMBER_ME_DAYS * 86400  # sessão longa mesmo sem a opção
     payload = decode_access_token(dados["access_token"])
     assert payload["pwv"] and payload["rmb"] is False
 

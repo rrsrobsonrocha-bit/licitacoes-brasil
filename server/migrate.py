@@ -510,13 +510,21 @@ def _backfill_links_canonicos() -> None:
         logger.info("Migração: %s licitações atualizadas com links canônicos do PNCP e disputa.", updated_count)
 
 
+def criar_esquema() -> None:
+    """Cria (no schema padrão, "public" no PostgreSQL) todas as tabelas dos modelos que faltarem."""
+    import server.models  # noqa: F401  registra os modelos em Base.metadata
+    from server.database import Base
+    Base.metadata.create_all(bind=engine)
+
+
 def run_db_migrations():
     """
     Executa migrações automáticas no banco SQLite/PostgreSQL garantindo que todas as
-    colunas, tabelas e índices existam. Seguro para execução repetida (idempotente).
+    colunas, tabelas e índices existam. Seguro para execução repetida (idempotente);
+    num banco vazio (ex.: Supabase recém-criado) cria o esquema completo.
     """
+    criar_esquema()
     if "tenders" not in _tabelas_existentes():
-        # Banco ainda sem esquema: Base.metadata.create_all (server/main.py) cria tudo.
         return
 
     from server.models import DocumentoEmpresa, HistoricoDisputa, PasswordResetToken, SyncProgresso
@@ -567,4 +575,4 @@ def run_db_migrations():
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     run_db_migrations()
-    print("Migrações executadas com sucesso.")
+    print(f"Migrações executadas com sucesso ({engine.dialect.name}): {len(_tabelas_existentes())} tabelas.")

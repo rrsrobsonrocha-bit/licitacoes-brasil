@@ -360,14 +360,20 @@ def _requisicao_https(request: Request) -> bool:
     return request.url.scheme == "https" or request.headers.get("x-forwarded-proto", "").lower() == "https"
 
 
+def _ambiente_de_producao() -> bool:
+    return bool(os.getenv("RENDER")) or os.getenv("ENVIRONMENT", "").lower() in ("production", "producao")
+
+
 def _gravar_cookie_sessao(response: Response, request: Request, token: str, remember_me: bool, expires_in: Optional[int]) -> None:
+    # Cookie persistente com a validade do JWT (30 dias por padrão): sobrevive ao fechamento do
+    # navegador, a deploys e a cold starts do servidor.
     response.set_cookie(
         SESSION_COOKIE,
         token,
-        max_age=expires_in if remember_me and expires_in else None,  # sem "Manter conectado": cookie de sessão
+        max_age=expires_in or settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         httponly=True,
         samesite="lax",
-        secure=_requisicao_https(request),
+        secure=_ambiente_de_producao() or _requisicao_https(request),
         path="/",
     )
 
@@ -1400,11 +1406,12 @@ def _assinatura_inicial() -> Dict[str, Any]:
 
 
 def _emitir_sessao(user: User, remember_me: bool = False) -> TokenResponse:
-    """Emite o JWT da sessão: curta por padrão, estendida com "Manter conectado"."""
-    if remember_me:
-        validade = timedelta(days=settings.REMEMBER_ME_DAYS)
-    else:
-        validade = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    """
+    Emite o JWT da sessão com validade longa (REMEMBER_ME_DAYS, 30 dias): o usuário não é deslogado
+    por fechar o navegador nem por reinícios do servidor. "Manter conectado" só decide se o
+    navegador guarda o token no localStorage ou no sessionStorage.
+    """
+    validade = timedelta(days=max(1, settings.REMEMBER_ME_DAYS))
     token = create_access_token(
         {
             "sub": user.id,
