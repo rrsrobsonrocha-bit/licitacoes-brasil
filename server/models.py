@@ -386,7 +386,7 @@ class Deal(Base):
     __tablename__ = "deals"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    tender_id = Column(Integer, ForeignKey("tenders.id", ondelete="CASCADE"), nullable=False, index=True)
+    tender_id = Column(String(36), ForeignKey("tenders.id", ondelete="CASCADE"), nullable=False, index=True)
     # Dono do negócio (multitenancy): cada usuário só enxerga o próprio funil.
     # NULL = negócio legado criado antes do isolamento por usuário (não aparece para ninguém).
     user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)

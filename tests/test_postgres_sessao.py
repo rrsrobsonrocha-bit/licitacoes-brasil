@@ -123,3 +123,29 @@ def test_migracao_cria_o_esquema_completo_em_banco_vazio(tmp_path, monkeypatch):
     assert {"tenders", "users", "favorites", "deals", "alerts", "sync_progresso"} <= tabelas
     migrate.run_db_migrations()  # idempotente
     motor.dispose()
+
+
+def test_chaves_estrangeiras_tem_o_mesmo_tipo_da_coluna_referenciada():
+    """No PostgreSQL, FK entre tipos diferentes derruba o CREATE TABLE (ex.: deals.tender_id INTEGER)."""
+    from sqlalchemy.dialects import postgresql
+    from sqlalchemy.schema import CreateTable
+
+    import server.models  # noqa: F401
+    from server.database import Base
+
+    dialeto = postgresql.dialect()
+    divergentes = []
+    for tabela in Base.metadata.sorted_tables:
+        CreateTable(tabela).compile(dialect=dialeto)  # DDL do PostgreSQL compila para todas as tabelas
+        for fk in tabela.foreign_keys:
+            origem = fk.parent.type.compile(dialect=dialeto)
+            destino = fk.column.type.compile(dialect=dialeto)
+            if origem != destino:
+                divergentes.append(f"{tabela.name}.{fk.parent.name} {origem} -> {fk.target_fullname} {destino}")
+    assert divergentes == []
+
+
+def test_deals_tender_id_e_varchar_como_tenders_id():
+    from server.models import Deal, Tender
+
+    assert str(Deal.__table__.c.tender_id.type) == str(Tender.__table__.c.id.type) == "VARCHAR(36)"

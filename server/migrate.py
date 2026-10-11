@@ -142,6 +142,22 @@ def _adicionar_colunas(colunas: Iterable[Tuple[str, str, str]]) -> None:
             cache[tabela].add(coluna)
 
 
+def _alinhar_deals_tender_id() -> None:
+    """
+    deals.tender_id nasceu INTEGER, mas tenders.id é VARCHAR(36) (UUID). No PostgreSQL a FK
+    não pode existir entre tipos diferentes; num banco legado já criado, converte a coluna.
+    (No SQLite a afinidade de tipo já guardava o UUID como texto: nada a fazer.)
+    """
+    if engine.dialect.name != "postgresql" or "deals" not in _tabelas_existentes():
+        return
+    tipo = next((c["type"] for c in inspect(engine).get_columns("deals") if c["name"] == "tender_id"), None)
+    if tipo is None or "INT" not in str(tipo).upper():
+        return
+    logger.info("Migração: convertendo deals.tender_id para VARCHAR(36)")
+    _executar_ddl("ALTER TABLE deals ALTER COLUMN tender_id TYPE VARCHAR(36) USING tender_id::text",
+                  "tipo de deals.tender_id")
+
+
 def _criar_indice(nome: str, tabela: str, colunas: str) -> None:
     _executar_ddl(f"CREATE INDEX IF NOT EXISTS {nome} ON {tabela} ({colunas})", f"índice {nome}")
 
@@ -534,6 +550,7 @@ def run_db_migrations():
     _adicionar_colunas(COLUNAS_TENDERS)
     _adicionar_colunas(COLUNAS_ITENS_DOCUMENTOS)
     _adicionar_colunas(COLUNAS_DEALS)
+    _alinhar_deals_tender_id()
     _adicionar_colunas(COLUNAS_USERS)
 
     # 1.1 Dados de demonstração antigos e registros órfãos (ordem importa: demos saem antes da atribuição)
