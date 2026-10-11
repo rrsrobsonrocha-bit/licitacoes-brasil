@@ -22,6 +22,7 @@ os.environ["ADMIN_EMAIL"] = ""
 os.environ["AUTO_SYNC_ENABLED"] = "false"
 # Sem rede na suíte: sem espera entre consultas nem novas tentativas ao PNCP
 os.environ["PNCP_RATE_LIMIT_PER_MINUTE"] = "0"
+os.environ["PNCP_ITENS_RATE_LIMIT_PER_MINUTE"] = "0"
 os.environ["PNCP_MAX_RETRIES"] = "0"
 # Toda a suíte usa o mesmo "IP" do TestClient: o limite por IP da API (testado à parte em
 # test_security.py) não pode barrar os testes conforme a suíte cresce

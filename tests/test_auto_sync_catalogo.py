@@ -155,34 +155,7 @@ def test_api_indisponivel_nao_insere_nem_apaga_nada():
     assert _contar() == antes  # catálogo permanente: nada é removido
 
 
-def test_decisao_de_warmup(monkeypatch):
-    monkeypatch.setattr(auto_sync, "em_producao", lambda: False)
-    monkeypatch.setattr(settings, "AUTO_SYNC_MIN_VIGENTES", 10 ** 9)
-    assert auto_sync.precisa_warmup(no_arranque=False) is True  # poucos vigentes
-
-    monkeypatch.setattr(settings, "AUTO_SYNC_MIN_VIGENTES", 0)
-    assert auto_sync.precisa_warmup(no_arranque=True) is False  # dev com acervo suficiente
-
-    monkeypatch.setattr(auto_sync, "em_producao", lambda: True)
-    assert auto_sync.precisa_warmup(no_arranque=True) is True  # todo arranque em produção
-    assert auto_sync.precisa_warmup(no_arranque=False) is False
-
-
-def test_loop_dispara_warmup_no_arranque_sem_acao_do_usuario(monkeypatch):
-    warmup = MagicMock(return_value={"tipo": "warmup"})
-    atualizacao = MagicMock(return_value={"tipo": "atualizacao"})
-    monkeypatch.setattr(auto_sync, "executar_warmup", warmup)
-    monkeypatch.setattr(auto_sync, "executar_atualizacao", atualizacao)
-    monkeypatch.setattr(auto_sync, "precisa_warmup", lambda no_arranque: no_arranque)
-
-    async def _rodar():
-        with pytest.raises(asyncio.TimeoutError):
-            await asyncio.wait_for(auto_sync.loop_sincronizacao_automatica(atraso_inicial=0), timeout=1)
-
-    asyncio.run(_rodar())
-    warmup.assert_called_once()
-    atualizacao.assert_not_called()
-    assert auto_sync.estado["proxima_execucao"]
+# Agendamento (boot em repouso, rotina diurna de 24 h e consolidação noturna): tests/test_agendamento_hibrido.py
 
 
 def test_status_da_sincronizacao_e_publico():

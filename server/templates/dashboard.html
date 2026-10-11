@@ -25,11 +25,11 @@
         </div>
 
         <div class="flex items-center gap-2.5">
-          <span id="auto-sync-status" class="hidden sm:flex items-center gap-1.5 text-[11px] text-slate-400" title="O catálogo também é atualizado automaticamente a partir da API oficial do PNCP">
+          <span id="auto-sync-status" class="hidden sm:flex items-center gap-1.5 text-[11px] text-slate-400" title="Catálogo atualizado automaticamente pela API oficial do PNCP">
             <span id="auto-sync-dot" class="inline-flex rounded-full h-2 w-2 bg-emerald-400"></span>
             <span id="auto-sync-label">Atualização automática ativa</span>
           </span>
-          <button type="button" onclick="sincronizarAgora()" id="btn-dash-sync" class="bg-slate-800 hover:bg-slate-700 disabled:opacity-70 disabled:cursor-wait text-slate-200 border border-slate-700 font-medium px-3.5 py-2 rounded-xl text-xs transition flex items-center gap-2 cursor-pointer shadow-sm">
+          <button type="button" onclick="sincronizarAgora()" id="btn-dash-sync" title="Coleta as publicações das últimas 24 h no PNCP" class="bg-slate-800 hover:bg-slate-700 disabled:opacity-70 disabled:cursor-wait text-slate-200 border border-slate-700 font-medium px-3.5 py-2 rounded-xl text-xs transition flex items-center gap-2 cursor-pointer shadow-sm">
             <i class="fa-solid fa-arrows-rotate text-emerald-400" id="dash-sync-icon"></i>
             <span id="dash-sync-label">Sincronizar agora</span>
           </button>
@@ -626,14 +626,21 @@
   async function atualizarStatusSync() {
     const label = document.getElementById('auto-sync-label');
     const dot = document.getElementById('auto-sync-dot');
+    const caixa = document.getElementById('auto-sync-status');
     try {
       const resp = await fetch('/api/sync/status');
       if (!resp.ok) return;
       const st = await resp.json();
+      // Texto pronto no servidor (horário de Brasília): repouso, coleta diurna ou consolidação noturna
+      if (label && st.rotulo) label.textContent = st.rotulo;
+      if (caixa) caixa.title = st.em_execucao ? textoProgresso(st.progresso) : `Consolidação noturna diária: ${st.janela_noturna || '02:00-04:00'}`;
+      if (dot) {
+        dot.classList.toggle('animate-pulse', !!st.em_execucao);
+        dot.classList.toggle('bg-indigo-400', st.em_execucao === 'noturna');
+        dot.classList.toggle('bg-emerald-400', st.em_execucao !== 'noturna');
+      }
       if (st.em_execucao) {
         estadoBotaoSync(true, 'Sincronizando…');
-        if (label) label.textContent = textoProgresso(st.progresso);
-        if (dot) dot.classList.add('animate-pulse');
         if (!acompanhamentoSync) acompanhamentoSync = setInterval(atualizarStatusSync, 4000);
         loadDashboardData();
       } else {
@@ -643,11 +650,6 @@
           loadDashboardData();
         }
         estadoBotaoSync(false, 'Sincronizar agora');
-        if (dot) dot.classList.remove('animate-pulse');
-        if (label && st.ultima_execucao) {
-          const quando = new Date(st.ultima_execucao + 'Z');
-          label.textContent = `Atualizado às ${quando.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
-        }
       }
     } catch (e) {
       /* indicador opcional: mantém o estado atual */
@@ -682,6 +684,7 @@
   document.addEventListener('DOMContentLoaded', () => {
     loadDashboardData();
     atualizarStatusSync();
+    setInterval(() => { if (!acompanhamentoSync) atualizarStatusSync(); }, 60000);  // percebe rotinas agendadas
   });
 </script>
 <script>

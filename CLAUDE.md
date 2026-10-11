@@ -13,7 +13,9 @@ FastAPI + Jinja2 + SQLAlchemy (SQLite em desenvolvimento, PostgreSQL em produç�
 - `server/main.py`: rotas HTML e API.
 - `server/models.py`, `server/migrate.py`: modelos e migrações idempotentes, executadas no boot.
 - `server/integrations/opportunity_collector.py`, `server/services/portal_collector.py`: coleta na API oficial do PNCP.
-- `server/services/auto_sync.py`: auto-warmup dos últimos 15 dias e atualização periódica do catálogo (sem clique do usuário).
+- `server/services/auto_sync.py`: agendador híbrido do catálogo (horário de Brasília). O boot fica em repouso
+  (nunca varre 15 dias); de dia, a cada 2 h, só as últimas 24 h + itens dos editais novos (o botão
+  "Sincronizar agora" faz o mesmo); das 02h às 04h, consolidação dos últimos 15 dias + fila de itens ME/EPP.
 - `server/templates/partials_tender_drawer.html` + `GET /api/tenders/{id}/drawer`: drawer lateral de detalhes
   (busca e painel) com itens e anexos oficiais do PNCP e realce dos termos pesquisados.
 - `server/services/minutas.py` + `/api/minutas`: declarações e proposta readequada (Lei 14.133/2021) em DOCX.

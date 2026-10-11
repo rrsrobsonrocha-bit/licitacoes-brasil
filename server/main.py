@@ -3710,7 +3710,7 @@ def _start_background_task(coro):
 
 @app.on_event("startup")
 async def iniciar_sincronizacao_automatica():
-    # Coleta os últimos 15 dias no arranque e atualiza periodicamente, sem clique de nenhum usuário
+    # Agendador híbrido: o arranque fica em repouso; rotinas diurnas (24 h) e consolidação noturna
     if settings.AUTO_SYNC_ENABLED:
         _start_background_task(auto_sync.loop_sincronizacao_automatica())
 
@@ -3720,8 +3720,8 @@ def api_sync_run(user: User = Depends(require_auth)):
     iniciada = auto_sync.disparar_em_background()
     return {
         "iniciada": iniciada,
-        "mensagem": "Sincronização iniciada." if iniciada else "Já existe uma sincronização em andamento.",
-        **auto_sync.estado,
+        "mensagem": "Coleta das últimas 24 h iniciada." if iniciada else "Já existe uma sincronização em andamento.",
+        **{k: v for k, v in auto_sync.estado.items() if k != "ultima_diurna"},
     }
 
 @app.get("/api/sync/status")
@@ -3733,7 +3733,8 @@ def api_sync_status(db: Session = Depends(get_db)):
         "dias_warmup": settings.AUTO_SYNC_DIAS,
         "total_editais": db.query(func.count(Tender.id)).scalar() or 0,
         "editais_vigentes": db.query(func.count(Tender.id)).filter(filtro_vigentes()).scalar() or 0,
-        **auto_sync.estado,
+        **{k: v for k, v in auto_sync.estado.items() if k != "ultima_diurna"},
+        **auto_sync.situacao_para_exibicao(),
     }
 
 # ==========================================================

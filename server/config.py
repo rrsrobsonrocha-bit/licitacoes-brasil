@@ -94,16 +94,21 @@ class Settings(BaseModel):
     # Limpeza automática das contas/certames de demonstração antigos na migração (desligada só na suíte de testes)
     REMOVER_DADOS_DEMONSTRACAO: bool = os.getenv("REMOVER_DADOS_DEMONSTRACAO", "true").lower() in ("1", "true", "yes")
 
-    # Abastecimento contínuo do catálogo global a partir da API oficial do PNCP (sem clique do usuário):
-    # no arranque coleta os últimos AUTO_SYNC_DIAS (sempre em produção, ou com menos de
-    # AUTO_SYNC_MIN_VIGENTES editais vigentes) e depois atualiza a cada AUTO_SYNC_INTERVALO_MINUTOS.
+    # Abastecimento do catálogo global pela API oficial do PNCP, em horário de Brasília (ver auto_sync.py):
+    # o arranque não coleta; de dia, a cada AUTO_SYNC_INTERVALO_MINUTOS, só as últimas 24 h + itens dos
+    # editais novos; na janela noturna, consolidação dos últimos AUTO_SYNC_DIAS + fila de itens ME/EPP.
     AUTO_SYNC_ENABLED: bool = os.getenv("AUTO_SYNC_ENABLED", "true").lower() in ("1", "true", "yes")
     AUTO_SYNC_DIAS: int = int(os.getenv("AUTO_SYNC_DIAS", "15"))
-    AUTO_SYNC_MIN_VIGENTES: int = int(os.getenv("AUTO_SYNC_MIN_VIGENTES", "500"))
-    AUTO_SYNC_INTERVALO_MINUTOS: int = int(os.getenv("AUTO_SYNC_INTERVALO_MINUTOS", "60"))
+    AUTO_SYNC_INTERVALO_MINUTOS: int = int(os.getenv("AUTO_SYNC_INTERVALO_MINUTOS", "120"))
+    AUTO_SYNC_NOITE_INICIO: str = os.getenv("AUTO_SYNC_NOITE_INICIO", "02:00")
+    AUTO_SYNC_NOITE_FIM: str = os.getenv("AUTO_SYNC_NOITE_FIM", "04:00")
+    # Após um deploy/reinício o servidor fica em repouso: a primeira coleta diurna espera ao menos isto
+    AUTO_SYNC_REPOUSO_ARRANQUE_MINUTOS: int = int(os.getenv("AUTO_SYNC_REPOUSO_ARRANQUE_MINUTOS", "15"))
     AUTO_SYNC_PAGINAS_POR_DIA: int = int(os.getenv("AUTO_SYNC_PAGINAS_POR_DIA", "300"))
-    # Itens oficiais lidos por ciclo (editais vigentes ainda não analisados): base do filtro ME/EPP
-    AUTO_SYNC_ITENS_POR_CICLO: int = int(os.getenv("AUTO_SYNC_ITENS_POR_CICLO", "40"))
+    # Teto de itens lidos na rotina diurna (editais novos); a fila completa roda à noite
+    AUTO_SYNC_ITENS_DIURNO_MAX: int = int(os.getenv("AUTO_SYNC_ITENS_DIURNO_MAX", "500"))
+    # Ritmo da leitura de itens (API de integração do PNCP, separada da API de consulta); 0 = sem espera
+    PNCP_ITENS_RATE_LIMIT_PER_MINUTE: int = int(os.getenv("PNCP_ITENS_RATE_LIMIT_PER_MINUTE", "12"))
 
     # PNCP — API de integração (itens e arquivos das compras)
     PNCP_INTEGRACAO_BASE_URL: str = os.getenv("PNCP_INTEGRACAO_BASE_URL", "https://pncp.gov.br/api/pncp/v1").rstrip("/")
