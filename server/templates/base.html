@@ -38,7 +38,7 @@
     .safe-area-bottom { padding-bottom: max(0.5rem, env(safe-area-inset-bottom)); }
   </style>
 </head>
-<body class="flex flex-col min-h-full text-slate-800 antialiased font-sans">
+<body class="flex flex-col min-h-full text-slate-800 antialiased font-sans" data-requires-login="{{ 'true' if requires_login else 'false' }}">
   
   <!-- Top Navigation Header -->
   <header class="bg-brand-900 text-white shadow-md sticky top-0 z-50">
@@ -471,6 +471,7 @@
           const destino = manterConectado ? localStorage : sessionStorage;
           destino.setItem('token', token);
           destino.setItem('user', JSON.stringify(user));
+          sessionStorage.setItem('lb_cookie_sync', token.slice(-16));  // login/cadastro já gravam o cookie
         } catch {
           showToast('Seu navegador bloqueou o armazenamento local; a sessão não será mantida.', 'error');
         }
@@ -478,7 +479,27 @@
       },
       clear: () => {
         AppSession._limparArmazenamento();
+        try { sessionStorage.removeItem('lb_cookie_sync'); } catch {}
+        // Remove também o cookie HttpOnly usado pelas páginas renderizadas no servidor
+        fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin', keepalive: true }).catch(() => {});
         AppSession.refreshUI();
+      },
+      // Sessões abertas antes do cookie de sessão existir: grava o cookie a partir do token salvo
+      // e recarrega uma vez as páginas privadas para exibir os dados da conta.
+      syncCookie: async () => {
+        const token = AppSession.getToken();
+        if (!token) return;
+        try { if (sessionStorage.getItem('lb_cookie_sync') === token.slice(-16)) return; } catch { return; }
+        try {
+          const resp = await fetch('/api/auth/session', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (!resp.ok) return;
+          sessionStorage.setItem('lb_cookie_sync', token.slice(-16));
+          if (document.body && document.body.dataset.requiresLogin === 'true') window.location.reload();
+        } catch {}
       },
       refreshUI: () => {
         const user = AppSession.getUser();
@@ -637,6 +658,7 @@
 
     document.addEventListener('DOMContentLoaded', () => {
       AppSession.refreshUI();
+      AppSession.syncCookie();
       refreshAlertBadge();
       document.querySelectorAll('[data-toggle-password]').forEach(botao => {
         botao.addEventListener('click', () => alternarVisibilidadeSenha(botao));

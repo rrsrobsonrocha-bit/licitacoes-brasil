@@ -8,7 +8,7 @@ import logging
 from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
 from typing import Optional, List, Dict, Any, Union
-from fastapi import FastAPI, Depends, HTTPException, status, Query, Request, Body, Form, File, UploadFile
+from fastapi import FastAPI, Depends, HTTPException, status, Query, Request, Response, Body, Form, File, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -17,7 +17,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
-from sqlalchemy import func, text
+from sqlalchemy import false, func, text
 from pydantic import BaseModel, Field
 
 # Garantir importações locais
@@ -52,6 +52,7 @@ from server.security import (
     tentativas_recentes, registrar_tentativa, limpar_tentativas
 )
 from server.search_engine import (
+    filtro_vigentes,
     search_tenders, CATEGORIES, UFS_BRASIL, NATUREZAS_FILTRO, normalizar_natureza, normalizar_uf
 )
 from server.ai_engine import analyze_tender_document_with_ai
@@ -261,12 +262,39 @@ async def security_and_rate_limit_middleware(request: Request, call_next):
     response.headers["X-XSS-Protection"] = "1; mode=block"
     return response
 
-# Dependency: Obter Usuário Atual via JWT
+# Cookie HttpOnly com o mesmo JWT da sessão: permite que páginas renderizadas no servidor
+# (/negocios, /agenda, /dashboard) saibam quem é o usuário numa navegação comum.
+SESSION_COOKIE = "lb_session"
+
+
+def _token_da_requisicao(request: Request) -> Optional[str]:
+    auth_header = request.headers.get("Authorization") or ""
+    if auth_header.startswith("Bearer ") and len(auth_header) > 7:
+        return auth_header.split(" ", 1)[1].strip() or None
+    return request.cookies.get(SESSION_COOKIE) or None
+
+
+def _requisicao_https(request: Request) -> bool:
+    return request.url.scheme == "https" or request.headers.get("x-forwarded-proto", "").lower() == "https"
+
+
+def _gravar_cookie_sessao(response: Response, request: Request, token: str, remember_me: bool, expires_in: Optional[int]) -> None:
+    response.set_cookie(
+        SESSION_COOKIE,
+        token,
+        max_age=expires_in if remember_me and expires_in else None,  # sem "Manter conectado": cookie de sessão
+        httponly=True,
+        samesite="lax",
+        secure=_requisicao_https(request),
+        path="/",
+    )
+
+
+# Dependency: Obter Usuário Atual via JWT (cabeçalho Authorization ou cookie de sessão)
 def get_current_user(request: Request, db: Session = Depends(get_db)) -> Optional[User]:
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
+    token = _token_da_requisicao(request)
+    if not token:
         return None
-    token = auth_header.split(" ")[1]
     payload = decode_access_token(token)
     if not payload or "sub" not in payload:
         return None
@@ -390,6 +418,7 @@ def page_search(
     value_max: Optional[str] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
+    vigentes: Optional[bool] = None,
     sort_by: str = "relevance",
     page: int = 1,
     page_size: Optional[int] = None,
@@ -416,6 +445,7 @@ def page_search(
         value_max=clean_float_param(value_max),
         date_from=date_from,
         date_to=date_to,
+        vigentes=vigentes,
         sort_by=sort_by,
         page=page,
         page_size=effective_size,
@@ -424,11 +454,13 @@ def page_search(
     user = get_current_user(request, db)
     results = search_tenders(db, params, user_id=user.id if user else None)
     total_db_tenders = db.query(Tender).count()
+    total_vigentes = db.query(func.count(Tender.id)).filter(filtro_vigentes()).scalar() or 0
     return templates.TemplateResponse(request, "search.html", {
         "params": params,
         "results": results,
         "categories": CATEGORIES,
-        "total_db_tenders": total_db_tenders
+        "total_db_tenders": total_db_tenders,
+        "total_vigentes": total_vigentes
     })
 
 @app.get("/tenders/{tender_id}", response_class=HTMLResponse)
@@ -558,6 +590,7 @@ def page_dashboard(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "dashboard.html", {
         "summary": summary,
         "user": user,
+        "requires_login": user is None,
         "hoje_iso": hoje_sao_paulo().isoformat()
     })
 
@@ -606,7 +639,8 @@ def page_negocios(
     view: str = Query("quadros"),
     db: Session = Depends(get_db)
 ):
-    deals = db.query(Deal).order_by(Deal.updated_at.desc()).all()
+    user = get_current_user(request, db)
+    deals = _deals_do_usuario(db, user).order_by(Deal.updated_at.desc()).all()
     grouped = {stage: [] for stage in DEAL_STAGES}
     for d in deals:
         stage_key = d.stage if d.stage in grouped else "oportunidades"
@@ -624,7 +658,9 @@ def page_negocios(
             "stage_labels": DEAL_STAGE_LABELS,
             "grouped_deals": grouped,
             "counts": counts,
-            "total_deals": total_deals
+            "total_deals": total_deals,
+            "user": user,
+            "requires_login": user is None
         }
     )
 
@@ -715,7 +751,8 @@ def page_agenda(
     db: Session = Depends(get_db)
 ):
     now = datetime.now(SP_TZ)
-    deals = db.query(Deal).all()
+    user = get_current_user(request, db)
+    deals = _deals_do_usuario(db, user).all()
 
     events_raw = []
     seen_tenders = set()
@@ -741,30 +778,7 @@ def page_agenda(
                 "sicaf_ready": bool(t.sicaf_ready)
             })
 
-    # Se houver poucos certames em deals com prazos, complementar com licitações gerais com datas
-    if len(events_raw) < 5:
-        tenders_deadlines = db.query(Tender).filter(
-            (Tender.proposal_deadline.isnot(None)) | (Tender.opening_date.isnot(None))
-        ).order_by(Tender.proposal_deadline.asc()).limit(15).all()
-        for t in tenders_deadlines:
-            if t.id in seen_tenders:
-                continue
-            seen_tenders.add(t.id)
-            raw_target = t.opening_date or t.proposal_deadline
-            target_date = to_sp_datetime(raw_target)
-            if target_date:
-                events_raw.append({
-                    "deal_id": None,
-                    "tender_id": t.id,
-                    "title": t.title,
-                    "notice_number": t.notice_number or t.external_id,
-                    "contracting_entity": t.contracting_entity or "Órgão Comprador",
-                    "state": t.state or "BR",
-                    "stage": "oportunidades",
-                    "target_date": target_date,
-                    "estimated_value": t.estimated_total_value,
-                    "sicaf_ready": bool(t.sicaf_ready)
-                })
+    # A agenda mostra somente os prazos dos negócios do próprio usuário (sem eventos genéricos).
 
     critical_events = []
     warning_events = []
@@ -833,7 +847,9 @@ def page_agenda(
             "warning_events": warning_events,
             "upcoming_events": upcoming_events[:20],
             "total_scheduled": len(calendar_events),
-            "calendar_events_json": json.dumps(calendar_events)
+            "calendar_events_json": json.dumps(calendar_events),
+            "user": user,
+            "requires_login": user is None
         }
     )
 
@@ -948,9 +964,9 @@ def api_fornecedores(db: Session = Depends(get_db)):
     }
 
 @app.get("/api/agenda/events")
-def api_agenda_events(db: Session = Depends(get_db)):
+def api_agenda_events(request: Request, db: Session = Depends(get_db)):
     now = datetime.now(SP_TZ)
-    deals = db.query(Deal).all()
+    deals = _deals_do_usuario(db, get_current_user(request, db)).all()
     events = []
     seen = set()
 
@@ -984,43 +1000,6 @@ def api_agenda_events(db: Session = Depends(get_db)):
                 "hours_remaining": hours_remaining,
                 "days_remaining": days_remaining,
                 "stage": d.stage
-            })
-
-    # Complementar se poucos deals com prazos
-    if len(events) < 5:
-        tenders_extra = db.query(Tender).filter(
-            (Tender.proposal_deadline.isnot(None)) | (Tender.opening_date.isnot(None))
-        ).limit(10).all()
-        for t in tenders_extra:
-            if t.id in seen:
-                continue
-            seen.add(t.id)
-            td = to_sp_datetime(t.opening_date or t.proposal_deadline)
-            if not td:
-                continue
-            diff_seconds = (td - now).total_seconds()
-            hours_remaining = diff_seconds / 3600.0
-            days_remaining = (td.date() - now.date()).days
-            if diff_seconds < 0:
-                urgency = "vencido"
-            elif 0 <= hours_remaining <= 24:
-                urgency = "critico"
-            elif days_remaining <= 7:
-                urgency = "alerta"
-            else:
-                urgency = "normal"
-            events.append({
-                "deal_id": None,
-                "tender_id": t.id,
-                "title": t.title,
-                "notice_number": t.notice_number or t.external_id,
-                "contracting_entity": t.contracting_entity,
-                "date": td.isoformat(),
-                "formatted_date": td.strftime("%d/%m/%Y %H:%M"),
-                "urgency": urgency,
-                "hours_remaining": hours_remaining,
-                "days_remaining": days_remaining,
-                "stage": "oportunidades"
             })
 
     return {"status": "success", "events": events, "total": len(events)}
@@ -1290,7 +1269,7 @@ def _ip_cliente(request: Optional[Request]) -> str:
 
 
 @app.post("/api/auth/register", response_model=TokenResponse)
-def api_register(payload: UserRegisterRequest, db: Session = Depends(get_db)):
+def api_register(payload: UserRegisterRequest, request: Request, response: Response, db: Session = Depends(get_db)):
     # Proteção contra enumeração: resposta uniforme
     existing = db.query(User).filter(User.email == payload.email.lower()).first()
     if existing:
@@ -1309,10 +1288,13 @@ def api_register(payload: UserRegisterRequest, db: Session = Depends(get_db)):
     db.add(user)
     db.commit()
     db.refresh(user)
-    return _emitir_sessao(user, remember_me=False)
+    # Conta nova começa com funil, agenda, favoritos e alertas vazios: nada é semeado aqui.
+    sessao = _emitir_sessao(user, remember_me=False)
+    _gravar_cookie_sessao(response, request, sessao.access_token, sessao.remember_me, sessao.expires_in)
+    return sessao
 
 @app.post("/api/auth/login", response_model=TokenResponse)
-def api_login(payload: UserLoginRequest, request: Request, db: Session = Depends(get_db)):
+def api_login(payload: UserLoginRequest, request: Request, response: Response, db: Session = Depends(get_db)):
     email = payload.email.lower().strip()
     chave_falhas = f"login-falhas:{email}"
     # Proteção contra força bruta: bloqueia após 10 senhas erradas para o mesmo e-mail em 15 minutos
@@ -1334,7 +1316,28 @@ def api_login(payload: UserLoginRequest, request: Request, db: Session = Depends
 
     user.last_login_at = datetime.utcnow()
     db.commit()
-    return _emitir_sessao(user, remember_me=payload.remember_me)
+    sessao = _emitir_sessao(user, remember_me=payload.remember_me)
+    _gravar_cookie_sessao(response, request, sessao.access_token, sessao.remember_me, sessao.expires_in)
+    return sessao
+
+
+@app.post("/api/auth/session")
+def api_sync_session_cookie(request: Request, response: Response, user: User = Depends(require_auth)):
+    """
+    Grava o cookie de sessão a partir do token enviado no cabeçalho Authorization
+    (sessões abertas antes da existência do cookie continuam válidas sem novo login).
+    """
+    token = _token_da_requisicao(request)
+    payload = decode_access_token(token) or {}
+    restante = int(payload.get("exp", 0) - datetime.utcnow().timestamp()) if payload.get("exp") else None
+    _gravar_cookie_sessao(response, request, token, bool(payload.get("rmb")), restante)
+    return {"status": "success"}
+
+
+@app.post("/api/auth/logout")
+def api_logout(response: Response):
+    response.delete_cookie(SESSION_COOKIE, path="/")
+    return {"status": "success"}
 
 
 MENSAGEM_RECUPERACAO = (
@@ -1445,10 +1448,11 @@ def api_me(user: User = Depends(require_auth)):
     return _perfil_usuario(user)
 
 @app.delete("/api/auth/account")
-def api_delete_account(user: User = Depends(require_auth), db: Session = Depends(get_db)):
+def api_delete_account(response: Response, user: User = Depends(require_auth), db: Session = Depends(get_db)):
     """Direito à exclusão e esquecimento de dados pessoais conforme a LGPD (Art. 18, VI)"""
     db.delete(user)
     db.commit()
+    response.delete_cookie(SESSION_COOKIE, path="/")
     return {"message": "Conta e dados pessoais excluídos com sucesso em conformidade com a LGPD."}
 
 # ----------------- Tenders & Search API -----------------
@@ -1473,6 +1477,7 @@ def api_search_tenders(
     value_max: Optional[str] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
+    vigentes: Optional[bool] = None,
     sort_by: str = "relevance",
     page: int = 1,
     page_size: Optional[int] = None,
@@ -1500,6 +1505,7 @@ def api_search_tenders(
         value_max=clean_float_param(value_max),
         date_from=date_from,
         date_to=date_to,
+        vigentes=vigentes,
         sort_by=sort_by,
         page=page,
         page_size=effective_size,
@@ -1859,6 +1865,13 @@ async def api_portals_sync(
     result["total_saved"] = result.get("persisted_tenders", 0)
     return result
 
+def _deals_do_usuario(db: Session, user: Optional[User]):
+    """Negócios do funil pertencentes ao usuário (multitenancy). Sem usuário: consulta vazia."""
+    if not user:
+        return db.query(Deal).filter(false())
+    return db.query(Deal).filter(Deal.user_id == user.id)
+
+
 def serialize_deal(deal: Deal, tender: Optional[Tender] = None) -> Dict[str, Any]:
     t = tender or deal.tender
     tender_data = None
@@ -1942,9 +1955,10 @@ async def api_create_deal(
     tender_id: Optional[Union[str, int]] = Query(None),
     stage: Optional[str] = Query(None),
     notes: Optional[str] = Query(None),
+    user: User = Depends(require_auth),
     db: Session = Depends(get_db)
 ):
-    """Cria ou atualiza um negócio no pipeline/funil comercial."""
+    """Cria ou atualiza um negócio no funil comercial do usuário autenticado."""
     payload: Dict[str, Any] = {}
     try:
         content_type = request.headers.get("content-type", "")
@@ -1973,7 +1987,7 @@ async def api_create_deal(
     tem_selecao = isinstance(payload, dict) and "selected_items" in payload
     itens_selecionados = normalizar_itens_selecionados(db, tender, payload.get("selected_items")) if tem_selecao else None
 
-    deal = db.query(Deal).filter(Deal.tender_id == tender.id).first()
+    deal = _deals_do_usuario(db, user).filter(Deal.tender_id == tender.id).first()
     if deal:
         # Reenvio a partir da busca (sem estágio explícito) não deve recuar um negócio já avançado
         if payload.get("stage") or stage:
@@ -1989,6 +2003,7 @@ async def api_create_deal(
 
     deal = Deal(
         tender_id=tender.id,
+        user_id=user.id,
         stage=target_stage,
         notes=target_notes,
         selected_items=itens_selecionados,
@@ -2003,10 +2018,11 @@ async def api_create_deal(
 @app.get("/api/deals")
 def api_get_deals(
     stage: Optional[str] = Query(None),
+    user: User = Depends(require_auth),
     db: Session = Depends(get_db)
 ):
-    """Lista os negócios do funil agrupados por estágio."""
-    query = db.query(Deal).order_by(Deal.updated_at.desc())
+    """Lista os negócios do funil do usuário autenticado, agrupados por estágio."""
+    query = _deals_do_usuario(db, user).order_by(Deal.updated_at.desc())
     if stage and stage in DEAL_STAGES:
         query = query.filter(Deal.stage == stage)
 
@@ -2038,6 +2054,7 @@ async def api_update_deal_stage(
     deal_id: int,
     request: Request,
     stage: Optional[str] = Query(None),
+    user: User = Depends(require_auth),
     db: Session = Depends(get_db)
 ):
     """Atualiza o estágio do negócio (mover entre colunas)."""
@@ -2057,7 +2074,7 @@ async def api_update_deal_stage(
             detail=f"Estágio inválido. Opções permitidas: {', '.join(DEAL_STAGES)}"
         )
 
-    deal = db.query(Deal).filter(Deal.id == deal_id).first()
+    deal = _deals_do_usuario(db, user).filter(Deal.id == deal_id).first()
     if not deal:
         raise HTTPException(status_code=404, detail="Negócio não encontrado.")
 
@@ -2070,10 +2087,11 @@ async def api_update_deal_stage(
 @app.delete("/api/deals/{deal_id}")
 def api_delete_deal(
     deal_id: int,
+    user: User = Depends(require_auth),
     db: Session = Depends(get_db)
 ):
-    """Remove um negócio do funil."""
-    deal = db.query(Deal).filter(Deal.id == deal_id).first()
+    """Remove um negócio do funil do usuário autenticado."""
+    deal = _deals_do_usuario(db, user).filter(Deal.id == deal_id).first()
     if not deal:
         raise HTTPException(status_code=404, detail="Negócio não encontrado.")
     db.delete(deal)
@@ -2083,23 +2101,22 @@ def api_delete_deal(
 @app.post("/api/pipeline/add")
 def api_add_to_pipeline(
     tender_id: str = Query(...),
-    request: Request = None,
+    user: User = Depends(require_auth),
     db: Session = Depends(get_db)
 ):
     tender = db.query(Tender).filter(Tender.id == tender_id).first()
     if not tender:
         raise HTTPException(status_code=404, detail="Licitação não encontrada.")
-    user = get_current_user(request, db) if request else None
-    if user:
-        existing = db.query(Favorite).filter(Favorite.user_id == user.id, Favorite.tender_id == tender.id).first()
-        if not existing:
-            db.add(Favorite(user_id=user.id, tender_id=tender.id))
-            db.commit()
+    existing = db.query(Favorite).filter(Favorite.user_id == user.id, Favorite.tender_id == tender.id).first()
+    if not existing:
+        db.add(Favorite(user_id=user.id, tender_id=tender.id))
+        db.commit()
 
-    deal = db.query(Deal).filter(Deal.tender_id == tender.id).first()
+    deal = _deals_do_usuario(db, user).filter(Deal.tender_id == tender.id).first()
     if not deal:
         deal = Deal(
             tender_id=tender.id,
+            user_id=user.id,
             stage="oportunidades",
             notes="Adicionado via busca de oportunidades",
             created_at=datetime.utcnow(),
@@ -2656,9 +2673,10 @@ def api_get_alerts(
     user: Optional[User] = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    query = db.query(SavedSearch).filter(SavedSearch.active == True)
-    if user:
-        query = query.filter((SavedSearch.user_id == user.id) | (SavedSearch.user_id.is_(None)))
+    # Alertas são privados: visitante não vê nenhum; usuário vê somente os próprios
+    if not user:
+        return []
+    query = db.query(SavedSearch).filter(SavedSearch.active == True, SavedSearch.user_id == user.id)
     saved_items = query.order_by(SavedSearch.created_at.desc()).all()
 
     resp = []
@@ -2683,9 +2701,7 @@ def api_get_alerts(
         ))
 
     # Incorporar alertas legados da tabela Alert se houver
-    legacy_query = db.query(Alert).filter(Alert.active == True)
-    if user:
-        legacy_query = legacy_query.filter(Alert.user_id == user.id)
+    legacy_query = db.query(Alert).filter(Alert.active == True, Alert.user_id == user.id)
     legacy_alerts = legacy_query.all()
     for la in legacy_alerts:
         if la.id not in seen_ids:
@@ -2713,7 +2729,7 @@ def api_get_alerts(
 @app.post("/api/alerts", response_model=AlertResponse)
 def api_create_alert(
     payload: AlertCreateRequest,
-    user: Optional[User] = Depends(get_current_user),
+    user: User = Depends(require_auth),
     db: Session = Depends(get_db)
 ):
     keywords = payload.keywords
@@ -2738,15 +2754,7 @@ def api_create_alert(
     alert_id = generate_uuid()
     created_now = datetime.utcnow()
 
-    target_user_id = user.id if user else None
-    if not target_user_id:
-        demo = db.query(User).filter(User.email == "usuario@empresa.com.br").first()
-        if demo:
-            target_user_id = demo.id
-        else:
-            first_u = db.query(User).first()
-            if first_u:
-                target_user_id = first_u.id
+    target_user_id = user.id
 
     # Guardar pesquisa/alerta no modelo SavedSearch
     saved_search = SavedSearch(
@@ -2803,11 +2811,11 @@ def api_create_alert(
 def api_toggle_alert(
     alert_id: str,
     active: bool = Query(...),
-    user: Optional[User] = Depends(get_current_user),
+    user: User = Depends(require_auth),
     db: Session = Depends(get_db)
 ):
-    alert = db.query(Alert).filter(Alert.id == alert_id).first()
-    saved = db.query(SavedSearch).filter(SavedSearch.id == alert_id).first()
+    alert = db.query(Alert).filter(Alert.id == alert_id, Alert.user_id == user.id).first()
+    saved = db.query(SavedSearch).filter(SavedSearch.id == alert_id, SavedSearch.user_id == user.id).first()
     if not alert and not saved:
         raise HTTPException(status_code=404, detail="Alerta não localizado.")
     if alert:
@@ -2820,11 +2828,11 @@ def api_toggle_alert(
 @app.delete("/api/alerts/{alert_id}")
 def api_delete_alert(
     alert_id: str,
-    user: Optional[User] = Depends(get_current_user),
+    user: User = Depends(require_auth),
     db: Session = Depends(get_db)
 ):
-    alert = db.query(Alert).filter(Alert.id == alert_id).first()
-    saved = db.query(SavedSearch).filter(SavedSearch.id == alert_id).first()
+    alert = db.query(Alert).filter(Alert.id == alert_id, Alert.user_id == user.id).first()
+    saved = db.query(SavedSearch).filter(SavedSearch.id == alert_id, SavedSearch.user_id == user.id).first()
     if not alert and not saved:
         raise HTTPException(status_code=404, detail="Alerta não localizado.")
     if alert:
@@ -2842,24 +2850,18 @@ def api_get_alerts_feed(
     db: Session = Depends(get_db)
 ):
     """
-    Retorna o feed de certames correspondentes aos alertas do usuário.
-    Se o usuário não estiver autenticado, retorna as entregas recentes globais.
+    Retorna o feed de certames correspondentes aos alertas do usuário autenticado.
+    Visitantes e contas sem alertas recebem um feed vazio (alertas são privados).
     """
     query = db.query(AlertDelivery, Tender).join(
         Tender, AlertDelivery.tender_id == Tender.id
     )
 
+    user_alert_ids: List[str] = []
     if user:
-        user_alert_ids = [
-            r[0] for r in db.query(SavedSearch.id).filter(
-                (SavedSearch.user_id == user.id) | (SavedSearch.user_id.is_(None))
-            ).all()
-        ]
-        user_alert_ids.extend([
-            r[0] for r in db.query(Alert.id).filter(Alert.user_id == user.id).all()
-        ])
-        if user_alert_ids:
-            query = query.filter(AlertDelivery.alert_id.in_(user_alert_ids))
+        user_alert_ids = [r[0] for r in db.query(SavedSearch.id).filter(SavedSearch.user_id == user.id).all()]
+        user_alert_ids.extend(r[0] for r in db.query(Alert.id).filter(Alert.user_id == user.id).all())
+    query = query.filter(AlertDelivery.alert_id.in_(user_alert_ids or [""]))
 
     deliveries = query.order_by(AlertDelivery.delivered_at.desc()).limit(limit).all()
 
@@ -3010,9 +3012,13 @@ def api_retry_webhook(log_id: str, db: Session = Depends(get_db)):
 # ----------------- Dashboard Summary API -----------------
 
 def get_dashboard_summary_data(db: Session, user: Optional[User] = None) -> Dict[str, Any]:
-    # 1. Total de negócios ativos (deals no funil)
-    deals_count = db.query(Deal).count()
-    funnel_stages = {s: db.query(Deal).filter(Deal.stage == s).count() for s in DEAL_STAGES}
+    # 1. Total de negócios ativos (somente o funil do próprio usuário; visitante = 0)
+    deals_count = _deals_do_usuario(db, user).count()
+    funnel_stages = {s: _deals_do_usuario(db, user).filter(Deal.stage == s).count() for s in DEAL_STAGES}
+
+    # Catálogo global: editais vigentes para disputa, qualquer que seja a data de publicação
+    vigentes_count = db.query(func.count(Tender.id)).filter(filtro_vigentes()).scalar() or 0
+    total_tenders_count = db.query(func.count(Tender.id)).scalar() or 0
 
     # 2. Empresas identificadas (órgãos compradores únicos ou entidades)
     companies_count = db.query(func.count(func.distinct(Tender.contracting_entity))).scalar() or 0
@@ -3074,8 +3080,8 @@ def get_dashboard_summary_data(db: Session, user: Optional[User] = None) -> Dict
         else:
             acima_250k += 1
 
-    # 6. Próximos eventos da agenda vinculados aos negócios em andamento
-    deals = db.query(Deal).all()
+    # 6. Próximos eventos da agenda vinculados aos negócios do usuário
+    deals = _deals_do_usuario(db, user).all()
     agenda_events = []
     seen_tenders = set()
 
@@ -3103,28 +3109,10 @@ def get_dashboard_summary_data(db: Session, user: Optional[User] = None) -> Dict
                 "sicaf_ready": bool(t.sicaf_ready)
             })
 
-    if not agenda_events:
-        tenders_with_deadlines = db.query(Tender).filter(Tender.proposal_deadline.isnot(None)).order_by(Tender.proposal_deadline.asc()).limit(5).all()
-        for t in tenders_with_deadlines:
-            agenda_events.append({
-                "deal_id": None,
-                "tender_id": t.id,
-                "title": t.title,
-                "notice_number": t.notice_number or t.external_id,
-                "contracting_entity": t.contracting_entity,
-                "state": t.state,
-                "stage": "oportunidades",
-                "event_type": "Prazo Limite de Propostas",
-                "date": t.proposal_deadline.isoformat(),
-                "formatted_date": t.proposal_deadline.strftime("%d/%m/%Y %H:%M"),
-                "estimated_value": t.estimated_total_value,
-                "sicaf_ready": bool(t.sicaf_ready)
-            })
-
     agenda_events.sort(key=lambda x: x["date"])
 
-    # Dados de compatibilidade do usuário
-    user_id = user.id if user else "usr-user-01"
+    # Dados privados do usuário (visitante não herda dados de nenhuma conta)
+    user_id = user.id if user else None
     favs_count = db.query(Favorite).filter(Favorite.user_id == user_id).count()
     alerts_count = db.query(Alert).filter(Alert.user_id == user_id, Alert.active == True).count()
     deliveries_count = db.query(AlertDelivery).join(Alert).filter(Alert.user_id == user_id).count()
@@ -3170,6 +3158,8 @@ def get_dashboard_summary_data(db: Session, user: Optional[User] = None) -> Dict
         "items_today_count": items_today_count,
         "total_items_count": total_items_count,
         "agenda_events_count": len(agenda_events),
+        "vigentes_count": vigentes_count,
+        "total_tenders_count": total_tenders_count,
 
         "categories_distribution": {
             "servicos": servicos_count,

@@ -64,7 +64,11 @@ COLUNAS_ITENS_DOCUMENTOS: List[Tuple[str, str, str]] = [
 
 COLUNAS_DEALS: List[Tuple[str, str, str]] = [
     ("deals", "selected_items", "JSON"),
+    ("deals", "user_id", "VARCHAR(36)"),
 ]
+
+# Anotação gravada pelo antigo seed de demonstração do funil (removido): identifica os negócios fictícios.
+NOTA_DEAL_SEED_DEMO = "Certame prioritário acompanhado no estágio %"
 
 # (nome do índice, tabela, colunas)
 INDICES_EXPLICITOS: List[Tuple[str, str, str]] = [
@@ -206,6 +210,19 @@ def _backfill_natureza_objeto(lote: int = 500) -> None:
         logger.info("Migração: natureza do objeto classificada em %s licitações.", total)
 
 
+def _remover_deals_de_demonstracao() -> None:
+    """Apaga os negócios fictícios criados pelo antigo seed do funil (sem dono). Idempotente."""
+    if "user_id" not in _colunas_existentes("deals"):
+        return
+    with engine.begin() as conn:
+        removidos = conn.execute(
+            text("DELETE FROM deals WHERE user_id IS NULL AND notes LIKE :nota"),
+            {"nota": NOTA_DEAL_SEED_DEMO},
+        ).rowcount
+    if removidos:
+        logger.info("Migração: %s negócios de demonstração removidos do funil.", removidos)
+
+
 def _backfill_links_canonicos() -> None:
     """Backfill canônico de URLs do PNCP e links de disputa (idempotente: recalcula os mesmos valores)."""
     from server.connectors.pncp import build_canonical_pncp_url
@@ -265,6 +282,8 @@ def run_db_migrations():
     _adicionar_colunas(COLUNAS_TENDERS)
     _adicionar_colunas(COLUNAS_ITENS_DOCUMENTOS)
     _adicionar_colunas(COLUNAS_DEALS)
+    if "deals" in _tabelas_existentes():
+        _remover_deals_de_demonstracao()
 
     # 2. Tabelas auxiliares (auditoria de disputas, cofre de documentos e recuperação de senha)
     _criar_tabela_do_modelo(HistoricoDisputa)

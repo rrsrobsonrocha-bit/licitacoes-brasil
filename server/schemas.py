@@ -60,6 +60,7 @@ class SearchFilterParams(BaseModel):
     sicaf_ready: Optional[bool] = None
     date_from: Optional[str] = None # YYYY-MM-DD
     date_to: Optional[str] = None # YYYY-MM-DD
+    vigentes: Optional[bool] = None # True = só certames abertos (prazo de proposta no futuro e status ativo)
     value_min: Optional[float] = None
     value_max: Optional[float] = None
     sort_by: str = "relevance" # relevance, pub_desc, pub_asc, deadline_asc, deadline_desc, value_desc, value_asc

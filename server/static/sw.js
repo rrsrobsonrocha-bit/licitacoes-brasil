@@ -1,11 +1,14 @@
 // LicitaçõesBrasil PWA Service Worker - Cache Resiliente e Fallback Offline
-const CACHE_NAME = 'licitacoesbrasil-pwa-v1';
+const CACHE_NAME = 'licitacoesbrasil-pwa-v2';
+
+// Páginas com dados privados do usuário (funil, agenda, painel, favoritos, alertas):
+// nunca vão para o cache, para que outra conta no mesmo aparelho não veja esses dados.
+const PRIVATE_PATHS = ['/negocios', '/agenda', '/dashboard', '/favorites', '/alerts', '/documentos', '/admin'];
+const isPrivatePath = (pathname) => PRIVATE_PATHS.some((p) => pathname === p || pathname.startsWith(p + '/'));
 
 const STATIC_ASSETS = [
   '/',
   '/search',
-  '/agenda',
-  '/dashboard',
   '/disputa',
   '/static/manifest.json',
   '/static/icons/icon.svg',
@@ -40,6 +43,9 @@ self.addEventListener('fetch', (event) => {
 
   // Nao intercepta chamadas de API ou streams SSE para garantir dados em tempo real
   if (url.pathname.startsWith('/api/') || event.request.method !== 'GET') {
+    return;
+  }
+  if (url.origin === self.location.origin && isPrivatePath(url.pathname)) {
     return;
   }
 

@@ -99,3 +99,65 @@ def setup_test_database(bloquear_rede_externa):
         db.close()
     yield
     engine.dispose()
+
+
+# ------------------------------------------------------------------------------
+# Usuários autenticados descartáveis (dados privados são isolados por conta)
+# ------------------------------------------------------------------------------
+@pytest.fixture
+def criar_usuario():
+    """
+    Fábrica de contas novas: devolve um objeto com ``id``, ``email``, ``token``, ``headers``
+    (Authorization: Bearer) e ``cookies`` (cookie de sessão). Tudo é apagado ao final.
+    """
+    import uuid
+    from types import SimpleNamespace
+
+    from server.main import SESSION_COOKIE, _emitir_sessao
+    from server.models import Alert, Deal, Favorite, SavedSearch, User
+    from server.security import hash_password
+
+    criados = []
+
+    def _criar(nome: str = "Conta de Teste"):
+        db = SessionLocal()
+        try:
+            user = User(
+                name=nome,
+                email=f"teste-{uuid.uuid4().hex[:10]}@exemplo.com.br",
+                password_hash=hash_password("SenhaTeste@123"),
+                role="USER",
+                status="ACTIVE",
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+            token = _emitir_sessao(user).access_token
+            conta = SimpleNamespace(
+                id=user.id,
+                email=user.email,
+                token=token,
+                headers={"Authorization": f"Bearer {token}"},
+                cookies={SESSION_COOKIE: token},
+            )
+            criados.append(user.id)
+            return conta
+        finally:
+            db.close()
+
+    yield _criar
+
+    db = SessionLocal()
+    try:
+        for modelo in (Deal, Favorite, Alert, SavedSearch):
+            db.query(modelo).filter(modelo.user_id.in_(criados)).delete(synchronize_session=False)
+        db.query(User).filter(User.id.in_(criados)).delete(synchronize_session=False)
+        db.commit()
+    finally:
+        db.close()
+
+
+@pytest.fixture
+def usuario_auth(criar_usuario):
+    """Uma conta nova autenticada."""
+    return criar_usuario()

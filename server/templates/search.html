@@ -43,7 +43,7 @@
         ('modality', params.modality), ('status', params.status), ('administrative_sphere', params.administrative_sphere),
         ('source_system', params.source_system), ('portal', params.portal), ('uasg_code', params.uasg_code),
         ('value_min', params.value_min), ('value_max', params.value_max), ('date_from', params.date_from),
-        ('date_to', params.date_to), ('sort_by', params.sort_by), ('page_size', params.page_size)
+        ('date_to', params.date_to), ('vigentes', 'true' if params.vigentes else None), ('sort_by', params.sort_by), ('page_size', params.page_size)
       ] %}
         {% if valor is not none and valor != '' %}{% set _ = qs_uf_base.update({chave: valor}) %}{% endif %}
       {% endfor %}
@@ -217,6 +217,15 @@
             </div>
           </div>
 
+          <!-- Somente editais vigentes (prazo de propostas em aberto), qualquer data de publicação -->
+          <label class="flex items-start gap-2 text-xs text-slate-200 cursor-pointer select-none bg-slate-900/70 border border-slate-800 rounded-xl p-2.5">
+            <input type="checkbox" name="vigentes" value="true" {% if params.vigentes %}checked{% endif %} class="mt-0.5 w-4 h-4 rounded border-slate-600 bg-slate-800 accent-emerald-500 cursor-pointer" />
+            <span>
+              <span class="font-semibold">Somente editais vigentes</span>
+              <span class="block text-[10px] text-slate-400">Prazo de propostas em aberto ({{ total_vigentes }} no catálogo)</span>
+            </span>
+          </label>
+
           <!-- Ordenação -->
           <div>
             <label class="block text-xs font-semibold text-slate-300 mb-1">Ordenar por</label>
@@ -248,6 +257,20 @@
               <span class="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
                 {{ total_db_tenders or results.total }} sincronizadas no banco
               </span>
+              {% set qs_vigentes = {} %}
+              {% for chave, valor in qs_uf_base.items() if chave not in ('vigentes', 'page') %}{% set _ = qs_vigentes.update({chave: valor}) %}{% endfor %}
+              {% if uf_ativa %}{% set _ = qs_vigentes.update({'uf': uf_ativa}) %}{% endif %}
+              {% if not params.vigentes %}{% set _ = qs_vigentes.update({'vigentes': 'true'}) %}{% endif %}
+              <a
+                id="toggle-vigentes"
+                href="/search{% if qs_vigentes %}?{{ qs_vigentes|urlencode }}{% endif %}"
+                class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border transition {% if params.vigentes %}bg-emerald-500/15 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/25{% else %}bg-slate-800 text-slate-300 border-slate-700 hover:text-emerald-300 hover:border-emerald-500/40{% endif %}"
+                title="{% if params.vigentes %}Mostrar também certames encerrados{% else %}Mostrar somente editais com prazo de propostas em aberto{% endif %}"
+              >
+                <i class="fa-solid {% if params.vigentes %}fa-circle-check{% else %}fa-gavel{% endif %} text-[10px]"></i>
+                {% if params.vigentes %}Somente vigentes{% else %}{{ total_vigentes }} vigentes{% endif %}
+                {% if params.vigentes %}<i class="fa-solid fa-xmark text-[10px]"></i>{% endif %}
+              </a>
               <a 
                 id="btn-export-csv"
                 href="/api/tenders/export/csv?{{ {'q': params.q or '', 'uf': params.state or params.uf or '', 'modality': params.modality or '', 'status': params.status or '', 'category': params.natureza or params.category or ''}|urlencode }}"
@@ -497,7 +520,7 @@
           ('modality', params.modality), ('status', params.status), ('administrative_sphere', params.administrative_sphere),
           ('source_system', params.source_system), ('portal', params.portal), ('uasg_code', params.uasg_code),
           ('value_min', params.value_min), ('value_max', params.value_max), ('date_from', params.date_from),
-          ('date_to', params.date_to), ('sort_by', params.sort_by), ('page_size', params.page_size)
+          ('date_to', params.date_to), ('vigentes', 'true' if params.vigentes else None), ('sort_by', params.sort_by), ('page_size', params.page_size)
         ] %}
           {% if valor is not none and valor != '' %}{% set _ = qs_paginacao.update({chave: valor}) %}{% endif %}
         {% endfor %}
@@ -1162,12 +1185,20 @@
     try {
       const body = { tender_id: tenderId };
       if (selectedItems !== undefined) body.selected_items = selectedItems;
+      const headers = { 'Content-Type': 'application/json' };
+      const token = AppSession.getToken();
+      if (token) headers['Authorization'] = `Bearer ${token}`;
       const resp = await fetch('/api/deals', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(body)
       });
       const data = await resp.json().catch(() => ({}));
+      if (resp.status === 401) {
+        showToast('Entre na sua conta para salvar certames em Meus Negócios.', 'info');
+        setTimeout(() => { window.location.href = '/login'; }, 1200);
+        return false;
+      }
       if (!resp.ok) throw new Error(data.detail || `HTTP ${resp.status}`);
       const qtd = data.selected_items_count || 0;
       showToast(qtd
@@ -1269,7 +1300,7 @@
     // Itens já carregados na gaveta + seleção anterior (se o certame já estiver no funil)
     const [itens, selecaoAnterior] = await Promise.all([
       drawerItemsPromise ? drawerItemsPromise.catch(() => currentDrawerItems) : Promise.resolve(currentDrawerItems),
-      fetch('/api/deals').then(r => r.ok ? r.json() : null).then(data => {
+      fetch('/api/deals', { headers: AppSession.getToken() ? { 'Authorization': `Bearer ${AppSession.getToken()}` } : {} }).then(r => r.ok ? r.json() : null).then(data => {
         const deal = (data && data.deals || []).find(d => String(d.tender_id) === String(tender.id));
         return deal && Array.isArray(deal.selected_items) ? deal.selected_items.map(i => String(i.item_number)) : null;
       }).catch(() => null)

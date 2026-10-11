@@ -641,22 +641,20 @@ def test_api_download_kit_zip_e_botao_no_detalhe(cofre_isolado, sample_tender):
 # 7. LIGAÇÃO KANBAN -> JURÍDICO
 # ==============================================================================
 
-def test_kanban_card_envia_para_juridico_com_query_params(sample_tender):
+def test_kanban_card_envia_para_juridico_com_query_params(sample_tender, usuario_auth):
     db = SessionLocal()
     criado = False
     try:
-        deal = db.query(Deal).filter(Deal.tender_id == sample_tender.id).first()
-        if not deal:
-            deal = Deal(tender_id=sample_tender.id, stage="oportunidades", notes="teste juridico")
-            db.add(deal)
-            db.commit()
-            criado = True
+        deal = Deal(tender_id=sample_tender.id, user_id=usuario_auth.id, stage="oportunidades", notes="teste juridico")
+        db.add(deal)
+        db.commit()
+        criado = True
         deal_id = deal.id
     finally:
         db.close()
 
     try:
-        html_kanban = client.get("/negocios?view=quadros").text
+        html_kanban = client.get("/negocios?view=quadros", headers=usuario_auth.headers).text
         assert "Enviar para Jurídico" in html_kanban
         bloco = html_kanban.split(f'id="deal-card-{deal_id}"', 1)[1]
         href = re.search(r'href="(/juridico\?[^"]+)"', bloco).group(1)

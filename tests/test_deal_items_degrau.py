@@ -67,10 +67,11 @@ def test_deal_card_sem_heredoc_de_terminal():
 
 
 # ---------------- 2. Seleção de itens no negócio ----------------
-def test_criar_negocio_com_itens_selecionados_e_preservar_selecao():
+def test_criar_negocio_com_itens_selecionados_e_preservar_selecao(usuario_auth):
+    h = usuario_auth.headers
     tender_id = _tender_com_itens()
     try:
-        resp = client.post("/api/deals", json={"tender_id": tender_id, "selected_items": [{"item_number": 2}]})
+        resp = client.post("/api/deals", json={"tender_id": tender_id, "selected_items": [{"item_number": 2}]}, headers=h)
         assert resp.status_code == 201
         data = resp.json()
         assert data["selected_items_count"] == 1
@@ -80,19 +81,19 @@ def test_criar_negocio_com_itens_selecionados_e_preservar_selecao():
         assert item["estimated_total_value"] == 500
 
         # Atualiza a seleção (aceita números puros) e não recua o estágio já avançado
-        client.patch(f"/api/deals/{data['id']}/stage", json={"stage": "disputa"})
-        resp2 = client.post("/api/deals", json={"tender_id": tender_id, "selected_items": [1, 2, "x"]})
+        client.patch(f"/api/deals/{data['id']}/stage", json={"stage": "disputa"}, headers=h)
+        resp2 = client.post("/api/deals", json={"tender_id": tender_id, "selected_items": [1, 2, "x"]}, headers=h)
         data2 = resp2.json()
         assert data2["id"] == data["id"]
         assert [i["item_number"] for i in data2["selected_items"]] == [1, 2]
         assert data2["stage"] == "disputa"
 
         # Sem a chave selected_items a seleção é preservada
-        data3 = client.post(f"/api/deals?tender_id={tender_id}").json()
+        data3 = client.post(f"/api/deals?tender_id={tender_id}", headers=h).json()
         assert data3["selected_items_count"] == 2
 
         # O card do Kanban exibe os itens em disputa
-        html = client.get("/negocios").text
+        html = client.get("/negocios", headers=h).text
         assert "2 itens em disputa: 1, 2" in html
     finally:
         _remover(tender_id)

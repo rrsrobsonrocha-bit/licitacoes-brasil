@@ -1,11 +1,47 @@
 import unicodedata
 import re
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Tuple
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, and_, desc, asc
+from sqlalchemy import or_, and_, desc, asc, func
 from server.models import Tender, TenderItem, Source, Favorite
 from server.schemas import SearchFilterParams, TenderSummaryResponse, SearchResultResponse
 from server.connectors.pncp import build_canonical_pncp_url
+
+# Situações que encerram ou interrompem a disputa (comparação por trecho, sem acento)
+STATUS_NAO_VIGENTES = (
+    "suspens", "anulad", "revogad", "cancelad", "encerrad", "desert", "fracassad", "homologad", "conclu",
+)
+
+try:
+    from zoneinfo import ZoneInfo
+    _SP_TZ = ZoneInfo("America/Sao_Paulo")
+except Exception:  # pragma: no cover - ambiente sem tzdata
+    _SP_TZ = timezone(timedelta(hours=-3))
+
+
+def agora_sao_paulo_naive() -> datetime:
+    """Agora em America/Sao_Paulo sem tzinfo: os prazos do PNCP são gravados em horário de Brasília."""
+    return datetime.now(_SP_TZ).replace(tzinfo=None)
+
+
+def filtro_vigentes(agora: Optional[datetime] = None):
+    """
+    Condição SQL de certame vigente/aberto para disputa, independente da data de publicação:
+    status ativo e prazo de propostas no futuro (ou, sem prazo, abertura no futuro ou não informada).
+    """
+    agora = agora or agora_sao_paulo_naive()
+    status_norm = func.lower(func.coalesce(Tender.status, ""))
+    status_ativo = and_(*[~status_norm.like(f"%{trecho}%") for trecho in STATUS_NAO_VIGENTES])
+    prazo_aberto = or_(
+        Tender.proposal_deadline >= agora,
+        and_(
+            Tender.proposal_deadline.is_(None),
+            or_(Tender.opening_date >= agora, Tender.opening_date.is_(None)),
+        ),
+    )
+    return and_(status_ativo, prazo_aberto)
+
 
 # Categorias oficiais de classificação
 CATEGORIES = [
@@ -221,6 +257,9 @@ def search_tenders(db: Session, params: SearchFilterParams, user_id: Optional[st
             query = query.filter(Tender.publication_date <= f"{params.date_to} 23:59:59")
         except Exception:
             pass
+
+    if params.vigentes:
+        query = query.filter(filtro_vigentes())
 
     # 2. Busca Textual por Palavra-chave / Expressão Exata
     exact_phrases, terms = [], []

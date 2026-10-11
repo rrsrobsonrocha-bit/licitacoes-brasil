@@ -42,11 +42,36 @@
 
   <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6 space-y-6">
 
-    <!-- 1. OS 4 CARDS DE TOPO (LICITAÇÕESBRASIL EXECUTIVE STATS) -->
+    <!-- 0. DESTAQUE: CATÁLOGO GLOBAL DE EDITAIS VIGENTES (independente da data de publicação) -->
+    <a
+      id="card-vigentes"
+      href="/search?vigentes=true&amp;sort_by=deadline_asc"
+      title="Ver todos os editais vigentes, abertos para disputa"
+      class="group cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gradient-to-r from-sky-950/80 via-slate-900/90 to-emerald-950/70 border border-sky-800/60 hover:border-sky-500/70 rounded-2xl p-5 shadow-lg hover:shadow-xl transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+    >
+      <div class="flex items-center gap-4">
+        <div class="w-12 h-12 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-300 flex items-center justify-center shrink-0">
+          <i class="fa-solid fa-gavel text-lg"></i>
+        </div>
+        <div>
+          <span class="text-xs font-bold uppercase tracking-wider text-sky-300">Editais vigentes para disputa</span>
+          <div class="flex items-baseline gap-2 mt-0.5">
+            <span class="text-3xl font-black font-mono text-white tracking-tight" id="stat-vigentes">{{ summary.vigentes_count if summary else 0 }}</span>
+            <span class="text-xs text-slate-400">de <span id="stat-total-tenders" class="font-mono">{{ summary.total_tenders_count if summary else 0 }}</span> no catálogo</span>
+          </div>
+          <p class="text-xs text-slate-400 mt-0.5">Prazo de propostas em aberto, publicados hoje ou há 5, 15, 30 dias ou mais.</p>
+        </div>
+      </div>
+      <span class="inline-flex items-center gap-2 self-start sm:self-auto bg-sky-600 group-hover:bg-sky-500 text-white font-semibold px-4 py-2 rounded-xl text-xs transition shadow-md">
+        Ver editais vigentes <i class="fa-solid fa-arrow-right text-[11px]"></i>
+      </span>
+    </a>
+
+    <!-- 1. OS 4 CARDS DE TOPO (LICITAÇÕESBRASIL EXECUTIVE STATS) — todos clicáveis -->
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-      
-      <!-- Card 1: Negócios ativos -->
-      <div class="bg-slate-900/80 border border-slate-800 hover:border-emerald-500/40 rounded-2xl p-5 shadow-lg transition-all duration-200 flex flex-col justify-between">
+
+      <!-- Card 1: Negócios ativos (abre o funil Kanban) -->
+      <a id="card-active-deals" href="/negocios?view=quadros" title="Abrir o funil de negócios" class="metric-card group cursor-pointer bg-slate-900/80 border border-slate-800 hover:bg-slate-900 hover:-translate-y-0.5 hover:shadow-xl rounded-2xl p-5 shadow-lg transition-all duration-200 flex flex-col justify-between focus:outline-none focus-visible:ring-2 hover:border-emerald-500/40 focus-visible:ring-emerald-400">
         <div class="flex items-center justify-between">
           <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Negócios ativos</span>
           <div class="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center">
@@ -59,13 +84,13 @@
           </div>
           <div class="flex items-center justify-between text-xs text-slate-400 mt-1">
             <span>Oportunidades em acompanhamento</span>
-            <a href="/negocios?view=quadros" class="text-emerald-400 hover:underline font-medium text-[11px]">Ver funil →</a>
+            <span class="text-emerald-400 group-hover:underline font-medium text-[11px]">Ver funil →</span>
           </div>
         </div>
-      </div>
+      </a>
 
-      <!-- Card 2: Empresas identificadas -->
-      <div class="bg-slate-900/80 border border-slate-800 hover:border-sky-500/40 rounded-2xl p-5 shadow-lg transition-all duration-200 flex flex-col justify-between">
+      <!-- Card 2: Empresas identificadas (abre Fornecedores / Órgãos) -->
+      <a id="card-companies" href="/fornecedores" title="Ver órgãos e compradores mapeados" class="metric-card group cursor-pointer bg-slate-900/80 border border-slate-800 hover:bg-slate-900 hover:-translate-y-0.5 hover:shadow-xl rounded-2xl p-5 shadow-lg transition-all duration-200 flex flex-col justify-between focus:outline-none focus-visible:ring-2 hover:border-sky-500/40 focus-visible:ring-sky-400">
         <div class="flex items-center justify-between">
           <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Empresas identificadas</span>
           <div class="w-10 h-10 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-400 flex items-center justify-center">
@@ -76,18 +101,19 @@
           <div class="text-3xl font-black font-mono text-white tracking-tight" id="stat-companies">
             {{ summary.companies_identified_count if summary else 0 }}
           </div>
-          <div class="text-xs text-slate-400 mt-1">
+          <div class="text-xs text-slate-400 mt-1 flex items-center justify-between">
             <span>Órgãos e compradores mapeados</span>
+            <span class="text-sky-400 group-hover:underline font-medium text-[11px]">Ver órgãos →</span>
           </div>
         </div>
-      </div>
+      </a>
 
       <!-- Card 3: Licitações publicadas hoje (abre a busca filtrada pela data de publicação de hoje) -->
       <a
         id="card-tenders-today"
         href="/search?{{ {'date_from': hoje_iso, 'date_to': hoje_iso}|urlencode }}"
         title="Ver as licitações publicadas hoje"
-        class="cursor-pointer bg-slate-900/80 border border-slate-800 hover:border-amber-500/40 hover:bg-slate-900 rounded-2xl p-5 shadow-lg transition-all duration-200 flex flex-col justify-between focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+        class="metric-card group cursor-pointer bg-slate-900/80 border border-slate-800 hover:bg-slate-900 hover:-translate-y-0.5 hover:shadow-xl rounded-2xl p-5 shadow-lg transition-all duration-200 flex flex-col justify-between focus:outline-none focus-visible:ring-2 hover:border-amber-500/40 focus-visible:ring-amber-400"
       >
         <div class="flex items-center justify-between">
           <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Licitações publicadas hoje</span>
@@ -106,8 +132,8 @@
         </div>
       </a>
 
-      <!-- Card 4: Eventos na agenda -->
-      <div class="bg-slate-900/80 border border-slate-800 hover:border-rose-500/40 rounded-2xl p-5 shadow-lg transition-all duration-200 flex flex-col justify-between">
+      <!-- Card 4: Eventos na agenda (abre a Agenda) -->
+      <a id="card-agenda" href="/agenda" title="Abrir a agenda de prazos e disputas" class="metric-card group cursor-pointer bg-slate-900/80 border border-slate-800 hover:bg-slate-900 hover:-translate-y-0.5 hover:shadow-xl rounded-2xl p-5 shadow-lg transition-all duration-200 flex flex-col justify-between focus:outline-none focus-visible:ring-2 hover:border-rose-500/40 focus-visible:ring-rose-400">
         <div class="flex items-center justify-between">
           <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Eventos na agenda</span>
           <div class="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center justify-center">
@@ -118,11 +144,12 @@
           <div class="text-3xl font-black font-mono text-rose-400 tracking-tight" id="stat-agenda-events">
             {{ summary.agenda_events_count if summary else 0 }}
           </div>
-          <div class="text-xs text-slate-400 mt-1">
+          <div class="text-xs text-slate-400 mt-1 flex items-center justify-between">
             <span>Disputas e prazos de envio</span>
+            <span class="text-rose-400 group-hover:underline font-medium text-[11px]">Ver agenda →</span>
           </div>
         </div>
-      </div>
+      </a>
 
     </div>
 
@@ -478,6 +505,11 @@
 
         const agendaEventsEl = document.getElementById('stat-agenda-events');
         if (agendaEventsEl) agendaEventsEl.textContent = data.agenda_events_count || (data.agenda_events ? data.agenda_events.length : 0);
+
+        const vigentesEl = document.getElementById('stat-vigentes');
+        if (vigentesEl && data.vigentes_count !== undefined) vigentesEl.textContent = data.vigentes_count;
+        const totalTendersEl = document.getElementById('stat-total-tenders');
+        if (totalTendersEl && data.total_tenders_count !== undefined) totalTendersEl.textContent = data.total_tenders_count;
 
         // 2. Funil Stages
         if (data.funnel_stages) {

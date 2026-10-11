@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from server.models import (
     User, Source, Tender, TenderItem, TenderDocument,
-    DocumentExtraction, AIAnalysis, Alert, SavedSearch, Deal,
+    DocumentExtraction, AIAnalysis, Alert, SavedSearch,
     LegalDocumentTemplate
 )
 from server.security import hash_password, calculate_sha256
@@ -466,21 +466,8 @@ Garantia Contratual: 5% do valor do contrato nos termos da Lei 14.133/2021."""
         )
         db.add(sample_alert)
 
-    # 5. Criar negócios iniciais para o funil Kanban
-    if db.query(Deal).count() == 0:
-        all_tenders = db.query(Tender).limit(5).all()
-        stages_cycle = ["oportunidades", "qualificacao", "disputa", "classificacao", "contrato"]
-        for idx, t in enumerate(all_tenders):
-            st = stages_cycle[idx % len(stages_cycle)]
-            deal = Deal(
-                tender_id=t.id,
-                stage=st,
-                notes=f"Certame prioritário acompanhado no estágio {st}.",
-                created_at=datetime.utcnow() - timedelta(days=idx + 1),
-                updated_at=datetime.utcnow() - timedelta(hours=idx * 4)
-            )
-            db.add(deal)
-        db.commit()
+    # 5. Funil Kanban: nenhum negócio é criado automaticamente. Cada conta começa com o
+    #    funil e a agenda zerados e só vê o que o próprio usuário adicionar.
 
     # 6. Criar peças jurídicas operacionais modelo
     if db.query(LegalDocumentTemplate).count() == 0:

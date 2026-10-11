@@ -62,7 +62,7 @@ def test_agenda_critical_events_strictly_within_24h():
 TEST_EXTERNAL_ID = "TESTE-AGENDA-PRAZO-FUTURO-0001"
 
 
-def test_future_tender_falls_into_future_columns_not_critical():
+def test_future_tender_falls_into_future_columns_not_critical(usuario_auth):
     db = SessionLocal()
     tender_id = generate_uuid()
     now_sp = datetime.now(SP_TZ)
@@ -98,6 +98,7 @@ def test_future_tender_falls_into_future_columns_not_critical():
 
         deal = Deal(
             tender_id=t.id,
+            user_id=usuario_auth.id,
             stage="proposta_em_elaboracao",
             notes="Teste de prazo futuro superior a 24h"
         )
@@ -106,7 +107,7 @@ def test_future_tender_falls_into_future_columns_not_critical():
         deal_id = deal.id
 
         # 1. Valida endpoint API /api/agenda/events
-        resp = client.get("/api/agenda/events")
+        resp = client.get("/api/agenda/events", headers=usuario_auth.headers)
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "success"
@@ -119,7 +120,7 @@ def test_future_tender_falls_into_future_columns_not_critical():
         assert event["hours_remaining"] > 24
 
         # 2. Valida renderização HTML de /agenda
-        html_resp = client.get("/agenda")
+        html_resp = client.get("/agenda", headers=usuario_auth.headers)
         assert html_resp.status_code == 200
         html = html_resp.text
 

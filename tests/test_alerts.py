@@ -47,7 +47,7 @@ def test_alert_job_deduplication():
     finally:
         db.close()
 
-def test_create_and_list_alerts_api():
+def test_create_and_list_alerts_api(usuario_auth):
     from fastapi.testclient import TestClient
     from server.main import app
     from server.models import SavedSearch
@@ -61,7 +61,8 @@ def test_create_and_list_alerts_api():
         "min_value": 75000.0,
         "name": "Alerta Saúde AL"
     }
-    res_post = client.post("/api/alerts", json=payload)
+    assert client.post("/api/alerts", json=payload).status_code == 401  # alerta é privado: exige login
+    res_post = client.post("/api/alerts", json=payload, headers=usuario_auth.headers)
     assert res_post.status_code in (200, 201)
     data_post = res_post.json()
     assert "id" in data_post
@@ -71,7 +72,7 @@ def test_create_and_list_alerts_api():
     assert data_post["active"] is True
 
     # 2. Listagem de alertas ativos via GET /api/alerts
-    res_get = client.get("/api/alerts")
+    res_get = client.get("/api/alerts", headers=usuario_auth.headers)
     assert res_get.status_code == 200
     alerts = res_get.json()
     assert isinstance(alerts, list)

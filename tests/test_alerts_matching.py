@@ -134,15 +134,14 @@ def test_automatic_alert_matching_and_delivery_creation():
         db.close()
 
 
-def test_api_alerts_feed_endpoint():
+def test_api_alerts_feed_endpoint(usuario_auth):
     """Valida o endpoint GET /api/alerts/feed retornando as notificações entregues."""
     client = TestClient(app)
     db = SessionLocal()
     tender_id = generate_uuid()
     saved_id = generate_uuid()
     try:
-        user = db.query(User).first()
-        uid = user.id if user else "usr-user-01"
+        uid = usuario_auth.id
 
         # Garante ao menos uma entrega registrada no banco
         feed_kw = f"ultrassom-{generate_uuid()[:8]}"
@@ -180,7 +179,7 @@ def test_api_alerts_feed_endpoint():
         check_and_deliver_tender_alerts(db, tender)
 
         # Consome o endpoint de feed
-        response = client.get("/api/alerts/feed?limit=25")
+        response = client.get("/api/alerts/feed?limit=25", headers=usuario_auth.headers)
         assert response.status_code == 200
 
         payload = response.json()
