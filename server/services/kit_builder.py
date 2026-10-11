@@ -23,7 +23,7 @@ from server.models import (
     Tender,
     hoje_sao_paulo,
 )
-from server.services.document_vault import resolver_caminho_documento, slugify
+from server.services.document_vault import consulta_do_cofre, resolver_caminho_documento, slugify
 from server.services.pdf_generator import (
     COR_BORDA,
     COR_NAVY,
@@ -100,12 +100,12 @@ def _fmt_moeda(valor: Optional[float]) -> str:
     return "R$ " + f"{valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-def selecionar_documentos(db: Session, tender: Tender, hoje: date) -> ResultadoKit:
-    """Classifica todos os documentos do cofre em incluídos (válidos com arquivo) e excluídos."""
+def selecionar_documentos(db: Session, tender: Tender, hoje: date, user_id: Optional[str] = None) -> ResultadoKit:
+    """Classifica os documentos do cofre da conta em incluídos (válidos com arquivo) e excluídos."""
     resultado = ResultadoKit(tender=tender, hoje=hoje, data_sessao=_data_sessao(tender))
     ordem_categorias = {chave: i for i, chave in enumerate(DOCUMENTO_CATEGORIAS.keys())}
     documentos = sorted(
-        db.query(DocumentoEmpresa).all(),
+        consulta_do_cofre(db, user_id).all(),
         key=lambda d: (ordem_categorias.get(d.categoria, 99), (d.nome or "").lower(), d.id or 0),
     )
     sequencia = 0
@@ -113,6 +113,10 @@ def selecionar_documentos(db: Session, tender: Tender, hoje: date) -> ResultadoK
         item = ItemKit(documento=doc, dias_restantes=doc.dias_restantes(hoje), status=doc.status_validade(hoje))
         if item.status == "VENCIDO":
             item.motivo_exclusao = f"Vencido em {_fmt_data(doc.data_validade)}"
+            resultado.excluidos.append(item)
+            continue
+        if item.status == "PENDENTE":
+            item.motivo_exclusao = "Pendente de emissão no site oficial"
             resultado.excluidos.append(item)
             continue
         caminho = resolver_caminho_documento(doc.caminho_arquivo)
@@ -258,6 +262,7 @@ def montar_kit_habilitacao_zip(
     tender_id: str,
     db: Optional[Session] = None,
     hoje: Optional[date] = None,
+    user_id: Optional[str] = None,
 ) -> bytes:
     """
     Monta o ZIP do kit de habilitação para o certame informado.
@@ -277,7 +282,7 @@ def montar_kit_habilitacao_zip(
         if not tender:
             raise KitHabilitacaoError(f"Certame '{tender_id}' não encontrado.")
 
-        resultado = selecionar_documentos(sessao, tender, hoje or hoje_sao_paulo())
+        resultado = selecionar_documentos(sessao, tender, hoje or hoje_sao_paulo(), user_id)
         relatorio = gerar_relatorio_conformidade_pdf(resultado)
 
         buffer = io.BytesIO()

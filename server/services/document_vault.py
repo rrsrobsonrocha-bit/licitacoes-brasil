@@ -10,6 +10,8 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from sqlalchemy.orm import Session
+
 from server.models import (
     DocumentoEmpresa,
     DOCUMENTO_CATEGORIAS,
@@ -134,30 +136,59 @@ def remover_arquivo_documento(caminho_arquivo: Optional[str]) -> bool:
     return True
 
 
+def consulta_do_cofre(db: Session, user_id: Optional[str]):
+    """Documentos do cofre da conta (privado por usuário); sem conta, só os legados sem dono."""
+    consulta = db.query(DocumentoEmpresa)
+    if user_id is None:
+        return consulta.filter(DocumentoEmpresa.user_id.is_(None))
+    return consulta.filter(DocumentoEmpresa.user_id == user_id)
+
+
+def documentos_ordenados(db: Session, user_id: Optional[str], categoria: Optional[str] = None) -> List[DocumentoEmpresa]:
+    consulta = consulta_do_cofre(db, user_id)
+    if categoria:
+        consulta = consulta.filter(DocumentoEmpresa.categoria == categoria.lower())
+    return consulta.order_by(
+        DocumentoEmpresa.pendente.desc(),
+        DocumentoEmpresa.data_validade.is_(None),
+        DocumentoEmpresa.data_validade.asc(),
+        DocumentoEmpresa.nome.asc(),
+    ).all()
+
+
 def serializar_documento(doc: DocumentoEmpresa, hoje: Optional[date] = None) -> Dict[str, Any]:
     ref = hoje or hoje_sao_paulo()
     caminho = resolver_caminho_documento(doc.caminho_arquivo)
+    pendente = bool(doc.pendente)
     return {
         "id": doc.id,
         "nome": doc.nome,
         "categoria": doc.categoria,
         "categoria_label": doc.categoria_label,
-        "data_emissao": doc.data_emissao.isoformat() if doc.data_emissao else None,
+        "pendente": pendente,
+        "origem": doc.origem or "MANUAL",
+        "cnpj": doc.cnpj,
+        "link_oficial": doc.link_oficial,
+        "validade_padrao_dias": doc.validade_padrao_dias,
+        # pendente: ainda não emitido (a data gravada é só a do registro)
+        "data_emissao": doc.data_emissao.isoformat() if doc.data_emissao and not pendente else None,
         "data_validade": doc.data_validade.isoformat() if doc.data_validade else None,
         "tags_habilitacao": doc.tags_habilitacao or "",
         "tags": doc.tags,
         "dias_restantes": doc.dias_restantes(ref),
         "status": doc.status_validade(ref),
-        "arquivo_disponivel": bool(caminho and caminho.is_file()),
+        "arquivo_disponivel": bool(doc.caminho_arquivo and caminho and caminho.is_file()),
         "arquivo_url": f"/api/documentos/{doc.id}/arquivo",
         "created_at": doc.created_at.isoformat() if doc.created_at else None,
     }
 
 
 def resumo_validade(documentos: List[Dict[str, Any]]) -> Dict[str, int]:
-    resumo = {"total": len(documentos), "validos": 0, "a_vencer": 0, "vencidos": 0, "sem_validade": 0}
+    resumo = {"total": len(documentos), "validos": 0, "a_vencer": 0, "vencidos": 0, "sem_validade": 0, "pendentes": 0}
     for d in documentos:
-        if d["status"] == "VALIDO":
+        if d["status"] == "PENDENTE":
+            resumo["pendentes"] += 1
+        elif d["status"] == "VALIDO":
             resumo["validos"] += 1
         elif d["status"] == "A_VENCER":
             resumo["a_vencer"] += 1
@@ -169,6 +200,8 @@ def resumo_validade(documentos: List[Dict[str, Any]]) -> Dict[str, int]:
 
 
 __all__ = [
+    "consulta_do_cofre",
+    "documentos_ordenados",
     "DOCUMENTOS_UPLOAD_DIR",
     "DOCUMENTO_DIAS_ALERTA",
     "DocumentoInvalidoError",

@@ -65,6 +65,15 @@ COLUNAS_ITENS_DOCUMENTOS: List[Tuple[str, str, str]] = [
 ]
 
 # Assinatura: contas existentes ficam no plano gratuito, ativas e sem data de expiração
+COLUNAS_DOCUMENTOS_EMPRESA: List[Tuple[str, str, str]] = [
+    ("documentos_empresa", "user_id", "VARCHAR(36)"),
+    ("documentos_empresa", "cnpj", "VARCHAR(14)"),
+    ("documentos_empresa", "origem", "VARCHAR(20)"),
+    ("documentos_empresa", "link_oficial", "VARCHAR(500)"),
+    ("documentos_empresa", "validade_padrao_dias", "INTEGER"),
+    ("documentos_empresa", "pendente", "BOOLEAN DEFAULT FALSE NOT NULL"),
+]
+
 COLUNAS_USERS: List[Tuple[str, str, str]] = [
     ("users", "plan_type", "VARCHAR(20) DEFAULT 'GRATUITO' NOT NULL"),
     ("users", "subscription_status", "VARCHAR(20) DEFAULT 'ACTIVE' NOT NULL"),
@@ -461,11 +470,11 @@ def _associar_registros_orfaos() -> None:
     sem órfãos ou sem conta real cadastrada, não faz nada (tenta de novo no próximo boot).
     """
     from server.database import SessionLocal
-    from server.models import Alert, Deal, SavedSearch
+    from server.models import Alert, Deal, DocumentoEmpresa, SavedSearch
 
     db = SessionLocal()
     try:
-        modelos = (Deal, SavedSearch, Alert)
+        modelos = (Deal, SavedSearch, Alert, DocumentoEmpresa)
         if not any(db.query(m).filter(m.user_id.is_(None)).first() for m in modelos):
             return
         dono = _dono_dos_registros_orfaos(db)
@@ -543,7 +552,7 @@ def run_db_migrations():
     if "tenders" not in _tabelas_existentes():
         return
 
-    from server.models import DocumentoEmpresa, HistoricoDisputa, PasswordResetToken, SyncProgresso
+    from server.models import DocumentoEmpresa, DossieFornecedor, HistoricoDisputa, PasswordResetToken, SyncProgresso
 
     # 1. Colunas novas em tabelas existentes
     _adicionar_colunas(COLUNAS_SAVED_SEARCHES)
@@ -552,6 +561,7 @@ def run_db_migrations():
     _adicionar_colunas(COLUNAS_DEALS)
     _alinhar_deals_tender_id()
     _adicionar_colunas(COLUNAS_USERS)
+    _adicionar_colunas(COLUNAS_DOCUMENTOS_EMPRESA)
 
     # 1.1 Dados de demonstração antigos e registros órfãos (ordem importa: demos saem antes da atribuição)
     if "deals" in _tabelas_existentes():
@@ -573,6 +583,7 @@ def run_db_migrations():
     _criar_tabela_do_modelo(HistoricoDisputa)
     _criar_tabela_do_modelo(DocumentoEmpresa)
     _criar_tabela_do_modelo(SyncProgresso)
+    _criar_tabela_do_modelo(DossieFornecedor)
     if "users" in _tabelas_existentes():
         _criar_tabela_do_modelo(PasswordResetToken)
 

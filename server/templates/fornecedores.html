@@ -99,6 +99,30 @@
       </div>
     {% endif %}
 
+    <!-- DOSSIÊ 360° DO FORNECEDOR -->
+    <section id="dossie-fornecedor" class="bg-slate-900/80 border border-purple-500/40 rounded-2xl p-6 shadow-xl">
+      <div class="flex flex-col lg:flex-row lg:items-end justify-between gap-4 pb-4 border-b border-slate-800">
+        <div>
+          <h2 class="text-sm font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2">
+            <i class="fa-solid fa-id-card-clip text-purple-400"></i> Dossiê 360° do Fornecedor
+          </h2>
+          <p class="text-xs text-slate-400 mt-0.5">
+            Cadastro e sócios (Receita Federal), contratos públicos (PNCP) e sanções (CEIS/CNEP) de qualquer CNPJ.
+          </p>
+        </div>
+        <form id="form-dossie" class="flex gap-2 w-full lg:w-auto" novalidate>
+          <label for="dossie-termo" class="sr-only">CNPJ ou razão social</label>
+          <input id="dossie-termo" type="text" autocomplete="off" maxlength="120" placeholder="CNPJ ou razão social" class="flex-1 lg:w-80 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-purple-500 transition">
+          <button id="btn-dossie" type="submit" class="shrink-0 bg-purple-600 hover:bg-purple-500 text-white font-bold px-4 py-2 rounded-xl text-xs transition flex items-center gap-1.5 cursor-pointer disabled:opacity-60">
+            <i class="fa-solid fa-magnifying-glass"></i> Gerar dossiê
+          </button>
+        </form>
+      </div>
+      <p id="dossie-erro" class="hidden mt-4 text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded-xl px-3 py-2"></p>
+      <ul id="dossie-candidatos" class="hidden mt-4 divide-y divide-slate-800 border border-slate-800 rounded-xl overflow-hidden text-xs"></ul>
+      <div id="dossie-painel" class="hidden mt-5 space-y-5"></div>
+    </section>
+
     <!-- CARDS DE METRICAS DE PROSPECÇÃO -->
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
       
@@ -268,6 +292,17 @@
   </div>
 </div>
 
+<style>
+  @media print {
+    body * { visibility: hidden !important; }
+    #dossie-painel, #dossie-painel * { visibility: visible !important; }
+    #dossie-painel { position: absolute; inset: 0 auto auto 0; width: 100%; color: #0f172a !important; background: #fff !important; }
+    #dossie-painel * { color: #0f172a !important; background: transparent !important; border-color: #cbd5e1 !important; box-shadow: none !important; }
+    #dossie-painel .no-print { display: none !important; }
+    #dossie-painel .print-break { break-inside: avoid; }
+  }
+</style>
+
 <script>
   function filterCompaniesTable() {
     const term = (document.getElementById('company-search').value || '').toLowerCase().trim();
@@ -281,5 +316,177 @@
       }
     });
   }
+  // ---------- Dossiê 360° ----------
+  function escDossie(v) {
+    return String(v ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+  }
+  function mascaraCnpjDossie(v) {
+    const d = String(v || '').replace(/\D/g, '').slice(0, 14);
+    return d.replace(/^(\d{2})(\d)/, '$1.$2').replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3')
+            .replace(/\.(\d{3})(\d)/, '.$1/$2').replace(/(\d{4})(\d)/, '$1-$2');
+  }
+  const moedaBR = (v) => (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  const dataBR = (iso) => iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : '—';
+
+  const SELOS = {
+    verde: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/50',
+    amarelo: 'bg-amber-500/15 text-amber-300 border-amber-500/50',
+    vermelho: 'bg-rose-500/15 text-rose-300 border-rose-500/50',
+  };
+  const ICONES_VERIFICACAO = {
+    ok: 'fa-circle-check text-emerald-400', falha: 'fa-circle-xmark text-rose-400',
+    alerta: 'fa-triangle-exclamation text-amber-400', nao_verificado: 'fa-circle-question text-slate-400',
+  };
+
+  function erroDossie(msg) {
+    const el = document.getElementById('dossie-erro');
+    el.textContent = msg || '';
+    el.classList.toggle('hidden', !msg);
+  }
+
+  async function buscarDossie(ev) {
+    ev.preventDefault();
+    erroDossie('');
+    document.getElementById('dossie-candidatos').classList.add('hidden');
+    const termo = document.getElementById('dossie-termo').value.trim();
+    const digitos = termo.replace(/\D/g, '');
+    if (digitos.length === 14 && /^[\d.\/\s-]+$/.test(termo)) return carregarDossie(digitos);
+    if (termo.length < 3) return erroDossie('Digite o CNPJ ou pelo menos 3 letras da razão social.');
+    const botao = document.getElementById('btn-dossie');
+    botao.disabled = true;
+    try {
+      const resp = await fetch(`/api/fornecedores/busca?q=${encodeURIComponent(termo)}`, { credentials: 'same-origin' });
+      const corpo = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(typeof corpo.detail === 'string' ? corpo.detail : 'Falha na busca.');
+      const lista = document.getElementById('dossie-candidatos');
+      if (!corpo.resultados.length) return erroDossie('Nenhuma empresa com esse nome em contratos do PNCP. Tente pelo CNPJ.');
+      lista.innerHTML = corpo.resultados.map(r => `
+        <li><button type="button" data-cnpj="${r.cnpj}" class="w-full text-left px-4 py-2.5 hover:bg-slate-800/60 transition cursor-pointer flex justify-between gap-3">
+          <span class="font-semibold text-slate-100">${escDossie(r.nome)}</span><span class="font-mono text-slate-400">${r.cnpj_formatado}</span>
+        </button></li>`).join('');
+      lista.querySelectorAll('button[data-cnpj]').forEach(b => b.addEventListener('click', () => {
+        lista.classList.add('hidden');
+        carregarDossie(b.dataset.cnpj);
+      }));
+      lista.classList.remove('hidden');
+    } catch (e) {
+      erroDossie(e.message);
+    } finally {
+      botao.disabled = false;
+    }
+  }
+
+  async function carregarDossie(cnpj, atualizar = false) {
+    erroDossie('');
+    const painel = document.getElementById('dossie-painel');
+    const botao = document.getElementById('btn-dossie');
+    botao.disabled = true;
+    painel.classList.remove('hidden');
+    painel.innerHTML = '<div class="py-10 text-center text-xs text-slate-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Consultando Receita Federal, PNCP e cadastros de sanções...</div>';
+    try {
+      const resp = await fetch(`/api/fornecedores/dossie/${cnpj}${atualizar ? '?atualizar=true' : ''}`, { credentials: 'same-origin' });
+      const corpo = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(typeof corpo.detail === 'string' ? corpo.detail : 'Falha ao gerar o dossiê.');
+      painel.innerHTML = renderizarDossie(corpo);
+      document.getElementById('dossie-termo').value = corpo.cnpj_formatado;
+    } catch (e) {
+      painel.classList.add('hidden');
+      erroDossie(e.message);
+    } finally {
+      botao.disabled = false;
+    }
+  }
+
+  function renderizarDossie(d) {
+    const r = d.receita, c = d.contratos || {}, risco = d.risco, s = d.sancoes || {};
+    const end = r.endereco || {};
+    const fundacao = d.fundacao ? `${d.fundacao.anos} ano(s) e ${d.fundacao.meses} mês(es)` : '—';
+    const verificacoes = (risco.verificacoes || []).map(v => `
+      <li class="flex items-start gap-2"><i class="fa-solid ${ICONES_VERIFICACAO[v.resultado] || ICONES_VERIFICACAO.nao_verificado} mt-0.5"></i>
+        <span><b class="text-slate-200">${escDossie(v.item)}:</b> <span class="text-slate-400">${escDossie(v.detalhe)}</span></span></li>`).join('');
+    const qsa = (r.qsa || []).length ? r.qsa.map(sc => `
+      <tr class="border-t border-slate-800"><td class="py-2 pr-3 font-semibold text-slate-100">${escDossie(sc.nome)}</td>
+        <td class="py-2 pr-3 text-slate-300">${escDossie(sc.qualificacao)}</td>
+        <td class="py-2 pr-3 font-mono text-slate-400">${dataBR(sc.data_entrada)}</td>
+        <td class="py-2 text-slate-400">${escDossie(sc.faixa_etaria || '—')}</td></tr>`).join('')
+      : '<tr><td colspan="4" class="py-3 text-slate-500">Quadro societário não informado pela Receita (ex.: empresário individual).</td></tr>';
+    const cnaes = [r.cnae_principal, ...(r.cnaes_secundarios || [])].filter(x => x && x.codigo).map((x, i) =>
+      `<li><span class="font-mono text-purple-300">${escDossie(x.codigo)}</span> ${escDossie(x.descricao)}${i === 0 ? ' <span class="text-[10px] text-slate-500">(principal)</span>' : ''}</li>`).join('');
+    let contratos;
+    if (!c.disponivel) {
+      contratos = `<p class="text-xs text-amber-300">PNCP indisponível no momento: histórico de contratos não consultado. ${escDossie(c.motivo || '')}</p>`;
+    } else {
+      const orgaos = (c.principais_orgaos || []).map(o => `<li class="flex justify-between gap-3"><span class="text-slate-300">${escDossie(o.nome)}${o.uf ? ' / ' + escDossie(o.uf) : ''}</span><span class="font-mono text-slate-400 whitespace-nowrap">${o.contratos} · ${moedaBR(o.valor)}</span></li>`).join('');
+      const recentes = (c.recentes || []).map(k => `
+        <tr class="border-t border-slate-800 align-top"><td class="py-2 pr-3 font-mono text-slate-400 whitespace-nowrap">${dataBR(k.data_assinatura)}</td>
+          <td class="py-2 pr-3"><div class="text-slate-200">${escDossie(k.orgao)}${k.uf ? ' / ' + escDossie(k.uf) : ''}</div><div class="text-[11px] text-slate-500 line-clamp-2">${escDossie(k.objeto)}</div></td>
+          <td class="py-2 pr-3 text-right font-mono text-emerald-300 whitespace-nowrap">${moedaBR(k.valor)}</td>
+          <td class="py-2 text-right no-print">${k.url ? `<a href="${escDossie(k.url)}" target="_blank" rel="noopener" class="text-sky-400 hover:text-sky-300" title="Abrir no PNCP"><i class="fa-solid fa-arrow-up-right-from-square"></i></a>` : ''}</td></tr>`).join('');
+      contratos = `
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div class="bg-slate-950/60 border border-slate-800 rounded-xl p-3"><div class="text-[10px] uppercase text-slate-500 font-bold">Contratos</div><div class="text-xl font-black font-mono text-white">${c.total_contratos}</div></div>
+          <div class="bg-slate-950/60 border border-slate-800 rounded-xl p-3"><div class="text-[10px] uppercase text-slate-500 font-bold">Valor acumulado</div><div class="text-base font-black font-mono text-emerald-300">${moedaBR(c.valor_acumulado)}</div></div>
+          <div class="bg-slate-950/60 border border-slate-800 rounded-xl p-3"><div class="text-[10px] uppercase text-slate-500 font-bold">Órgãos compradores</div><div class="text-xl font-black font-mono text-white">${c.orgaos_distintos}</div></div>
+          <div class="bg-slate-950/60 border border-slate-800 rounded-xl p-3"><div class="text-[10px] uppercase text-slate-500 font-bold">Último contrato</div><div class="text-base font-black font-mono text-white">${dataBR(c.ultimo_contrato)}</div></div>
+        </div>
+        ${c.limitado ? '<p class="text-[11px] text-slate-500 mt-2">Estatísticas sobre os contratos mais recentes lidos do PNCP (há mais resultados na busca oficial).</p>' : ''}
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
+          <div class="print-break"><h4 class="text-[11px] font-bold uppercase text-slate-400 mb-2">Principais órgãos compradores</h4><ul class="space-y-1 text-xs">${orgaos || '<li class="text-slate-500">Sem contratos no PNCP.</li>'}</ul></div>
+          <div class="lg:col-span-2 overflow-x-auto print-break"><h4 class="text-[11px] font-bold uppercase text-slate-400 mb-2">Contratos recentes</h4>
+            <table class="w-full text-xs">${recentes || '<tr><td class="text-slate-500">Nenhum contrato publicado no PNCP para este CNPJ.</td></tr>'}</table></div>
+        </div>`;
+    }
+    const sancoes = s.verificado
+      ? (s.registros.length ? s.registros.map(x => `<li class="text-rose-300">${escDossie(x.cadastro)} · ${escDossie(x.tipo)} · ${escDossie(x.orgao)} (${escDossie(x.inicio)}${x.fim ? ' a ' + escDossie(x.fim) : ''})</li>`).join('') : '<li class="text-emerald-300">Nada consta no CEIS e no CNEP.</li>')
+      : `<li class="text-slate-400">${escDossie(s.motivo || 'Não verificado.')} <a href="${escDossie(s.link || '#')}" target="_blank" rel="noopener" class="text-sky-400 underline no-print">Consultar no Portal da Transparência</a></li>`;
+
+    return `
+      <div class="flex flex-col md:flex-row md:items-start justify-between gap-4 print-break">
+        <div>
+          <div class="text-[11px] font-mono text-slate-400">${escDossie(d.cnpj_formatado)} · ${escDossie(r.porte || '')}</div>
+          <h3 class="text-lg font-black text-white leading-tight">${escDossie(r.razao_social)}</h3>
+          ${r.nome_fantasia ? `<div class="text-xs text-slate-400">${escDossie(r.nome_fantasia)}</div>` : ''}
+          <div class="text-[11px] text-slate-500 mt-1">${escDossie([end.logradouro, end.numero, end.bairro].filter(Boolean).join(', '))} — ${escDossie(end.municipio)}/${escDossie(end.uf)}</div>
+        </div>
+        <div class="flex flex-col items-start md:items-end gap-2">
+          <span id="dossie-selo" data-nivel="${risco.nivel}" class="inline-flex items-center gap-2 text-sm font-black uppercase px-3 py-1.5 rounded-xl border ${SELOS[risco.nivel]}">
+            <i class="fa-solid fa-shield-halved"></i> ${escDossie(risco.rotulo)}
+          </span>
+          <div class="flex gap-2 no-print">
+            <button type="button" onclick="carregarDossie('${d.cnpj}', true)" class="text-[11px] px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer"><i class="fa-solid fa-rotate"></i> Atualizar</button>
+            <button type="button" onclick="window.print()" class="text-[11px] px-2.5 py-1 rounded-lg bg-purple-600 hover:bg-purple-500 text-white cursor-pointer"><i class="fa-solid fa-print"></i> Imprimir / PDF</button>
+          </div>
+        </div>
+      </div>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 print-break">
+        <div class="bg-slate-950/60 border border-slate-800 rounded-xl p-3"><div class="text-[10px] uppercase text-slate-500 font-bold">Situação</div><div class="text-sm font-black ${r.situacao === 'ATIVA' ? 'text-emerald-300' : 'text-rose-300'}">${escDossie(r.situacao || '—')}</div></div>
+        <div class="bg-slate-950/60 border border-slate-800 rounded-xl p-3"><div class="text-[10px] uppercase text-slate-500 font-bold">Capital social</div><div class="text-sm font-black font-mono text-white">${moedaBR(r.capital_social)}</div></div>
+        <div class="bg-slate-950/60 border border-slate-800 rounded-xl p-3"><div class="text-[10px] uppercase text-slate-500 font-bold">Tempo de fundação</div><div class="text-sm font-black text-white">${fundacao}</div><div class="text-[10px] text-slate-500">desde ${dataBR(r.data_abertura)}</div></div>
+        <div class="bg-slate-950/60 border border-slate-800 rounded-xl p-3"><div class="text-[10px] uppercase text-slate-500 font-bold">Natureza jurídica</div><div class="text-xs font-semibold text-white">${escDossie(r.natureza_juridica || '—')}</div></div>
+      </div>
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="bg-slate-950/40 border border-slate-800 rounded-xl p-4 print-break"><h4 class="text-[11px] font-bold uppercase text-slate-400 mb-2">Matriz de risco</h4><ul class="space-y-1.5 text-xs">${verificacoes}</ul></div>
+        <div class="bg-slate-950/40 border border-slate-800 rounded-xl p-4 print-break"><h4 class="text-[11px] font-bold uppercase text-slate-400 mb-2">Sanções (CEIS/CNEP)</h4><ul class="space-y-1 text-xs">${sancoes}</ul></div>
+      </div>
+      <div class="bg-slate-950/40 border border-slate-800 rounded-xl p-4 overflow-x-auto print-break">
+        <h4 class="text-[11px] font-bold uppercase text-slate-400 mb-2">Quadro de sócios e administradores (QSA)</h4>
+        <table class="w-full text-xs"><thead><tr class="text-[10px] uppercase text-slate-500"><th class="text-left font-bold pb-1">Nome</th><th class="text-left font-bold pb-1">Qualificação</th><th class="text-left font-bold pb-1">Entrada</th><th class="text-left font-bold pb-1">Faixa etária</th></tr></thead><tbody>${qsa}</tbody></table>
+      </div>
+      <div class="bg-slate-950/40 border border-slate-800 rounded-xl p-4 print-break"><h4 class="text-[11px] font-bold uppercase text-slate-400 mb-2">Atividades (CNAE)</h4><ul class="space-y-1 text-xs text-slate-300">${cnaes}</ul></div>
+      <div class="bg-slate-950/40 border border-slate-800 rounded-xl p-4">
+        <h4 class="text-[11px] font-bold uppercase text-slate-400 mb-3">Histórico de contratos públicos (PNCP)</h4>${contratos}
+      </div>
+      <p class="text-[10px] text-slate-500">Fontes: ${escDossie(r.fonte)}; ${escDossie(c.fonte || 'PNCP')}; ${escDossie(s.fonte || 'Portal da Transparência')}. Gerado em ${new Date(d.gerado_em + 'Z').toLocaleString('pt-BR')}${d.cache ? ' (cache de até 24 h)' : ''}.</p>`;
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const campo = document.getElementById('dossie-termo');
+    campo.addEventListener('input', () => {
+      if (/^[\d.\/\s-]*$/.test(campo.value)) campo.value = mascaraCnpjDossie(campo.value);
+    });
+    document.getElementById('form-dossie').addEventListener('submit', buscarDossie);
+    const inicial = new URLSearchParams(location.search).get('cnpj');
+    if (inicial && inicial.replace(/\D/g, '').length === 14) carregarDossie(inicial.replace(/\D/g, ''));
+  });
 </script>
 {% endblock %}

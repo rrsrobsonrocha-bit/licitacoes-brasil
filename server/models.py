@@ -528,6 +528,8 @@ DOCUMENTO_STATUS_VALIDO = "VALIDO"
 DOCUMENTO_STATUS_A_VENCER = "A_VENCER"
 DOCUMENTO_STATUS_VENCIDO = "VENCIDO"
 DOCUMENTO_STATUS_SEM_VALIDADE = "SEM_VALIDADE"
+# Certidão listada no cofre (importação por CNPJ) que ainda precisa ser emitida no site oficial
+DOCUMENTO_STATUS_PENDENTE = "PENDENTE"
 
 
 def hoje_sao_paulo() -> date:
@@ -547,8 +549,15 @@ class DocumentoEmpresa(Base):
     categoria = Column(String(50), nullable=False, index=True)  # chave de DOCUMENTO_CATEGORIAS
     data_emissao = Column(Date, nullable=False)
     data_validade = Column(Date, nullable=True, index=True)  # None = sem vencimento (ex.: contrato social)
-    caminho_arquivo = Column(String(1000), nullable=False)
+    caminho_arquivo = Column(String(1000), nullable=False)  # "" = ainda sem PDF (certidão pendente)
     tags_habilitacao = Column(String(500), nullable=True)  # lista separada por vírgulas
+    # Dono do documento: o cofre é privado por conta (NULL = legado, atribuído à conta principal)
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    cnpj = Column(String(14), nullable=True, index=True)
+    origem = Column(String(20), nullable=True)  # MANUAL ou CNPJ (importação automática)
+    link_oficial = Column(String(500), nullable=True)  # onde emitir/conferir a certidão
+    validade_padrao_dias = Column(Integer, nullable=True)  # sugestão de validade ao anexar o PDF
+    pendente = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -570,7 +579,9 @@ class DocumentoEmpresa(Base):
         return (self.data_validade - ref).days
 
     def status_validade(self, hoje: Optional[date] = None) -> str:
-        """VALIDO (>15 dias), A_VENCER (0 a 15 dias), VENCIDO (<0) ou SEM_VALIDADE."""
+        """VALIDO (>15 dias), A_VENCER (0 a 15 dias), VENCIDO (<0), SEM_VALIDADE ou PENDENTE."""
+        if self.pendente:
+            return DOCUMENTO_STATUS_PENDENTE
         dias = self.dias_restantes(hoje)
         if dias is None:
             return DOCUMENTO_STATUS_SEM_VALIDADE
@@ -581,7 +592,16 @@ class DocumentoEmpresa(Base):
         return DOCUMENTO_STATUS_VALIDO
 
     def is_valido(self, hoje: Optional[date] = None) -> bool:
-        return self.status_validade(hoje) != DOCUMENTO_STATUS_VENCIDO
+        return self.status_validade(hoje) not in (DOCUMENTO_STATUS_VENCIDO, DOCUMENTO_STATUS_PENDENTE)
+
+
+class DossieFornecedor(Base):
+    """Cache (24 h) do dossiê público de um CNPJ: Receita (BrasilAPI), contratos no PNCP e sanções."""
+    __tablename__ = "dossies_fornecedor"
+
+    cnpj = Column(String(14), primary_key=True)
+    dados = Column(JSON, nullable=False)
+    atualizado_em = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
 
 # ==============================================================================

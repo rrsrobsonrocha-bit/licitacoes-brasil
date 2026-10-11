@@ -214,6 +214,10 @@ app = FastAPI(
 # Webhooks de integrações externas (Hotmart, em modo de espera)
 from server.routes.webhooks import router as webhooks_router
 app.include_router(webhooks_router)
+from server.routes.documents import router as documentos_router
+from server.routes.dossie import router as dossie_router
+app.include_router(documentos_router)
+app.include_router(dossie_router)
 
 # CORS
 app.add_middleware(
@@ -835,11 +839,8 @@ def page_juridico(
 @app.get("/documentos", response_class=HTMLResponse)
 def page_documentos(request: Request, db: Session = Depends(get_db)):
     hoje = hoje_sao_paulo()
-    docs = db.query(DocumentoEmpresa).order_by(
-        DocumentoEmpresa.data_validade.is_(None),
-        DocumentoEmpresa.data_validade.asc(),
-        DocumentoEmpresa.nome.asc()
-    ).all()
+    user = get_current_user(request, db)
+    docs = document_vault.documentos_ordenados(db, user.id if user else None)
     serializados = [document_vault.serializar_documento(d, hoje) for d in docs]
     return templates.TemplateResponse(
         request,
@@ -2565,20 +2566,15 @@ def api_juridico_gerar_pdf(payload: GerarPeticaoPDFRequest, db: Session = Depend
 
 @app.get("/api/documentos")
 def api_listar_documentos(
+    request: Request,
     status_filtro: Optional[str] = Query(None, alias="status"),
     categoria: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
-    """Lista documentos do cofre com dias restantes e status de validade calculados (fuso America/Sao_Paulo)."""
+    """Lista os documentos do cofre da conta com dias restantes e status de validade (fuso America/Sao_Paulo)."""
     hoje = hoje_sao_paulo()
-    query = db.query(DocumentoEmpresa)
-    if categoria:
-        query = query.filter(DocumentoEmpresa.categoria == categoria.lower())
-    docs = query.order_by(
-        DocumentoEmpresa.data_validade.is_(None),
-        DocumentoEmpresa.data_validade.asc(),
-        DocumentoEmpresa.nome.asc()
-    ).all()
+    user = get_current_user(request, db)
+    docs = document_vault.documentos_ordenados(db, user.id if user else None, categoria)
     itens = [document_vault.serializar_documento(d, hoje) for d in docs]
     if status_filtro:
         itens = [i for i in itens if i["status"] == status_filtro.upper()]
@@ -2592,6 +2588,7 @@ def api_listar_documentos(
 
 @app.post("/api/documentos", status_code=status.HTTP_201_CREATED)
 async def api_upload_documento(
+    request: Request,
     nome: str = Form(...),
     categoria: str = Form(...),
     data_emissao: str = Form(...),
@@ -2611,7 +2608,10 @@ async def api_upload_documento(
         await arquivo.close()
 
     caminho = document_vault.salvar_pdf_no_cofre(conteudo, meta["nome"])
+    user = get_current_user(request, db)
     doc = DocumentoEmpresa(
+        user_id=user.id if user else None,
+        origem="MANUAL",
         nome=meta["nome"],
         categoria=meta["categoria"],
         data_emissao=meta["data_emissao"],
@@ -2633,8 +2633,9 @@ async def api_upload_documento(
 
 
 @app.get("/api/documentos/{documento_id}/arquivo")
-def api_baixar_documento(documento_id: int, db: Session = Depends(get_db)):
-    doc = db.query(DocumentoEmpresa).filter(DocumentoEmpresa.id == documento_id).first()
+def api_baixar_documento(documento_id: int, request: Request, db: Session = Depends(get_db)):
+    user = get_current_user(request, db)
+    doc = document_vault.consulta_do_cofre(db, user.id if user else None).filter(DocumentoEmpresa.id == documento_id).first()
     if not doc:
         raise HTTPException(status_code=404, detail="Documento não encontrado.")
     caminho = document_vault.resolver_caminho_documento(doc.caminho_arquivo)
@@ -2648,8 +2649,9 @@ def api_baixar_documento(documento_id: int, db: Session = Depends(get_db)):
 
 
 @app.delete("/api/documentos/{documento_id}")
-def api_excluir_documento(documento_id: int, db: Session = Depends(get_db)):
-    doc = db.query(DocumentoEmpresa).filter(DocumentoEmpresa.id == documento_id).first()
+def api_excluir_documento(documento_id: int, request: Request, db: Session = Depends(get_db)):
+    user = get_current_user(request, db)
+    doc = document_vault.consulta_do_cofre(db, user.id if user else None).filter(DocumentoEmpresa.id == documento_id).first()
     if not doc:
         raise HTTPException(status_code=404, detail="Documento não encontrado.")
     caminho = doc.caminho_arquivo
@@ -2869,10 +2871,11 @@ async def api_tender_arquivo_download(
 # ----------------- Kit de Habilitação (ZIP) -----------------
 
 @app.get("/api/tenders/{tender_id}/download-kit-zip")
-def api_download_kit_habilitacao(tender_id: str, db: Session = Depends(get_db)):
-    """Empacota os documentos válidos do cofre + Relatorio_Conformidade.pdf para o certame."""
+def api_download_kit_habilitacao(tender_id: str, request: Request, db: Session = Depends(get_db)):
+    """Empacota os documentos válidos do cofre da conta + Relatorio_Conformidade.pdf para o certame."""
+    user = get_current_user(request, db)
     try:
-        zip_bytes = montar_kit_habilitacao_zip(tender_id, db=db)
+        zip_bytes = montar_kit_habilitacao_zip(tender_id, db=db, user_id=user.id if user else None)
     except KitHabilitacaoError:
         raise HTTPException(status_code=404, detail="Licitação não encontrada.")
     tender = db.query(Tender).filter((Tender.id == tender_id) | (Tender.external_id == tender_id)).first()

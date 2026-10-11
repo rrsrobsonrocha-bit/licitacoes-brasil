@@ -43,6 +43,11 @@
             <span class="text-rose-300">Vencidos</span>
             <span id="resumo-vencidos" class="font-bold text-rose-300 font-mono">{{ resumo.vencidos }}</span>
           </button>
+          <button type="button" data-status-filter="PENDENTE" class="status-pill bg-sky-500/10 border border-sky-500/30 rounded-xl px-3 py-1.5 flex items-center gap-2 cursor-pointer">
+            <span class="w-2 h-2 rounded-full bg-sky-400"></span>
+            <span class="text-sky-300">Pendentes</span>
+            <span id="resumo-pendentes" class="font-bold text-sky-300 font-mono">{{ resumo.pendentes }}</span>
+          </button>
         </div>
       </div>
     </div>
@@ -51,7 +56,27 @@
   <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
 
     <!-- Formulário de Upload -->
-    <section class="lg:col-span-1">
+    <section class="lg:col-span-1 space-y-4">
+      <form id="form-importar-cnpj" class="bg-gradient-to-br from-emerald-950/80 to-slate-900/80 border border-emerald-500/40 rounded-2xl p-5 shadow-lg space-y-3" novalidate>
+        <div class="flex items-center gap-2">
+          <span class="text-base" aria-hidden="true">⚡</span>
+          <h2 class="text-sm font-bold text-white">Preenchimento Rápido por CNPJ</h2>
+        </div>
+        <p class="text-[11px] text-slate-400 leading-relaxed">
+          Consulta a Receita Federal e monta o pacote de habilitação (arts. 62 a 70): o que tiver consulta oficial
+          entra válido; certidões emitidas só nos sites oficiais entram como <span class="text-sky-300 font-semibold">pendentes</span>, com o link de emissão.
+        </p>
+        <div class="flex gap-2">
+          <label for="cnpj-importacao" class="sr-only">CNPJ da empresa</label>
+          <input id="cnpj-importacao" name="cnpj" type="text" inputmode="numeric" autocomplete="off" maxlength="18" placeholder="00.000.000/0000-00" class="flex-1 min-w-0 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 placeholder-slate-500 font-mono focus:outline-none focus:border-emerald-500 transition">
+          <button id="btn-importar-cnpj" type="submit" class="shrink-0 bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-2 rounded-xl text-xs transition shadow-md flex items-center gap-1.5 cursor-pointer disabled:opacity-60">
+            <i class="fa-solid fa-bolt"></i> Puxar Certidões Públicas
+          </button>
+        </div>
+        <p id="importacao-erro" class="hidden text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded-xl px-3 py-2"></p>
+        <ul id="importacao-resultado" class="hidden space-y-1.5 text-[11px]"></ul>
+      </form>
+
       <form id="form-upload-documento" class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-lg space-y-4" enctype="multipart/form-data" novalidate>
         <div class="flex items-center gap-2">
           <i class="fa-solid fa-cloud-arrow-up text-emerald-400"></i>
@@ -155,6 +180,36 @@
   </div>
 </div>
 
+<!-- Anexar o PDF emitido a uma certidão pendente -->
+<div id="modal-anexar" class="hidden fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="anexar-titulo">
+  <form id="form-anexar" class="w-full max-w-md bg-slate-900 border border-slate-700 rounded-2xl p-5 shadow-2xl space-y-4 text-slate-100" novalidate>
+    <div class="flex items-start justify-between gap-3">
+      <div>
+        <h2 id="anexar-titulo" class="text-sm font-bold text-white">Anexar PDF emitido</h2>
+        <p id="anexar-nome" class="text-[11px] text-slate-400 mt-0.5"></p>
+      </div>
+      <button type="button" onclick="fecharAnexar()" class="p-1 text-slate-400 hover:text-white cursor-pointer" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <a id="anexar-link" href="#" target="_blank" rel="noopener" class="hidden text-xs text-sky-300 hover:text-sky-200 underline">Emitir no site oficial <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i></a>
+    <div class="grid grid-cols-2 gap-3">
+      <div>
+        <label for="anexar-emissao" class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Emissão *</label>
+        <input id="anexar-emissao" type="date" required class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 [color-scheme:dark]">
+      </div>
+      <div>
+        <label for="anexar-validade" class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Validade</label>
+        <input id="anexar-validade" type="date" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 [color-scheme:dark]">
+      </div>
+    </div>
+    <p id="anexar-dica" class="text-[10px] text-slate-500"></p>
+    <input id="anexar-arquivo" type="file" required accept="application/pdf,.pdf" class="w-full text-xs text-slate-300 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-200 cursor-pointer">
+    <p id="anexar-erro" class="hidden text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded-xl px-3 py-2"></p>
+    <button id="btn-anexar" type="submit" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl text-xs transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60">
+      <i class="fa-solid fa-paperclip"></i> Anexar ao cofre
+    </button>
+  </form>
+</div>
+
 <script>
   const DIAS_ALERTA = {{ dias_alerta|int }};
   let documentos = {{ documentos|tojson }};
@@ -200,10 +255,12 @@
     VALIDO: { cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40', dot: 'bg-emerald-400', label: 'Válido' },
     SEM_VALIDADE: { cls: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30', dot: 'bg-emerald-400', label: 'Sem vencimento' },
     A_VENCER: { cls: 'bg-amber-500/15 text-amber-300 border-amber-500/40', dot: 'bg-amber-400 animate-pulse', label: 'A vencer' },
-    VENCIDO: { cls: 'bg-rose-500/15 text-rose-300 border-rose-500/40', dot: 'bg-rose-400', label: 'Vencido' }
+    VENCIDO: { cls: 'bg-rose-500/15 text-rose-300 border-rose-500/40', dot: 'bg-rose-400', label: 'Vencido' },
+    PENDENTE: { cls: 'bg-sky-500/15 text-sky-300 border-sky-500/40', dot: 'bg-sky-400', label: 'Pendente de emissão' }
   };
 
   function corDias(status) {
+    if (status === 'PENDENTE') return 'text-sky-300';
     if (status === 'VENCIDO') return 'text-rose-300';
     if (status === 'A_VENCER') return 'text-amber-300';
     return 'text-emerald-300';
@@ -224,17 +281,18 @@
   function renderizar() {
     const termo = (document.getElementById('busca-documentos').value || '').toLowerCase().trim();
     const tbody = document.getElementById('documentos-tbody');
-    const resumo = { total: 0, validos: 0, a_vencer: 0, vencidos: 0 };
+    const resumo = { total: 0, validos: 0, a_vencer: 0, vencidos: 0, pendentes: 0 };
     const linhas = [];
 
     documentos.forEach(doc => {
-      const dias = calcularDiasRestantes(doc.data_validade);
-      const status = calcularStatus(dias);
+      const dias = doc.pendente ? null : calcularDiasRestantes(doc.data_validade);
+      const status = doc.pendente ? 'PENDENTE' : calcularStatus(dias);
       doc.dias_restantes = dias;
       doc.status = status;
 
       resumo.total++;
-      if (status === 'VENCIDO') resumo.vencidos++;
+      if (status === 'PENDENTE') resumo.pendentes++;
+      else if (status === 'VENCIDO') resumo.vencidos++;
       else if (status === 'A_VENCER') resumo.a_vencer++;
       else resumo.validos++;
 
@@ -245,9 +303,13 @@
 
       const badge = BADGES[status];
       const tags = (doc.tags || []).map(t => `<span class="text-[10px] bg-slate-950 text-slate-400 border border-slate-800 px-1.5 py-0.5 rounded">${escapeHtml(t)}</span>`).join(' ');
+      const linkOficial = doc.link_oficial
+        ? `<a href="${escapeHtml(doc.link_oficial)}" target="_blank" rel="noopener" class="p-1.5 rounded-lg text-sky-300 hover:text-white hover:bg-slate-800 transition" title="Emitir/conferir no site oficial"><i class="fa-solid fa-arrow-up-right-from-square"></i></a>`
+        : '';
+      const anexar = `<button type="button" onclick="abrirAnexar(${doc.id})" class="p-1.5 rounded-lg text-emerald-300 hover:text-white hover:bg-slate-800 transition cursor-pointer" title="Anexar o PDF emitido"><i class="fa-solid fa-paperclip"></i></button>`;
       const arquivo = doc.arquivo_disponivel
         ? `<a href="${doc.arquivo_url}" target="_blank" rel="noopener" class="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition" title="Abrir PDF"><i class="fa-regular fa-file-pdf"></i></a>`
-        : `<span class="p-1.5 text-rose-400" title="Arquivo físico ausente"><i class="fa-solid fa-triangle-exclamation"></i></span>`;
+        : (doc.pendente ? anexar : `<span class="p-1.5 text-rose-400" title="Arquivo físico ausente"><i class="fa-solid fa-triangle-exclamation"></i></span>`);
 
       linhas.push(`
         <tr class="hover:bg-slate-800/30 transition" data-doc-id="${doc.id}" data-status="${status}">
@@ -259,8 +321,8 @@
           <td class="px-3 py-3 align-top font-mono text-slate-400">${formatarDataBR(doc.data_emissao)}</td>
           <td class="px-3 py-3 align-top font-mono text-slate-300">${formatarDataBR(doc.data_validade)}</td>
           <td class="px-3 py-3 align-top text-right">
-            <div class="dias-restantes font-mono font-black text-base leading-none ${corDias(status)}">${textoDias(dias)}</div>
-            <div class="text-[10px] text-slate-500 mt-0.5">${legendaDias(dias)}</div>
+            <div class="dias-restantes font-mono font-black text-base leading-none ${corDias(status)}">${doc.pendente ? '—' : textoDias(dias)}</div>
+            <div class="text-[10px] text-slate-500 mt-0.5">${doc.pendente ? 'emitir e anexar' : legendaDias(dias)}</div>
           </td>
           <td class="px-3 py-3 align-top">
             <span class="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase px-2 py-1 rounded-md border ${badge.cls}">
@@ -268,7 +330,7 @@
             </span>
           </td>
           <td class="px-4 py-3 align-top text-right whitespace-nowrap">
-            ${arquivo}
+            ${linkOficial}${arquivo}
             <button type="button" onclick="excluirDocumento(${doc.id})" class="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition cursor-pointer" title="Excluir do cofre">
               <i class="fa-regular fa-trash-can"></i>
             </button>
@@ -282,12 +344,13 @@
     document.getElementById('resumo-validos').textContent = resumo.validos;
     document.getElementById('resumo-a-vencer').textContent = resumo.a_vencer;
     document.getElementById('resumo-vencidos').textContent = resumo.vencidos;
+    document.getElementById('resumo-pendentes').textContent = resumo.pendentes;
   }
 
   function definirFiltroStatus(status) {
     filtroStatus = (filtroStatus === status) ? '' : status;
     const label = document.getElementById('filtro-ativo-label');
-    const nomes = { VALIDO: 'Válidos', A_VENCER: 'A vencer', VENCIDO: 'Vencidos' };
+    const nomes = { VALIDO: 'Válidos', A_VENCER: 'A vencer', VENCIDO: 'Vencidos', PENDENTE: 'Pendentes' };
     if (filtroStatus) {
       label.textContent = nomes[filtroStatus];
       label.classList.remove('hidden');
@@ -374,7 +437,134 @@
     }
   }
 
+  // ---------- Preenchimento rápido por CNPJ ----------
+  function mascararCnpj(valor) {
+    const d = String(valor || '').replace(/\D/g, '').slice(0, 14);
+    return d.replace(/^(\d{2})(\d)/, '$1.$2').replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3')
+            .replace(/\.(\d{3})(\d)/, '.$1/$2').replace(/(\d{4})(\d)/, '$1-$2');
+  }
+
+  async function recarregarDocumentos() {
+    const resp = await fetch('/api/documentos', { credentials: 'same-origin' });
+    if (resp.ok) {
+      documentos = (await resp.json()).items || [];
+      renderizar();
+    }
+  }
+
+  const ROTULOS_IMPORTACAO = {
+    valido: ['text-emerald-300', 'fa-circle-check', 'Consultado e guardado'],
+    pendente: ['text-sky-300', 'fa-clock', 'Pendente: emitir no site oficial'],
+    alerta: ['text-rose-300', 'fa-triangle-exclamation', 'Restrição encontrada'],
+    existente: ['text-slate-400', 'fa-box-archive', 'Já estava no cofre'],
+  };
+
+  async function importarPorCnpj(ev) {
+    ev.preventDefault();
+    const erro = document.getElementById('importacao-erro');
+    const lista = document.getElementById('importacao-resultado');
+    erro.classList.add('hidden');
+    const cnpj = document.getElementById('cnpj-importacao').value.replace(/\D/g, '');
+    if (cnpj.length !== 14) {
+      erro.textContent = 'Digite os 14 dígitos do CNPJ.';
+      erro.classList.remove('hidden');
+      return;
+    }
+    const botao = document.getElementById('btn-importar-cnpj');
+    const original = botao.innerHTML;
+    botao.disabled = true;
+    botao.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Consultando...';
+    try {
+      const resp = await fetch(`/api/documents/auto-import/${cnpj}`, { method: 'POST', credentials: 'same-origin' });
+      const corpo = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(typeof corpo.detail === 'string' ? corpo.detail : 'Falha na consulta do CNPJ.');
+      lista.innerHTML = `<li class="font-semibold text-slate-200">${escapeHtml(corpo.razao_social)} · ${escapeHtml(corpo.situacao)}</li>` +
+        corpo.certidoes.map(c => {
+          const [cor, icone, rotulo] = ROTULOS_IMPORTACAO[c.resultado] || ROTULOS_IMPORTACAO.pendente;
+          const detalhe = c.detalhe ? ` — ${escapeHtml(c.detalhe)}` : '';
+          return `<li class="flex gap-1.5 ${cor}"><i class="fa-solid ${icone} mt-0.5"></i><span><b>${escapeHtml(c.nome)}</b>: ${rotulo}${detalhe}</span></li>`;
+        }).join('');
+      lista.classList.remove('hidden');
+      await recarregarDocumentos();
+      const r = corpo.resumo;
+      showToast(`${r.valido} documento(s) guardado(s) e ${r.pendente + r.alerta} pendente(s) de emissão.`, 'success');
+    } catch (e) {
+      erro.textContent = e.message;
+      erro.classList.remove('hidden');
+    } finally {
+      botao.disabled = false;
+      botao.innerHTML = original;
+    }
+  }
+
+  // ---------- Anexar PDF a uma certidão pendente ----------
+  let documentoAnexando = null;
+
+  function somarDias(iso, dias) {
+    const [y, m, d] = iso.split('-').map(Number);
+    return new Date(Date.UTC(y, m - 1, d + dias)).toISOString().slice(0, 10);
+  }
+
+  function abrirAnexar(id) {
+    documentoAnexando = documentos.find(d => d.id === id);
+    if (!documentoAnexando) return;
+    const hoje = hojeSaoPauloISO();
+    document.getElementById('anexar-nome').textContent = documentoAnexando.nome;
+    document.getElementById('anexar-emissao').value = hoje;
+    const padrao = documentoAnexando.validade_padrao_dias;
+    document.getElementById('anexar-validade').value = padrao ? somarDias(hoje, padrao) : '';
+    document.getElementById('anexar-dica').textContent = padrao
+      ? `Validade sugerida: ${padrao} dias a partir da emissão. Confira a data impressa na certidão.`
+      : 'Informe a validade impressa no documento (deixe em branco se não vencer).';
+    const link = document.getElementById('anexar-link');
+    link.classList.toggle('hidden', !documentoAnexando.link_oficial);
+    if (documentoAnexando.link_oficial) link.href = documentoAnexando.link_oficial;
+    document.getElementById('anexar-arquivo').value = '';
+    document.getElementById('anexar-erro').classList.add('hidden');
+    document.getElementById('modal-anexar').classList.remove('hidden');
+  }
+
+  function fecharAnexar() {
+    document.getElementById('modal-anexar').classList.add('hidden');
+    documentoAnexando = null;
+  }
+
+  async function enviarAnexo(ev) {
+    ev.preventDefault();
+    const erro = document.getElementById('anexar-erro');
+    const arquivo = document.getElementById('anexar-arquivo').files[0];
+    const emissao = document.getElementById('anexar-emissao').value;
+    const validade = document.getElementById('anexar-validade').value;
+    const falhar = (msg) => { erro.textContent = msg; erro.classList.remove('hidden'); };
+    if (!emissao) return falhar('Informe a data de emissão.');
+    if (validade && validade < emissao) return falhar('A validade não pode ser anterior à emissão.');
+    if (!arquivo || !arquivo.name.toLowerCase().endsWith('.pdf')) return falhar('Selecione o PDF emitido.');
+    const dados = new FormData();
+    dados.append('arquivo', arquivo);
+    dados.append('data_emissao', emissao);
+    if (validade) dados.append('data_validade', validade);
+    const botao = document.getElementById('btn-anexar');
+    botao.disabled = true;
+    try {
+      const resp = await fetch(`/api/documentos/${documentoAnexando.id}/anexar`, { method: 'POST', body: dados, credentials: 'same-origin' });
+      const corpo = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(typeof corpo.detail === 'string' ? corpo.detail : 'Falha ao anexar o PDF.');
+      documentos = documentos.map(d => d.id === corpo.id ? corpo : d);
+      fecharAnexar();
+      renderizar();
+      showToast(`"${corpo.nome}" anexado ao cofre.`, 'success');
+    } catch (e) {
+      falhar(e.message);
+    } finally {
+      botao.disabled = false;
+    }
+  }
+
   document.addEventListener('DOMContentLoaded', () => {
+    const campoCnpj = document.getElementById('cnpj-importacao');
+    campoCnpj.addEventListener('input', () => { campoCnpj.value = mascararCnpj(campoCnpj.value); });
+    document.getElementById('form-importar-cnpj').addEventListener('submit', importarPorCnpj);
+    document.getElementById('form-anexar').addEventListener('submit', enviarAnexo);
     document.getElementById('form-upload-documento').addEventListener('submit', enviarDocumento);
     document.getElementById('busca-documentos').addEventListener('input', renderizar);
     document.getElementById('doc-sem-validade').addEventListener('change', (e) => {

@@ -24,6 +24,12 @@ FastAPI + Jinja2 + SQLAlchemy (SQLite em desenvolvimento, PostgreSQL em produç�
 - `server/templates/partials_tender_drawer.html` + `GET /api/tenders/{id}/drawer`: drawer lateral de detalhes
   (busca e painel) com itens e anexos oficiais do PNCP e realce dos termos pesquisados.
 - `server/services/minutas.py` + `/api/minutas`: declarações e proposta readequada (Lei 14.133/2021) em DOCX.
+- `server/services/certidoes.py` + `POST /api/documents/auto-import/{cnpj}`: pacote de habilitação por CNPJ no
+  Cofre. Só entra válido o que foi consultado de fato (situação cadastral via BrasilAPI; CEIS/CNEP com
+  `PORTAL_TRANSPARENCIA_API_KEY`); CND, CRF e CNDT entram PENDENTES com link oficial até o PDF ser anexado
+  (`POST /api/documentos/{id}/anexar`). O Cofre é privado por conta (`DocumentoEmpresa.user_id`).
+- `server/services/dossie.py` + `GET /api/fornecedores/dossie/{cnpj}`: Dossiê 360° (Receita/QSA, contratos do
+  PNCP filtrados por `fornecedor_ni`, sanções, selo de aptidão), cache de 24 h em `dossies_fornecedor`.
 - `server/routes/webhooks.py`: webhook da Hotmart (modo de espera: registra eventos, não altera contas).
 - `server/services/dispute_monitor.py`: Sala de Disputa (lotes e robô de lances, por usuário).
 - `server/templates/`: páginas (busca, painel, funil, agenda, disputa, jurídico).
@@ -34,7 +40,7 @@ FastAPI + Jinja2 + SQLAlchemy (SQLite em desenvolvimento, PostgreSQL em produç�
   disputa ou concorrente pode ser inventado. Sem resposta da API oficial, a coleta não insere nada.
   Dados de exemplo existem apenas na suíte de testes (`seed_dados_de_teste`, `tests/pncp_simulado.py`).
 - **Catálogo global, acompanhamento privado.** Editais sincronizados são compartilhados por todas as
-  contas. Negócios (funil), Favoritos, Agenda, Alertas, logs de webhooks e lotes da Sala de Disputa
+  contas. Negócios (funil), Favoritos, Agenda, Alertas, Cofre de Documentos, logs de webhooks e lotes da Sala de Disputa
   são isolados por usuário (`user_id` / `owner_id`).
 - **Datas oficiais.** `Tender.publication_date` é a `dataPublicacaoPncp` (horário de Brasília). Filtros
   por período ("Publicadas hoje", "Últimos 7 dias", De/Até) usam essa data, nunca a data de inserção local.
