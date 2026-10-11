@@ -279,7 +279,57 @@ def extrair_degrau_minimo(raw: Any) -> Optional[float]:
     return None
 
 
+# tipoBeneficio do PNCP (Lei Complementar 123/2006, arts. 47 a 49):
+# 1 = participação exclusiva ME/EPP, 2 = subcontratação ME/EPP, 3 = cota reservada ME/EPP,
+# 4 = sem benefício, 5 = não se aplica. Subcontratação não restringe quem disputa: conta como ampla.
+BENEFICIO_EXCLUSIVO = "EXCLUSIVO_ME_EPP"
+BENEFICIO_COTA = "COTA_RESERVADA_ME_EPP"
+BENEFICIO_AMPLA = "AMPLA_CONCORRENCIA"
+ROTULOS_BENEFICIO = {
+    BENEFICIO_EXCLUSIVO: "Exclusivo para ME/EPP",
+    BENEFICIO_COTA: "Cota reservada ME/EPP",
+    BENEFICIO_AMPLA: "Ampla Concorrência",
+}
+_BENEFICIO_POR_CODIGO = {1: BENEFICIO_EXCLUSIVO, 2: BENEFICIO_AMPLA, 3: BENEFICIO_COTA, 4: BENEFICIO_AMPLA, 5: BENEFICIO_AMPLA}
+
+
+def classificar_beneficio(raw: Any, nome: Optional[str] = None) -> Optional[str]:
+    """Benefício ME/EPP do item pelo código do PNCP (ou, sem ele, pelo nome). None se não informado."""
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except (TypeError, ValueError):
+            raw = None
+    if isinstance(raw, dict):
+        for chave in ("tipoBeneficio", "tipoBeneficioId"):
+            try:
+                codigo = int(raw.get(chave))
+            except (TypeError, ValueError):
+                continue
+            if codigo in _BENEFICIO_POR_CODIGO:
+                return _BENEFICIO_POR_CODIGO[codigo]
+        nome = nome or raw.get("tipoBeneficioNome")
+    texto = unicodedata.normalize("NFKD", nome or "").encode("ascii", "ignore").decode("ascii").lower()
+    if "exclusiv" in texto:
+        return BENEFICIO_EXCLUSIVO
+    if "cota" in texto:
+        return BENEFICIO_COTA
+    if any(t in texto for t in ("sem benef", "nao se aplica", "subcontrat", "ampla")):
+        return BENEFICIO_AMPLA
+    return None
+
+
+def atualizar_resumo_beneficios(tender: Tender, itens: List[TenderItem]) -> None:
+    """Conta itens reservados a ME/EPP e de ampla concorrência (base dos filtros de benefício da busca)."""
+    tipos = [classificar_beneficio(i.raw_data, i.beneficio) for i in itens]
+    if not any(tipos):
+        return  # PNCP não informou o benefício: o certame segue "não analisado"
+    tender.itens_exclusivos_me_epp = sum(t in (BENEFICIO_EXCLUSIVO, BENEFICIO_COTA) for t in tipos)
+    tender.itens_ampla_concorrencia = sum(t == BENEFICIO_AMPLA for t in tipos)
+
+
 def serializar_item(item: TenderItem) -> Dict[str, Any]:
+    beneficio_tipo = classificar_beneficio(item.raw_data, item.beneficio)
     return {
         "id": item.id,
         "item_number": item.item_number,
@@ -293,6 +343,9 @@ def serializar_item(item: TenderItem) -> Dict[str, Any]:
         "criterio_julgamento": item.criterio_julgamento,
         "situacao": item.situacao,
         "beneficio": item.beneficio,
+        "beneficio_tipo": beneficio_tipo,
+        "beneficio_rotulo": ROTULOS_BENEFICIO.get(beneficio_tipo),
+        "tipo_item": {"M": "Material", "S": "Serviço"}.get((item.material_ou_servico or "").upper()),
         "orcamento_sigiloso": item.orcamento_sigiloso,
         "informacao_complementar": item.informacao_complementar,
         "degrau_minimo": extrair_degrau_minimo(item.raw_data),
@@ -329,6 +382,9 @@ async def sincronizar_itens(db: Session, tender: Tender, forcar: bool = False) -
     if not ident:
         return resposta("sem_identificador", "Certame sem identificador do PNCP; exibindo itens da base local.")
     if ja_sincronizado and not forcar:
+        if tender.itens_exclusivos_me_epp is None:
+            atualizar_resumo_beneficios(tender, existentes)
+            db.commit()
         return resposta("cache", None, "PNCP")
     if not forcar and falha_recente(f"itens:{tender.id}"):
         return resposta("indisponivel", falha_recente(f"itens:{tender.id}"))
@@ -365,6 +421,8 @@ async def sincronizar_itens(db: Session, tender: Tender, forcar: bool = False) -
         if numero not in numeros_pncp:
             db.delete(item)
     tender.last_synced_at = agora
+    db.flush()
+    atualizar_resumo_beneficios(tender, _itens_do_banco(db, tender.id))
     db.commit()
     _falhas_recentes.pop(f"itens:{tender.id}", None)
     return resposta("sincronizado", None, "PNCP")

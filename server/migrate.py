@@ -47,6 +47,8 @@ COLUNAS_TENDERS: List[Tuple[str, str, str]] = [
     ("tenders", "ai_pontos_atencao", "TEXT"),
     ("tenders", "itens_extraidos_json", "TEXT"),
     ("tenders", "natureza_objeto", "VARCHAR(20)"),
+    ("tenders", "itens_exclusivos_me_epp", "INTEGER"),
+    ("tenders", "itens_ampla_concorrencia", "INTEGER"),
 ]
 
 COLUNAS_ITENS_DOCUMENTOS: List[Tuple[str, str, str]] = [
@@ -89,6 +91,10 @@ INDICES_EXPLICITOS: List[Tuple[str, str, str]] = [
     ("ix_tenders_deadline_status", "tenders", "proposal_deadline, status"),
     ("ix_tenders_state_deadline", "tenders", "state, proposal_deadline"),
     ("ix_tenders_modality_deadline", "tenders", "modality, proposal_deadline"),
+    # Filtros avançados da busca: benefício ME/EPP, esfera e portal de disputa
+    ("ix_tenders_itens_exclusivos_me_epp", "tenders", "itens_exclusivos_me_epp"),
+    ("ix_tenders_itens_ampla_concorrencia", "tenders", "itens_ampla_concorrencia"),
+    ("ix_tenders_sphere_deadline", "tenders", "administrative_sphere, proposal_deadline"),
 ]
 
 

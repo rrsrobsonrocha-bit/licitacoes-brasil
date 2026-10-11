@@ -14,9 +14,12 @@ Sem resposta da API, nada é gravado.
   seguinte. Hoje e ontem ainda recebem publicações: retomam da última página lida (relida para
   pegar os acréscimos), sem recomeçar do zero. Duplicidade é impossível (upsert por numeroControlePNCP).
 - Atualização periódica: hoje e ontem, com entrega dos alertas dos usuários para os editais novos.
+- Itens: a cada ciclo, lê no PNCP os itens de até ``AUTO_SYNC_ITENS_POR_CICLO`` editais vigentes ainda
+  não analisados (prazo mais próximo primeiro). É o que alimenta o filtro "Exclusivo ME/EPP" da busca.
 """
 import asyncio
 import threading
+import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
@@ -27,6 +30,7 @@ from server.database import SessionLocal
 from server.integrations.opportunity_collector import sync_procurement_opportunities
 from server.models import SyncProgresso, Tender, hoje_sao_paulo
 from server.search_engine import filtro_vigentes
+from server.services import pncp_compras
 
 # Modalidades com disputa: 6 = Pregão Eletrônico, 8 = Dispensa de Licitação
 MODALIDADES_DISPUTA = [6, 8]
@@ -207,6 +211,47 @@ def disparar_em_background() -> bool:
     return True
 
 
+# tender_id -> instante da última tentativa sem resultado (compra sem itens publicados ou PNCP fora do ar)
+_itens_sem_resultado: Dict[str, float] = {}
+ESPERA_NOVA_TENTATIVA_ITENS = 6 * 3600
+
+
+def enriquecer_itens_vigentes(limite: Optional[int] = None) -> Dict[str, int]:
+    """Lê os itens oficiais dos editais vigentes ainda sem análise de benefício ME/EPP."""
+    limite = settings.AUTO_SYNC_ITENS_POR_CICLO if limite is None else limite
+    resumo = {"analisados": 0, "sem_itens": 0}
+    if limite <= 0:
+        return resumo
+    pausa = 60.0 / settings.PNCP_RATE_LIMIT_PER_MINUTE if settings.PNCP_RATE_LIMIT_PER_MINUTE > 0 else 0.0
+    agora = time.time()
+    db = SessionLocal()
+    try:
+        candidatos = (
+            db.query(Tender.id)
+            .filter(filtro_vigentes(), Tender.itens_exclusivos_me_epp.is_(None))
+            .order_by(Tender.proposal_deadline.asc())
+            .limit(limite * 5)
+            .all()
+        )
+        ids = [tid for (tid,) in candidatos if agora - _itens_sem_resultado.get(tid, 0) > ESPERA_NOVA_TENTATIVA_ITENS][:limite]
+        for indice, tender_id in enumerate(ids):
+            tender = db.get(Tender, tender_id)
+            if tender is None:
+                continue
+            asyncio.run(pncp_compras.sincronizar_itens(db, tender))
+            db.refresh(tender)
+            if tender.itens_exclusivos_me_epp is None:
+                _itens_sem_resultado[tender_id] = time.time()
+                resumo["sem_itens"] += 1
+            else:
+                resumo["analisados"] += 1
+            if pausa and indice < len(ids) - 1:
+                time.sleep(pausa)
+    finally:
+        db.close()
+    return resumo
+
+
 def precisa_warmup(no_arranque: bool) -> bool:
     return (no_arranque and em_producao()) or contar_vigentes() < settings.AUTO_SYNC_MIN_VIGENTES
 
@@ -223,6 +268,8 @@ async def loop_sincronizacao_automatica(atraso_inicial: float = 15.0) -> None:
             else:
                 resumo = await asyncio.to_thread(executar_atualizacao)
             print(f"[AUTO-SYNC] Concluído: {resumo}")
+            itens = await asyncio.to_thread(enriquecer_itens_vigentes)
+            print(f"[AUTO-SYNC] Itens oficiais (benefício ME/EPP): {itens}")
         except asyncio.CancelledError:
             raise
         except Exception as exc:

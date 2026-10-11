@@ -117,6 +117,115 @@ def normalizar_uf(valor: Optional[str]) -> Optional[str]:
     return sigla if sigla in SIGLAS_UF else None
 
 
+def lista_param(valores) -> List[str]:
+    """Junta parâmetros repetidos (?esfera=A&esfera=B) e separados por vírgula (?esfera=A,B), sem duplicar."""
+    if not valores:
+        return []
+    if isinstance(valores, str):
+        valores = [valores]
+    saida: List[str] = []
+    for valor in valores:
+        for parte in str(valor or "").split(","):
+            parte = parte.strip().upper()
+            if parte and parte not in saida:
+                saida.append(parte)
+    return saida
+
+
+# Esfera administrativa: o PNCP grava esferaId (F, E, M, D, N); registros antigos usam o nome por extenso.
+ESFERAS_FILTRO = [
+    ("FEDERAL", "Federal"), ("ESTADUAL", "Estadual"), ("MUNICIPAL", "Municipal"),
+    ("DISTRITAL", "Distrital"), ("OUTROS", "Outros / Consórcios"),
+]
+_VALORES_ESFERA = {
+    "FEDERAL": ("F", "FEDERAL"),
+    "ESTADUAL": ("E", "ESTADUAL"),
+    "MUNICIPAL": ("M", "MUNICIPAL"),
+    "DISTRITAL": ("D", "DISTRITAL"),
+}
+_ESFERA_POR_VALOR = {v: esfera for esfera, valores in _VALORES_ESFERA.items() for v in valores}
+
+
+def normalizar_esfera(valor: Optional[str]) -> Optional[str]:
+    """'F', 'Federal', 'MUNICIPAL', 'N'... -> FEDERAL / ESTADUAL / MUNICIPAL / DISTRITAL / OUTROS."""
+    if not valor or not str(valor).strip():
+        return None
+    texto = normalize_text(str(valor)).upper()
+    if texto in ("OUTROS", "OUTRO", "N", "CONSORCIO", "CONSORCIOS"):
+        return "OUTROS"
+    return _ESFERA_POR_VALOR.get(texto) or ("OUTROS" if texto else None)
+
+
+def filtro_esferas(esferas: List[str]):
+    escolhidas = [e for e in (normalizar_esfera(x) for x in esferas) if e]
+    if not escolhidas:
+        return None
+    condicoes = []
+    conhecidos = [v for valores in _VALORES_ESFERA.values() for v in valores]
+    for esfera in dict.fromkeys(escolhidas):
+        if esfera == "OUTROS":
+            condicoes.append(or_(Tender.administrative_sphere.is_(None), ~func.upper(Tender.administrative_sphere).in_(conhecidos)))
+        else:
+            condicoes.append(func.upper(Tender.administrative_sphere).in_(_VALORES_ESFERA[esfera]))
+    return or_(*condicoes)
+
+
+# Benefício ME/EPP (LC 123/2006): calculado a partir dos itens oficiais do PNCP (ver pncp_compras)
+BENEFICIOS_FILTRO = [("ME_EPP", "Exclusivo ME/EPP"), ("AMPLA", "Ampla Concorrência")]
+
+
+def filtro_beneficios(beneficios: List[str]):
+    condicoes = []
+    if "ME_EPP" in beneficios:
+        condicoes.append(Tender.itens_exclusivos_me_epp > 0)
+    if "AMPLA" in beneficios:
+        condicoes.append(Tender.itens_ampla_concorrencia > 0)
+    return or_(*condicoes) if condicoes else None
+
+
+# Portais de disputa, reconhecidos pelo domínio do link oficial da sala (linkSistemaOrigem do PNCP)
+PORTAIS_DISPUTA = [
+    ("COMPRAS_GOV", "Compras.gov.br", ("comprasnet", "compras.gov.br", "gov.br/compras", "estaleiro.serpro.gov.br")),
+    ("BNC", "Bolsa Nacional de Compras (BNC)", ("bnccompras.com",)),
+    ("BLL", "BLL Compras", ("bllcompras.com",)),
+    ("LICITANET", "Licitanet", ("licitanet.com.br",)),
+    ("PORTAL_COMPRAS_PUBLICAS", "Portal de Compras Públicas", ("portaldecompraspublicas.com.br",)),
+    ("LICITAR_DIGITAL", "Licitar Digital", ("licitardigital.com.br",)),
+    ("LICITACOES_E", "Licitações-e (Banco do Brasil)", ("licitacoes-e.com.br",)),
+    ("BANRISUL", "Pregão Banrisul", ("pregaobanrisul.com.br",)),
+    ("COMPRAS_MG", "Compras MG", ("compras.mg.gov.br",)),
+    ("BEC_SP", "BEC/SP", ("bec.sp.gov.br", "bec.fazenda.sp.gov.br")),
+    ("COMPRASBR", "ComprasBR", ("comprasbr.com.br",)),
+    ("AMM_LICITA", "AMM Licita", ("ammlicita.org.br",)),
+]
+_PORTAIS_POR_CODIGO = {codigo: (nome, dominios) for codigo, nome, dominios in PORTAIS_DISPUTA}
+
+
+def portal_de_disputa(url: Optional[str]) -> Optional[dict]:
+    """Portal da sala de disputa a partir do link oficial; None para o próprio PNCP ou link ausente."""
+    link = (url or "").strip().lower()
+    if not link.startswith("http") or "pncp.gov.br" in link:
+        return None
+    for codigo, nome, dominios in PORTAIS_DISPUTA:
+        if any(d in link for d in dominios):
+            return {"codigo": codigo, "nome": nome}
+    try:
+        from urllib.parse import urlparse
+        host = (urlparse(link).hostname or "").removeprefix("www.")
+    except ValueError:
+        host = ""
+    return {"codigo": "OUTRO", "nome": host or "Portal do órgão"} if host else None
+
+
+def filtro_portais(portais: List[str]):
+    condicoes = []
+    for codigo in portais:
+        if codigo in _PORTAIS_POR_CODIGO:
+            _, dominios = _PORTAIS_POR_CODIGO[codigo]
+            condicoes.extend(Tender.url_disputa.ilike(f"%{d}%") for d in dominios)
+    return or_(*condicoes) if condicoes else None
+
+
 UF_TO_REGION = {
     "AC": "Norte", "AP": "Norte", "AM": "Norte", "PA": "Norte", "RO": "Norte", "RR": "Norte", "TO": "Norte",
     "AL": "Nordeste", "BA": "Nordeste", "CE": "Nordeste", "MA": "Nordeste", "PB": "Nordeste",
@@ -209,8 +318,17 @@ def search_tenders(db: Session, params: SearchFilterParams, user_id: Optional[st
     if params.contracting_entity:
         query = query.filter(Tender.contracting_entity.ilike(f"%{params.contracting_entity.strip()}%"))
 
-    if params.administrative_sphere:
-        query = query.filter(Tender.administrative_sphere == params.administrative_sphere.upper().strip())
+    cond_esfera = filtro_esferas(lista_param(params.esfera) + lista_param(params.administrative_sphere))
+    if cond_esfera is not None:
+        query = query.filter(cond_esfera)
+
+    cond_beneficio = filtro_beneficios(lista_param(params.beneficio))
+    if cond_beneficio is not None:
+        query = query.filter(cond_beneficio)
+
+    cond_portal = filtro_portais(lista_param(params.portal_disputa))
+    if cond_portal is not None:
+        query = query.filter(cond_portal)
 
     if params.modality:
         m_term = params.modality.strip()
@@ -399,6 +517,10 @@ def search_tenders(db: Session, params: SearchFilterParams, user_id: Optional[st
                 else (getattr(t, "url_pncp", None) or t.link_pncp or t.source_url)
             ),
             executor_portal=executor_portal,
+            portal_disputa=(portal_de_disputa(t.url_disputa) or {}).get("nome"),
+            esfera=normalizar_esfera(t.administrative_sphere),
+            itens_exclusivos_me_epp=t.itens_exclusivos_me_epp,
+            itens_ampla_concorrencia=t.itens_ampla_concorrencia,
             data_completeness=t.data_completeness,
             is_favorite=(t.id in user_fav_ids),
             match_score=round(score, 1) if (exact_phrases or terms) else None,

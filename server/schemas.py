@@ -54,6 +54,9 @@ class SearchFilterParams(BaseModel):
     region: Optional[str] = None # Nordeste, Sudeste, Norte, Sul, Centro-Oeste
     contracting_entity: Optional[str] = None # Órgão comprador
     administrative_sphere: Optional[str] = None # FEDERAL, ESTADUAL, MUNICIPAL
+    esfera: Optional[str] = None # FEDERAL,ESTADUAL,MUNICIPAL,DISTRITAL,OUTROS (vírgula = qualquer uma)
+    beneficio: Optional[str] = None # ME_EPP e/ou AMPLA (itens oficiais do PNCP)
+    portal_disputa: Optional[str] = None # COMPRAS_GOV, BNC, LICITANET... (domínio da sala de disputa)
     modality: Optional[str] = None # Pregão Eletrônico, Concorrência, Dispensa, etc.
     status: Optional[str] = None
     category: Optional[str] = None # MATERIAL, SERVICO, OUTROS (ou categoria legada: Medicamentos, TI...)
@@ -211,6 +214,10 @@ class TenderSummaryResponse(BaseModel):
     ai_pontos_atencao: Optional[str] = None
     itens_extraidos_json: Optional[Any] = None
     executor_portal: Optional[str] = None
+    portal_disputa: Optional[str] = None  # nome do portal da sala de disputa (None = só PNCP)
+    esfera: Optional[str] = None  # FEDERAL, ESTADUAL, MUNICIPAL, DISTRITAL ou OUTROS
+    itens_exclusivos_me_epp: Optional[int] = None  # None = itens ainda não analisados
+    itens_ampla_concorrencia: Optional[int] = None
     data_completeness: str
     is_favorite: bool = False
     match_score: Optional[float] = None

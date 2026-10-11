@@ -124,6 +124,9 @@ class Tender(Base):
     ai_resumo = Column(Text, nullable=True) # Resumo executivo estruturado gerado via IA Gemini
     ai_pontos_atencao = Column(Text, nullable=True) # Pontos críticos e riscos extraídos pela IA
     itens_extraidos_json = Column(JSON, nullable=True) # Lista estruturada de itens extraídos via IA
+    # Benefício ME/EPP dos itens (LC 123/2006), preenchido quando os itens são lidos do PNCP; None = ainda não analisado
+    itens_exclusivos_me_epp = Column(Integer, nullable=True, index=True)  # itens exclusivos ou de cota reservada
+    itens_ampla_concorrencia = Column(Integer, nullable=True, index=True)
     data_completeness = Column(String(50), default="COMPLETO") # COMPLETO, PARCIAL, DADOS_AUSENTES
     raw_data_reference = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

@@ -143,6 +143,33 @@
       </div>
     </div>
 
+    <!-- Minutas de declarações e proposta (DOCX editável) -->
+    <section id="minutas" class="mb-8 scroll-mt-40" aria-labelledby="minutas-titulo">
+      <div class="flex flex-col sm:flex-row sm:items-end justify-between gap-2 mb-3">
+        <div>
+          <h2 id="minutas-titulo" class="text-sm font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2">
+            <i class="fa-solid fa-file-word text-sky-400" aria-hidden="true"></i> Minutas e Declarações (Lei 14.133/2021)
+          </h2>
+          <p class="text-[11px] text-slate-400 mt-0.5">Modelos editáveis em DOCX: os campos a preencher vêm entre colchetes e realçados em amarelo.{% if certame_prefill and certame_prefill.tender_id %} Órgão, referência e itens do certame vinculado já entram no arquivo.{% endif %}</p>
+        </div>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        {% for m in minutas %}
+        {% set url_minuta = m.download_url ~ ('?tender_id=' ~ (certame_prefill.tender_id|urlencode) if certame_prefill and certame_prefill.tender_id else '') %}
+        <div class="minuta-card bg-slate-900/80 border border-slate-800 hover:border-sky-500/40 rounded-2xl p-4 flex flex-col justify-between gap-3 transition" data-minuta="{{ m.slug }}">
+          <div>
+            <h3 class="text-sm font-bold text-white leading-snug">{{ m.titulo }}</h3>
+            <p class="text-[11px] text-slate-400 mt-1 leading-relaxed">{{ m.descricao }}</p>
+            <p class="text-[10px] text-amber-300/80 font-mono mt-2">{{ m.fundamentacao }}</p>
+          </div>
+          <a href="{{ url_minuta }}" download class="inline-flex items-center justify-center gap-1.5 bg-sky-600 hover:bg-sky-500 text-white font-bold px-3 py-2 rounded-xl text-xs transition">
+            <i class="fa-solid fa-download text-[11px]" aria-hidden="true"></i> Baixar DOCX
+          </a>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+
     <div id="templates-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
       {% for t in templates %}
         <div 

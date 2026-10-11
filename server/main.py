@@ -56,8 +56,10 @@ from server.security import (
 )
 from server.search_engine import (
     filtro_publicacao, filtro_vigentes,
-    search_tenders, CATEGORIES, UFS_BRASIL, NATUREZAS_FILTRO, normalizar_natureza, normalizar_uf
+    search_tenders, CATEGORIES, UFS_BRASIL, NATUREZAS_FILTRO, normalizar_natureza, normalizar_uf,
+    ESFERAS_FILTRO, BENEFICIOS_FILTRO, PORTAIS_DISPUTA, lista_param, normalizar_esfera, portal_de_disputa
 )
+from server.services import minutas
 from server.ai_engine import analyze_tender_document_with_ai
 from server.services.ai_service import analyze_tender_summary, ask_tender_question
 from server.connectors.registry import SOURCE_CATALOG, list_all_sources, get_connector
@@ -245,6 +247,9 @@ templates = Jinja2Templates(directory=templates_dir)
 # Listas compartilhadas por todos os filtros (busca, home e alertas)
 templates.env.globals["UFS_BRASIL"] = UFS_BRASIL
 templates.env.globals["NATUREZAS_FILTRO"] = NATUREZAS_FILTRO
+templates.env.globals["ESFERAS_FILTRO"] = ESFERAS_FILTRO
+templates.env.globals["BENEFICIOS_FILTRO"] = BENEFICIOS_FILTRO
+templates.env.globals["PORTAIS_DISPUTA"] = [(codigo, nome) for codigo, nome, _ in PORTAIS_DISPUTA]
 
 # Arquivos Estáticos e PWA
 static_dir = os.path.join(os.path.dirname(__file__), "static")
@@ -467,6 +472,9 @@ def page_search(
     region: Optional[str] = None,
     contracting_entity: Optional[str] = None,
     administrative_sphere: Optional[str] = None,
+    esfera: Optional[List[str]] = Query(None),
+    beneficio: Optional[List[str]] = Query(None),
+    portal_disputa: Optional[List[str]] = Query(None),
     modality: Optional[str] = None,
     status_filter: Optional[str] = Query(None, alias="status"),
     category: Optional[str] = None,
@@ -498,7 +506,11 @@ def page_search(
         city=city,
         region=region,
         contracting_entity=contracting_entity,
-        administrative_sphere=administrative_sphere,
+        # A esfera legada (administrative_sphere) vira marcação nas caixas "Esfera Governamental"
+        administrative_sphere=None,
+        esfera=",".join(dict.fromkeys(lista_param(esfera) + [e for e in [normalizar_esfera(administrative_sphere)] if e])) or None,
+        beneficio=",".join(lista_param(beneficio)) or None,
+        portal_disputa=",".join(lista_param(portal_disputa)) or None,
         modality=modality,
         status=status_filter,
         category=category,
@@ -804,6 +816,7 @@ def page_juridico(
             "tipo": tipo or "",
             "nova_lei_only": bool(nova_lei_only),
             "counts": counts,
+            "minutas": minutas.listar(),
             "certame_prefill": {
                 "orgao": (orgao or "").strip()[:500],
                 "numero_certame": (numero_certame or "").strip()[:255],
@@ -1615,6 +1628,9 @@ def api_search_tenders(
     region: Optional[str] = None,
     contracting_entity: Optional[str] = None,
     administrative_sphere: Optional[str] = None,
+    esfera: Optional[List[str]] = Query(None),
+    beneficio: Optional[List[str]] = Query(None),
+    portal_disputa: Optional[List[str]] = Query(None),
     modality: Optional[str] = None,
     status_filter: Optional[str] = Query(None, alias="status"),
     category: Optional[str] = None,
@@ -1644,6 +1660,9 @@ def api_search_tenders(
         region=region,
         contracting_entity=contracting_entity,
         administrative_sphere=administrative_sphere,
+        esfera=",".join(lista_param(esfera)) or None,
+        beneficio=",".join(lista_param(beneficio)) or None,
+        portal_disputa=",".join(lista_param(portal_disputa)) or None,
         modality=modality,
         status=status_filter,
         category=category,
@@ -2284,6 +2303,33 @@ def api_add_to_pipeline(
         "title": tender.title
     }
 
+# ----------------- Minutas de declarações (Lei 14.133/2021) -----------------
+
+@app.get("/api/minutas")
+def api_minutas():
+    """Minutas padronizadas e editáveis (DOCX) para a fase de proposta e habilitação."""
+    return {"minutas": minutas.listar()}
+
+
+@app.get("/api/minutas/{slug}/download")
+def api_minuta_download(slug: str, tender_id: Optional[str] = Query(None), db: Session = Depends(get_db)):
+    """Baixa a minuta em DOCX; com `tender_id`, órgão, referência e itens oficiais vêm preenchidos."""
+    minuta = minutas.MINUTAS.get(slug)
+    if not minuta:
+        raise HTTPException(status_code=404, detail="Minuta não encontrada.")
+    ctx = None
+    if tender_id:
+        tender = _tender_ou_404(db, tender_id)
+        itens = db.query(TenderItem).filter(TenderItem.tender_id == tender.id).order_by(TenderItem.item_number.asc()).all()
+        ctx = minutas.contexto_do_certame(tender, itens)
+    conteudo = minutas.gerar_docx(minuta, ctx)
+    nome = minutas.nome_do_arquivo(minuta, ctx or {})
+    return Response(
+        content=conteudo,
+        media_type=minutas.MIME_DOCX,
+        headers={"Content-Disposition": f'attachment; filename="{nome}"', "Cache-Control": "no-store"},
+    )
+
 # ----------------- Peças Jurídicas API -----------------
 
 def serialize_legal_template(tmpl: LegalDocumentTemplate) -> Dict[str, Any]:
@@ -2612,6 +2658,104 @@ def _tender_ou_404(db: Session, tender_id: str) -> Tender:
     if not tender:
         raise HTTPException(status_code=404, detail="Licitação não encontrada.")
     return tender
+
+
+ROTULOS_ESFERA = dict(ESFERAS_FILTRO)
+
+
+def valor_compacto(valor: Optional[float]) -> Optional[str]:
+    """R$ 1,2 bi / R$ 3,4 mi / R$ 250 mil / R$ 950,00 (formato pt-BR)."""
+    if valor is None:
+        return None
+
+    def br(numero: float, casas: int) -> str:
+        return f"{numero:,.{casas}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+    for limite, sufixo in ((1e9, "bi"), (1e6, "mi"), (1e3, "mil")):
+        casas = 0 if sufixo == "mil" and abs(valor) >= 1e5 else 1
+        reduzido = round(valor / limite, casas)
+        if abs(reduzido) >= 1:  # arredonda antes de escolher: 999.999 vira "R$ 1 mi", não "R$ 1.000 mil"
+            return f"R$ {br(reduzido, casas).removesuffix(',0')} {sufixo}"
+    return f"R$ {br(valor, 2)}"
+
+
+def _data_hora_br(valor: Optional[datetime]) -> Optional[str]:
+    return valor.strftime("%d/%m/%Y às %H:%M") if valor else None
+
+
+@app.get("/api/tenders/{tender_id}/drawer")
+async def api_tender_drawer(tender_id: str, request: Request, db: Session = Depends(get_db)):
+    """
+    Tudo o que o drawer lateral de detalhes exibe numa única chamada: cabeçalho do certame, ações
+    (PNCP, portal de disputa), itens oficiais com benefício ME/EPP e arquivos com download interno.
+    Itens e arquivos vêm do PNCP (com cache); em falha, a resposta traz o status e a mensagem do PNCP.
+    """
+    tender = _tender_ou_404(db, tender_id)
+    itens = await pncp_compras.sincronizar_itens(db, tender)
+    arquivos = await pncp_compras.sincronizar_arquivos(db, tender)
+    db.refresh(tender)
+
+    ident = pncp_compras.identificar_compra(tender)
+    numero = tender.notice_number if tender.notice_number and tender.notice_number != "Não informado" else None
+    if not numero and ident:
+        numero = f"{ident.sequencial}/{ident.ano}"
+    url_pncp = ident.url_publica if ident else build_canonical_pncp_url(
+        numero_controle_pncp=tender.url_pncp or tender.link_pncp or tender.external_id)
+    portal = portal_de_disputa(tender.url_disputa or tender.link_comprasnet)
+    esfera = normalizar_esfera(tender.administrative_sphere)
+
+    user = get_current_user(request, db)
+    em_negocios = _deals_do_usuario(db, user).filter(Deal.tender_id == tender.id).first() is not None
+    favorito = bool(user) and db.query(Favorite).filter(
+        Favorite.user_id == user.id, Favorite.tender_id == tender.id).first() is not None
+
+    return {
+        "tender": {
+            "id": tender.id,
+            "external_id": tender.external_id,
+            "orgao": tender.contracting_entity,
+            "unidade": tender.purchasing_unit,
+            "municipio": tender.city,
+            "uf": tender.state,
+            "modalidade": tender.modality,
+            "numero_ano": numero,
+            "processo": tender.process_number if tender.process_number and tender.process_number != "Não informado" else None,
+            "titulo": tender.title,
+            "objeto": tender.object_description,
+            "status": tender.status,
+            "esfera": esfera,
+            "esfera_rotulo": ROTULOS_ESFERA.get(esfera),
+            "valor_estimado": tender.estimated_total_value,
+            "valor_estimado_compacto": valor_compacto(tender.estimated_total_value),
+            "data_publicacao": tender.publication_date.isoformat() if tender.publication_date else None,
+            "data_limite_propostas": tender.proposal_deadline.isoformat() if tender.proposal_deadline else None,
+            "data_limite_formatada": _data_hora_br(tender.proposal_deadline),
+            "data_abertura": tender.opening_date.isoformat() if tender.opening_date else None,
+            "data_abertura_formatada": _data_hora_br(tender.opening_date),
+            "url_pncp": url_pncp,
+            "url_portal": tender.url_disputa if portal else None,
+            "portal_nome": portal["nome"] if portal else None,
+            "itens_exclusivos_me_epp": tender.itens_exclusivos_me_epp,
+            "itens_ampla_concorrencia": tender.itens_ampla_concorrencia,
+            "em_negocios": em_negocios,
+            "favorito": favorito,
+        },
+        "itens": {
+            "status": itens["status"],
+            "mensagem": itens["mensagem"],
+            "total": itens["total"],
+            "valor_total_estimado": itens["valor_total_estimado"],
+            "lista": itens["itens"],
+        },
+        "arquivos": {
+            "status": arquivos["status"],
+            "mensagem": arquivos["mensagem"],
+            "total": arquivos["total"],
+            "zip_url": arquivos["zip_url"],
+            "lista": arquivos["arquivos"],
+        },
+        "minutas_url": "/juridico#minutas",
+    }
 
 
 @app.get("/api/tenders/{tender_id}/itens")

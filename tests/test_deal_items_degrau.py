@@ -100,7 +100,7 @@ def test_criar_negocio_com_itens_selecionados_e_preservar_selecao(usuario_auth):
 
 
 def test_search_tem_modal_de_selecao_de_itens():
-    html = (TEMPLATES / "search.html").read_text(encoding="utf-8")
+    html = client.get("/search").text  # modal vem do drawer compartilhado (partials_tender_drawer.html)
     assert 'id="deal-items-modal"' in html
     assert 'id="deal-items-select-all"' in html
     assert "selected_items" in html

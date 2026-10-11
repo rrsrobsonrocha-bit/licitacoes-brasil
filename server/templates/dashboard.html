@@ -417,7 +417,7 @@
                       <span class="text-[10px] font-bold bg-slate-800 text-slate-300 px-1 rounded">{{ ev.state }}</span>
                     {% endif %}
                   </div>
-                  <a href="/tenders/{{ ev.tender_id }}" class="text-xs font-semibold text-slate-200 hover:text-emerald-400 line-clamp-1 block transition">
+                  <a href="/tenders/{{ ev.tender_id }}" data-abrir-drawer="{{ ev.tender_id }}" class="text-xs font-semibold text-slate-200 hover:text-emerald-400 line-clamp-1 block transition">
                     {{ ev.title }}
                   </a>
                   <span class="text-[11px] text-slate-400 truncate block mt-0.5">{{ ev.contracting_entity }}</span>
@@ -460,7 +460,7 @@
             {% for t in summary.upcoming_tenders %}
               <div class="p-3 bg-slate-950/70 rounded-xl border border-slate-800 flex justify-between items-center text-xs">
                 <div class="min-w-0 pr-2">
-                  <a href="/tenders/{{ t.id }}" class="font-bold text-slate-200 hover:text-sky-400 block line-clamp-1 transition">{{ t.title }}</a>
+                  <a href="/tenders/{{ t.id }}" data-abrir-drawer="{{ t.id }}" class="font-bold text-slate-200 hover:text-sky-400 block line-clamp-1 transition">{{ t.title }}</a>
                   <span class="text-slate-400 text-[11px]">{{ t.contracting_entity }} - {{ t.state }}</span>
                 </div>
                 <span class="font-bold font-mono text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-md text-[11px] whitespace-nowrap">
@@ -489,7 +489,7 @@
               {% for d in summary.recent_deliveries %}
                 <div class="p-2.5 bg-slate-950/50 rounded-xl border border-slate-800/80 flex justify-between items-center text-xs">
                   <div class="min-w-0 pr-2">
-                    <a href="/tenders/{{ d.tender_id }}" class="font-medium text-slate-200 hover:text-sky-300 block line-clamp-1">{{ d.tender_title }}</a>
+                    <a href="/tenders/{{ d.tender_id }}" data-abrir-drawer="{{ d.tender_id }}" class="font-medium text-slate-200 hover:text-sky-300 block line-clamp-1">{{ d.tender_title }}</a>
                     <span class="text-emerald-400 text-[11px]">Radar: {{ d.alert_name }}</span>
                   </div>
                   <span class="text-slate-500 font-mono text-[10px]">{{ d.delivered_at[:10] }}</span>
@@ -515,6 +515,8 @@
 
   </div>
 </div>
+
+{% include "partials_tender_drawer.html" %}
 
 <script>
   // Função para carregar ou atualizar dados em tempo real

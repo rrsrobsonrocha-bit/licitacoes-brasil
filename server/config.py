@@ -102,6 +102,8 @@ class Settings(BaseModel):
     AUTO_SYNC_MIN_VIGENTES: int = int(os.getenv("AUTO_SYNC_MIN_VIGENTES", "500"))
     AUTO_SYNC_INTERVALO_MINUTOS: int = int(os.getenv("AUTO_SYNC_INTERVALO_MINUTOS", "60"))
     AUTO_SYNC_PAGINAS_POR_DIA: int = int(os.getenv("AUTO_SYNC_PAGINAS_POR_DIA", "300"))
+    # Itens oficiais lidos por ciclo (editais vigentes ainda não analisados): base do filtro ME/EPP
+    AUTO_SYNC_ITENS_POR_CICLO: int = int(os.getenv("AUTO_SYNC_ITENS_POR_CICLO", "40"))
 
     # PNCP — API de integração (itens e arquivos das compras)
     PNCP_INTEGRACAO_BASE_URL: str = os.getenv("PNCP_INTEGRACAO_BASE_URL", "https://pncp.gov.br/api/pncp/v1").rstrip("/")

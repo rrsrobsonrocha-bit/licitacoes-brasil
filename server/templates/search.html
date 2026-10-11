@@ -41,6 +41,7 @@
       {% for chave, valor in [
         ('q', params.q), ('city', params.city), ('category', params.natureza or params.category),
         ('modality', params.modality), ('status', params.status), ('administrative_sphere', params.administrative_sphere),
+        ('esfera', params.esfera), ('beneficio', params.beneficio), ('portal_disputa', params.portal_disputa),
         ('source_system', params.source_system), ('portal', params.portal), ('uasg_code', params.uasg_code),
         ('value_min', params.value_min), ('value_max', params.value_max), ('date_from', params.date_from),
         ('date_to', params.date_to), ('vigentes', 'true' if params.vigentes else ('false' if params.vigentes is sameas false else None)), ('sort_by', params.sort_by), ('page_size', params.page_size)
@@ -155,16 +156,51 @@
             </select>
           </div>
 
-          <!-- Esfera Administrativa -->
-          <div>
-            <label class="block text-xs font-semibold text-slate-300 mb-1">Esfera Administrativa</label>
-            <select name="administrative_sphere" class="w-full text-xs p-2.5 bg-slate-900 border border-slate-700 text-slate-100 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
-              <option value="">Todas as Esferas</option>
-              <option value="FEDERAL" {% if params.administrative_sphere == 'FEDERAL' %}selected{% endif %}>Federal</option>
-              <option value="ESTADUAL" {% if params.administrative_sphere == 'ESTADUAL' %}selected{% endif %}>Estadual</option>
-              <option value="MUNICIPAL" {% if params.administrative_sphere == 'MUNICIPAL' %}selected{% endif %}>Municipal</option>
-            </select>
-          </div>
+          <!-- Benefício: itens exclusivos ME/EPP x ampla concorrência (itens oficiais do PNCP) -->
+          {% set beneficios_sel = (params.beneficio or '').split(',') %}
+          <fieldset id="filtro-beneficio">
+            <legend class="block text-xs font-semibold text-slate-300 mb-1">Benefício</legend>
+            <div class="grid grid-cols-1 gap-1.5">
+              {% for codigo, rotulo in BENEFICIOS_FILTRO %}
+              <label class="flex items-center gap-2 text-xs text-slate-200 cursor-pointer select-none px-2.5 py-1.5 rounded-lg border border-slate-800 bg-slate-900/70 hover:border-slate-700 has-[:checked]:border-sky-500/60 has-[:checked]:bg-sky-500/10">
+                <input type="checkbox" name="beneficio" value="{{ codigo }}" {% if codigo in beneficios_sel %}checked{% endif %} class="w-3.5 h-3.5 rounded border-slate-600 bg-slate-800 accent-sky-500 cursor-pointer" />
+                <span>{{ rotulo }}</span>
+              </label>
+              {% endfor %}
+            </div>
+            <p class="text-[10px] text-slate-500 mt-1">Pelos itens oficiais do PNCP; editais ainda sem itens analisados não entram neste filtro.</p>
+          </fieldset>
+
+          <!-- Esfera governamental -->
+          {% set esferas_sel = (params.esfera or '').split(',') %}
+          <fieldset id="filtro-esfera">
+            <legend class="block text-xs font-semibold text-slate-300 mb-1">Esfera Governamental</legend>
+            <div class="grid grid-cols-2 gap-1.5">
+              {% for codigo, rotulo in ESFERAS_FILTRO %}
+              <label class="flex items-center gap-2 text-xs text-slate-200 cursor-pointer select-none px-2.5 py-1.5 rounded-lg border border-slate-800 bg-slate-900/70 hover:border-slate-700 has-[:checked]:border-sky-500/60 has-[:checked]:bg-sky-500/10 {% if codigo == 'OUTROS' %}col-span-2{% endif %}">
+                <input type="checkbox" name="esfera" value="{{ codigo }}" {% if codigo in esferas_sel %}checked{% endif %} class="w-3.5 h-3.5 rounded border-slate-600 bg-slate-800 accent-sky-500 cursor-pointer" />
+                <span>{{ rotulo }}</span>
+              </label>
+              {% endfor %}
+            </div>
+          </fieldset>
+
+          <!-- Portal de origem (sala de disputa) -->
+          {% set portais_sel = (params.portal_disputa or '').split(',') %}
+          <details id="filtro-portal-disputa" {% if params.portal_disputa %}open{% endif %} class="group">
+            <summary class="flex items-center justify-between text-xs font-semibold text-slate-300 cursor-pointer select-none mb-1">
+              <span>Portal de Disputa{% if params.portal_disputa %} <span class="text-sky-400">({{ portais_sel|length }})</span>{% endif %}</span>
+              <i class="fa-solid fa-chevron-down text-[10px] text-slate-500 transition-transform group-open:rotate-180" aria-hidden="true"></i>
+            </summary>
+            <div class="grid grid-cols-1 gap-1.5 max-h-56 overflow-y-auto pr-1">
+              {% for codigo, rotulo in PORTAIS_DISPUTA %}
+              <label class="flex items-center gap-2 text-xs text-slate-200 cursor-pointer select-none px-2.5 py-1.5 rounded-lg border border-slate-800 bg-slate-900/70 hover:border-slate-700 has-[:checked]:border-sky-500/60 has-[:checked]:bg-sky-500/10">
+                <input type="checkbox" name="portal_disputa" value="{{ codigo }}" {% if codigo in portais_sel %}checked{% endif %} class="w-3.5 h-3.5 rounded border-slate-600 bg-slate-800 accent-sky-500 cursor-pointer" />
+                <span>{{ rotulo }}</span>
+              </label>
+              {% endfor %}
+            </div>
+          </details>
 
           <!-- Origem Operacional / Sistema -->
           <div>
@@ -173,26 +209,6 @@
               <option value="">Todas as Origens</option>
               <option value="compras_gov" {% if params.source_system == 'compras_gov' %}selected{% endif %}>Compras.gov.br (Federal / SICAF)</option>
               <option value="pncp" {% if params.source_system == 'pncp' %}selected{% endif %}>Outros / PNCP (Demais Esferas)</option>
-            </select>
-          </div>
-
-          <!-- Portal Executor Mapeado -->
-          <div>
-            <label class="block text-xs font-semibold text-slate-300 mb-1">Portal Executor Específico</label>
-            <select name="portal" class="w-full text-xs p-2.5 bg-slate-900 border border-slate-700 text-slate-100 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
-              <option value="">Todos os Portais Mapeados</option>
-              <option value="Compras.gov.br" {% if params.portal == 'Compras.gov.br' %}selected{% endif %}>Compras.gov.br (Federal / SICAF)</option>
-              <option value="BEC/SP" {% if params.portal == 'BEC/SP' %}selected{% endif %}>BEC/SP (São Paulo)</option>
-              <option value="Compras MG" {% if params.portal == 'Compras MG' %}selected{% endif %}>Compras MG (Minas Gerais)</option>
-              <option value="Compras RS" {% if params.portal == 'Compras RS' %}selected{% endif %}>Compras RS / Banrisul</option>
-              <option value="Comprasnet BA" {% if params.portal == 'Comprasnet BA' %}selected{% endif %}>Comprasnet BA (Bahia)</option>
-              <option value="SIGA RJ" {% if params.portal == 'SIGA RJ' %}selected{% endif %}>SIGA RJ (Rio de Janeiro)</option>
-              <option value="Compras Paraná" {% if params.portal == 'Compras Paraná' %}selected{% endif %}>Compras Paraná</option>
-              <option value="BLL Compras" {% if params.portal == 'BLL Compras' %}selected{% endif %}>BLL Compras</option>
-              <option value="Licitações-e" {% if params.portal == 'Licitações-e' %}selected{% endif %}>Licitações-e (Banco do Brasil)</option>
-              <option value="Portal de Compras Públicas" {% if params.portal == 'Portal de Compras Públicas' %}selected{% endif %}>Portal de Compras Públicas</option>
-              <option value="Licitanet" {% if params.portal == 'Licitanet' %}selected{% endif %}>Licitanet</option>
-              <option value="PNCP Geral" {% if params.portal == 'PNCP Geral' %}selected{% endif %}>PNCP Geral</option>
             </select>
           </div>
 
@@ -424,9 +440,10 @@
                   </span>
                   {% endif %}
 
-                  {% if item.executor_portal and item.executor_portal != 'Compras.gov.br' and item.executor_portal != 'PNCP Geral' %}
-                  <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-500/15 text-blue-300 border border-blue-500/30">
-                    <i class="fa-solid fa-globe text-[10px]"></i> {{ item.executor_portal }}
+                  {% set portal_card = item.portal_disputa or (item.executor_portal if item.executor_portal not in (none, 'Compras.gov.br', 'PNCP Geral') else none) %}
+                  {% if portal_card and portal_card != 'Compras.gov.br' %}
+                  <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-500/15 text-blue-300 border border-blue-500/30" title="Portal da sala de disputa">
+                    <i class="fa-solid fa-globe text-[10px]"></i> {{ portal_card }}
                   </span>
                   {% endif %}
 
@@ -465,10 +482,10 @@
               </div>
 
               <!-- 3. Objeto resumido em texto claro com contraste -->
-              <h2 class="text-base font-bold text-white group-hover:text-sky-300 transition-colors mt-3 leading-snug">
+              <h2 data-realce class="text-base font-bold text-white group-hover:text-sky-300 transition-colors mt-3 leading-snug">
                 {{ item.title }}
               </h2>
-              <p class="text-xs text-slate-300 mt-2 line-clamp-3 leading-relaxed">
+              <p data-realce class="text-xs text-slate-300 mt-2 line-clamp-3 leading-relaxed">
                 {{ item.object_description }}
               </p>
             </div>
@@ -491,6 +508,12 @@
                   <i class="fa-solid {% if nat == 'MATERIAL' %}fa-box{% elif nat == 'SERVICO' %}fa-screwdriver-wrench{% else %}fa-shapes{% endif %} text-[10px]"></i>
                   {% if nat == 'MATERIAL' %}Material{% elif nat == 'SERVICO' %}Serviço{% else %}Outros{% endif %}
                 </span>
+
+                {% if item.itens_exclusivos_me_epp %}
+                <span class="badge-me-epp inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-extrabold bg-amber-400/20 text-amber-200 border border-amber-400/50" title="{{ item.itens_exclusivos_me_epp }} item(ns) exclusivo(s) ou de cota reservada para ME/EPP">
+                  <i class="fa-solid fa-store text-[10px]" aria-hidden="true"></i> Exclusivo ME/EPP
+                </span>
+                {% endif %}
 
                 <!-- UF -->
                 <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-slate-800 text-slate-200 border border-slate-700">
@@ -561,6 +584,7 @@
         {% for chave, valor in [
           ('q', params.q), ('uf', params.state or params.uf), ('city', params.city), ('category', params.natureza or params.category),
           ('modality', params.modality), ('status', params.status), ('administrative_sphere', params.administrative_sphere),
+        ('esfera', params.esfera), ('beneficio', params.beneficio), ('portal_disputa', params.portal_disputa),
           ('source_system', params.source_system), ('portal', params.portal), ('uasg_code', params.uasg_code),
           ('value_min', params.value_min), ('value_max', params.value_max), ('date_from', params.date_from),
           ('date_to', params.date_to), ('vigentes', 'true' if params.vigentes else ('false' if params.vigentes is sameas false else None)), ('sort_by', params.sort_by), ('page_size', params.page_size)
@@ -603,342 +627,7 @@
   </div>
 </div>
 
-<!-- ============================================================================== -->
-<!-- DRAWER LATERAL DE DETALHES (SLIDE-OVER MODAL LICITAÇÕESBRASIL)                  -->
-<!-- ============================================================================== -->
-<div id="drawer-backdrop" onclick="closeTenderDrawer()" class="fixed inset-0 bg-black/70 backdrop-blur-xs z-50 transition-opacity opacity-0 pointer-events-none duration-300"></div>
-
-<aside id="tender-drawer" class="fixed top-0 right-0 h-full w-full max-w-2xl lg:max-w-3xl bg-[#0f172a] border-l border-slate-800 shadow-2xl z-50 transform translate-x-full transition-transform duration-300 flex flex-col overflow-hidden text-slate-100">
-  <!-- Drawer Top Bar -->
-  <div class="p-5 border-b border-slate-800 flex items-center justify-between bg-[#111827]">
-    <div class="flex items-center gap-2" id="drawer-tags-container">
-      <span id="drawer-source-badge" class="px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-        <i class="fa-solid fa-shield-halved text-[11px] mr-1"></i> Compras.gov.br (SICAF)
-      </span>
-      <span id="drawer-uasg-badge" class="px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-emerald-950 text-emerald-300 border border-emerald-700 hidden">
-        UASG
-      </span>
-      <span id="drawer-modality-badge" class="px-2.5 py-0.5 rounded text-xs font-extrabold uppercase font-mono text-sky-400 bg-sky-950/50 border border-sky-800">
-        PREGÃO ELETRÔNICO
-      </span>
-    </div>
-    
-    <button onclick="closeTenderDrawer()" class="text-slate-400 hover:text-white bg-slate-800/80 hover:bg-slate-700 p-2 rounded-xl transition cursor-pointer" title="Fechar detalhes">
-      <i class="fa-solid fa-xmark text-base"></i>
-    </button>
-  </div>
-
-  <!-- Drawer Scrollable Body -->
-  <div class="flex-1 overflow-y-auto p-6 space-y-6 text-slate-200">
-    <!-- Cabeçalho Completo: Órgão, processo, valor estimado em destaque verde -->
-    <div>
-      <div class="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1" id="drawer-entity">
-        Órgão Comprador
-      </div>
-      <h2 class="text-xl font-bold text-white leading-snug" id="drawer-title">
-        Título da Licitação
-      </h2>
-      <div class="flex flex-wrap items-center gap-3 text-xs text-slate-400 mt-2 font-mono">
-        <span id="drawer-process">Processo: -</span>
-        <span>•</span>
-        <span id="drawer-notice">Certame: -</span>
-        <span>•</span>
-        <span id="drawer-location">Local: -</span>
-      </div>
-
-      <!-- Valor Estimado em Destaque Verde -->
-      <div class="mt-4 p-4 rounded-2xl bg-emerald-950/40 border border-emerald-600/30 flex items-center justify-between">
-        <div>
-          <span class="text-[11px] uppercase font-bold text-emerald-400 block tracking-wider">Valor Estimado / Homologado</span>
-          <span class="text-2xl sm:text-3xl font-extrabold text-emerald-300 font-mono" id="drawer-value">
-            R$ 0,00
-          </span>
-        </div>
-        <div class="text-right">
-          <span class="text-[11px] uppercase font-bold text-slate-400 block">Status Operacional</span>
-          <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 mt-1">
-            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Aberta
-          </span>
-        </div>
-      </div>
-    </div>
-
-    <!-- Botões de Ação Rápida no Topo do Drawer -->
-    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-      <!-- Botão principal: Acessar Edital / Disputa (preferencialmente portal de execução original) -->
-      <a id="drawer-btn-dispute" href="#" target="_blank" rel="noopener noreferrer" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 px-3 rounded-xl text-xs transition shadow-md flex items-center justify-center gap-2">
-        <i class="fa-solid fa-gavel text-xs"></i>
-        <span id="drawer-btn-dispute-text">Acessar Edital / Disputa</span>
-        <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
-      </a>
-
-      <!-- Botão "Arquivos do Edital" para download de anexos -->
-      <a id="drawer-btn-files" href="#" target="_blank" rel="noopener noreferrer" class="bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 font-bold py-2.5 px-3 rounded-xl text-xs transition flex items-center justify-center gap-2">
-        <i class="fa-solid fa-file-pdf text-rose-400 text-xs"></i>
-        <span>Arquivos do Edital</span>
-        <i class="fa-solid fa-download text-[10px]"></i>
-      </a>
-
-      <!-- Botão de Ação Principal: "Adicionar aos meus negócios" -->
-      <button id="drawer-btn-pipeline" onclick="addCurrentTenderToPipeline()" class="bg-gradient-to-r from-sky-600 to-sky-500 hover:from-sky-500 hover:to-sky-400 text-white font-bold py-2.5 px-3 rounded-xl text-xs transition shadow-md flex items-center justify-center gap-2 cursor-pointer">
-        <i class="fa-solid fa-briefcase text-xs"></i>
-        <span>+ Meus Negócios</span>
-      </button>
-    </div>
-
-    <!-- Referência Documental / Link Secundário Discreto do PNCP -->
-    <div class="flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-slate-900/80 border border-slate-800 text-[11px] text-slate-400">
-      <span class="flex items-center gap-1.5 font-medium">
-        <i class="fa-solid fa-landmark text-sky-400 text-xs"></i>
-        <span>Referência Documental:</span>
-      </span>
-      <a id="drawer-link-pncp" href="#" target="_blank" rel="noopener noreferrer" class="text-sky-400 hover:text-sky-300 font-mono font-medium hover:underline flex items-center gap-1.5 transition">
-        <span id="drawer-text-pncp">Ver edital no PNCP</span>
-        <i class="fa-solid fa-arrow-up-right-from-square text-[9px]"></i>
-      </a>
-    </div>
-
-    <!-- Seção com Prazos: Publicação, Cadastro de Propostas e Data de Lances -->
-    <div class="bg-[#111827] p-4 rounded-2xl border border-slate-800">
-      <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-2">
-        <i class="fa-regular fa-calendar-days text-sky-400"></i> Cronograma Oficial de Prazos
-      </h3>
-      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
-          <span class="text-[10px] uppercase font-bold text-slate-400 block">Data de Publicação</span>
-          <span class="text-xs font-bold text-slate-100 mt-1 block font-mono" id="drawer-date-pub">-</span>
-        </div>
-        <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
-          <span class="text-[10px] uppercase font-bold text-amber-400 block">Limite de Propostas</span>
-          <span class="text-xs font-bold text-amber-300 mt-1 block font-mono" id="drawer-date-limit">-</span>
-        </div>
-        <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
-          <span class="text-[10px] uppercase font-bold text-emerald-400 block">Abertura / Lances</span>
-          <span class="text-xs font-bold text-emerald-300 mt-1 block font-mono" id="drawer-date-open">-</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- Objeto Detalhado da Licitação -->
-    <div class="bg-[#111827] p-4 rounded-2xl border border-slate-800">
-      <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 flex items-center gap-2">
-        <i class="fa-solid fa-align-left text-sky-400"></i> Descrição do Objeto
-      </h3>
-      <p class="text-xs text-slate-300 leading-relaxed font-normal" id="drawer-desc">
-        -
-      </p>
-    </div>
-
-    <!-- SEÇÃO DE IA: RESUMO ESTRUTURADO E CONVERSE COM O EDITAL (GEMINI) -->
-    <div class="bg-gradient-to-b from-[#131d35] to-[#0f172a] p-5 rounded-2xl border border-indigo-500/30 shadow-xl space-y-4">
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-2.5">
-          <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-md shadow-indigo-500/20">
-            <i class="fa-solid fa-wand-magic-sparkles text-xs"></i>
-          </div>
-          <div>
-            <h3 class="text-sm font-bold text-white flex items-center gap-1.5">
-              Análise com IA (Google Gemini)
-            </h3>
-            <p class="text-[11px] text-slate-400">Resumo executivo de conformidade e chat consultivo</p>
-          </div>
-        </div>
-        <span id="drawer-ai-badge" class="text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">
-          Lei 14.133/2021
-        </span>
-      </div>
-
-      <!-- Sub-abas: Resumo Estruturado | Converse com o Edital -->
-      <div class="flex bg-slate-900/90 p-1 rounded-xl border border-slate-800 text-xs font-semibold">
-        <button type="button" id="tab-btn-ai-summary" onclick="switchDrawerAiTab('summary')" class="flex-1 py-1.5 px-3 rounded-lg text-center transition bg-indigo-600 text-white shadow-sm flex items-center justify-center gap-1.5 cursor-pointer">
-          <i class="fa-solid fa-file-lines text-xs"></i> Resumo Estruturado
-        </button>
-        <button type="button" id="tab-btn-ai-chat" onclick="switchDrawerAiTab('chat')" class="flex-1 py-1.5 px-3 rounded-lg text-center transition text-slate-400 hover:text-slate-200 flex items-center justify-center gap-1.5 cursor-pointer">
-          <i class="fa-solid fa-comments text-xs"></i> Converse com o Edital
-        </button>
-      </div>
-
-      <!-- CONTEÚDO ABA 1: RESUMO ESTRUTURADO -->
-      <div id="drawer-ai-tab-summary" class="space-y-3">
-        <div class="flex items-center justify-between gap-2">
-          <button id="btn-generate-ai-summary" onclick="generateAiSummaryForDrawer()" class="bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold py-2.5 px-4 rounded-xl text-xs transition shadow-lg shadow-indigo-600/20 flex items-center gap-2 cursor-pointer w-full sm:w-auto justify-center">
-            <i class="fa-solid fa-sparkles text-xs"></i>
-            <span id="btn-generate-ai-summary-text">Gerar Resumo com IA</span>
-          </button>
-          <span id="ai-summary-cache-status" class="text-[10px] text-slate-400 font-mono hidden"></span>
-        </div>
-
-        <!-- Skeleton Loading Dark -->
-        <div id="drawer-ai-summary-skeleton" class="hidden space-y-3 p-4 rounded-xl bg-slate-900/60 border border-slate-800 animate-pulse">
-          <div class="h-4 bg-slate-800 rounded w-1/3"></div>
-          <div class="h-3 bg-slate-800/70 rounded w-full"></div>
-          <div class="h-3 bg-slate-800/70 rounded w-5/6"></div>
-          <div class="h-16 bg-slate-800/50 rounded mt-2"></div>
-          <div class="flex items-center justify-center gap-2 text-xs text-indigo-400 py-2">
-            <i class="fa-solid fa-circle-notch fa-spin"></i>
-            <span>Analisando Termo de Referência e Edital com IA...</span>
-          </div>
-        </div>
-
-        <!-- Conteúdo do Resumo Estruturado -->
-        <div id="drawer-ai-summary-content" class="hidden space-y-3 text-xs">
-          <!-- Objeto resumido em linguagem clara -->
-          <div class="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800">
-            <div class="text-[10px] uppercase font-bold tracking-wider text-indigo-400 mb-1 flex items-center gap-1.5">
-              <i class="fa-solid fa-bullseye"></i> Objeto Resumido (Linguagem Clara)
-            </div>
-            <p class="text-slate-200 leading-relaxed font-normal" id="ai-summary-objeto">-</p>
-          </div>
-
-          <!-- Exigências de Habilitação Técnica mais críticas -->
-          <div class="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800">
-            <div class="text-[10px] uppercase font-bold tracking-wider text-amber-400 mb-1.5 flex items-center gap-1.5">
-              <i class="fa-solid fa-clipboard-check"></i> Exigências de Habilitação Técnica Crítica
-            </div>
-            <ul class="space-y-1.5 text-slate-300 list-disc list-inside" id="ai-summary-habilitacao">
-            </ul>
-          </div>
-
-          <!-- Prazos de entrega/execução -->
-          <div class="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800">
-            <div class="text-[10px] uppercase font-bold tracking-wider text-sky-400 mb-1 flex items-center gap-1.5">
-              <i class="fa-regular fa-clock"></i> Prazos de Entrega / Execução
-            </div>
-            <p class="text-slate-200 leading-relaxed font-normal" id="ai-summary-prazos">-</p>
-          </div>
-
-          <!-- Condições de pagamento e sanções -->
-          <div class="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800">
-            <div class="text-[10px] uppercase font-bold tracking-wider text-rose-400 mb-1 flex items-center gap-1.5">
-              <i class="fa-solid fa-gavel"></i> Condições de Pagamento e Sanções
-            </div>
-            <p class="text-slate-200 leading-relaxed font-normal" id="ai-summary-pagamento">-</p>
-          </div>
-
-          <!-- Pontos de atenção -->
-          <div id="ai-summary-pontos-box" class="p-3.5 rounded-xl bg-indigo-950/30 border border-indigo-800/40 hidden">
-            <div class="text-[10px] uppercase font-bold tracking-wider text-indigo-300 mb-1 flex items-center gap-1.5">
-              <i class="fa-solid fa-triangle-exclamation"></i> Pontos de Atenção Estratégicos
-            </div>
-            <ul class="space-y-1 text-slate-300 list-disc list-inside" id="ai-summary-pontos">
-            </ul>
-          </div>
-        </div>
-      </div>
-
-      <!-- CONTEÚDO ABA 2: CONVERSE COM O EDITAL (CHAT) -->
-      <div id="drawer-ai-tab-chat" class="hidden space-y-3">
-        <!-- Perguntas Rápidas Sugeridas -->
-        <div class="flex flex-wrap gap-1.5">
-          <button type="button" onclick="askPresetQuestion('Qual é o prazo limite e forma de entrega dos produtos/serviços?')" class="text-[11px] bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 px-2.5 py-1 rounded-lg transition cursor-pointer">
-            ⏱️ Prazos de entrega?
-          </button>
-          <button type="button" onclick="askPresetQuestion('Quais são as exigências de habilitação técnica e atestados?')" class="text-[11px] bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 px-2.5 py-1 rounded-lg transition cursor-pointer">
-            📑 Atestados exigidos?
-          </button>
-          <button type="button" onclick="askPresetQuestion('Como funcionam os pagamentos e quais as sanções previstas?')" class="text-[11px] bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 px-2.5 py-1 rounded-lg transition cursor-pointer">
-            💰 Pagamento e multas?
-          </button>
-          <button type="button" onclick="askPresetQuestion('Qual o prazo para impugnar este edital conforme a Lei 14.133/2021?')" class="text-[11px] bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 px-2.5 py-1 rounded-lg transition cursor-pointer">
-            ⚖️ Impugnação de edital?
-          </button>
-        </div>
-
-        <!-- Histórico do Chat -->
-        <div id="drawer-chat-messages" class="h-64 overflow-y-auto space-y-3 p-3 bg-slate-900/90 rounded-xl border border-slate-800 text-xs">
-          <div class="flex gap-2.5 items-start">
-            <div class="w-6 h-6 rounded-full bg-indigo-600/30 border border-indigo-500/40 flex items-center justify-center text-indigo-400 shrink-0 text-[10px]">
-              <i class="fa-solid fa-robot"></i>
-            </div>
-            <div class="bg-slate-800/80 p-3 rounded-2xl rounded-tl-none border border-slate-700/60 text-slate-200 max-w-[85%] leading-relaxed">
-              Olá! Sou o assistente de IA especialista em licitações públicas. Pergunte qualquer dúvida sobre as regras, exigências técnicas, prazos ou condições deste edital!
-            </div>
-          </div>
-        </div>
-
-        <!-- Input do Chat -->
-        <form id="drawer-chat-form" onsubmit="event.preventDefault(); sendDrawerAiChat();" class="flex gap-2 items-center">
-          <input type="text" id="drawer-chat-input" placeholder="Faça uma pergunta sobre o edital..." class="flex-1 p-2.5 bg-slate-900 border border-slate-700 text-slate-100 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none placeholder-slate-500" />
-          <button type="submit" id="drawer-chat-btn-send" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold p-2.5 px-3.5 rounded-xl text-xs transition cursor-pointer flex items-center gap-1.5 shadow-md shadow-indigo-600/20">
-            <i class="fa-solid fa-paper-plane text-xs"></i>
-          </button>
-        </form>
-      </div>
-    </div>
-
-    <!-- Listagem de Itens do Certame logo abaixo -->
-    <div class="bg-[#111827] p-4 rounded-2xl border border-slate-800">
-      <div class="flex items-center justify-between mb-3">
-        <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
-          <i class="fa-solid fa-list-check text-sky-400"></i> Itens da Contratação
-        </h3>
-        <span class="text-xs font-mono text-slate-400" id="drawer-items-count">0 itens</span>
-      </div>
-
-      <div class="overflow-x-auto rounded-xl border border-slate-800">
-        <table class="w-full text-left text-xs text-slate-300">
-          <thead class="text-[10px] uppercase text-slate-400 bg-slate-900/90 border-b border-slate-800">
-            <tr>
-              <th class="py-2.5 px-3 font-semibold">#</th>
-              <th class="py-2.5 px-3 font-semibold">Descrição do Item</th>
-              <th class="py-2.5 px-3 font-semibold">Qtd.</th>
-              <th class="py-2.5 px-3 font-semibold">Unid.</th>
-              <th class="py-2.5 px-3 font-semibold text-right">Valor Estimado</th>
-            </tr>
-          </thead>
-          <tbody id="drawer-items-tbody" class="divide-y divide-slate-800 font-mono">
-            <!-- Linhas de itens preenchidas via API -->
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- Link Completo e Ações Complementares -->
-    <div class="flex justify-between items-center pt-2">
-      <a id="drawer-link-full" href="#" class="text-sky-400 hover:text-sky-300 text-xs font-semibold flex items-center gap-1.5 transition">
-        <span>Abrir análise aprofundada por IA</span>
-        <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
-      </a>
-    </div>
-  </div>
-</aside>
-
-<!-- Modal: seleção de itens ao adicionar o certame em "Meus Negócios" (acima da gaveta) -->
-<div id="deal-items-modal" class="fixed inset-0 bg-black/75 backdrop-blur-xs z-[60] hidden items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="deal-items-modal-title" onclick="if (event.target === this) closeDealItemsModal()">
-  <div class="bg-[#111827] border border-slate-800 rounded-2xl max-w-2xl w-full max-h-[85vh] flex flex-col shadow-2xl text-slate-100">
-    <div class="flex items-start justify-between gap-3 p-5 border-b border-slate-800">
-      <div class="min-w-0">
-        <h3 id="deal-items-modal-title" class="text-base font-bold text-white flex items-center gap-2">
-          <i class="fa-solid fa-briefcase text-sky-400"></i> Adicionar a Meus Negócios
-        </h3>
-        <p id="deal-items-modal-subtitle" class="text-xs text-slate-400 mt-1 truncate">Selecione os itens que a empresa vai disputar.</p>
-      </div>
-      <button type="button" onclick="closeDealItemsModal()" class="text-slate-400 hover:text-white p-1 cursor-pointer" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
-    </div>
-
-    <div class="flex items-center justify-between gap-3 px-5 py-3 border-b border-slate-800 bg-slate-900/60">
-      <label class="flex items-center gap-2 text-xs font-semibold text-slate-200 cursor-pointer select-none">
-        <input type="checkbox" id="deal-items-select-all" onchange="toggleAllDealItems(this.checked)" class="w-4 h-4 rounded border-slate-600 bg-slate-800 accent-sky-500 cursor-pointer" />
-        Selecionar todos
-      </label>
-      <span id="deal-items-summary" class="text-xs font-mono text-slate-400" aria-live="polite">0 de 0 selecionados</span>
-    </div>
-
-    <div id="deal-items-list" class="flex-1 overflow-y-auto divide-y divide-slate-800/80">
-      <!-- Itens preenchidos via JS -->
-    </div>
-
-    <div class="flex items-center justify-between gap-2 p-4 border-t border-slate-800">
-      <span id="deal-items-total" class="text-xs text-slate-400"></span>
-      <div class="flex gap-2">
-        <button type="button" onclick="closeDealItemsModal()" class="px-4 py-2 rounded-xl text-xs border border-slate-700 font-semibold text-slate-300 hover:bg-slate-800 transition cursor-pointer">Cancelar</button>
-        <button type="button" id="deal-items-confirm" onclick="confirmDealItems()" class="px-4 py-2 rounded-xl text-xs bg-sky-600 text-white font-semibold hover:bg-sky-500 transition shadow-md cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5">
-          <i class="fa-solid fa-check text-[11px]"></i> <span>Confirmar</span>
-        </button>
-      </div>
-    </div>
-  </div>
-</div>
+{% include "partials_tender_drawer.html" %}
 
 <!-- Modal Salvar Alerta (Dark Theme) -->
 <div id="save-alert-modal" class="fixed inset-0 bg-black/70 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
@@ -980,426 +669,6 @@
 
 {% block scripts %}
 <script>
-  let currentDrawerTender = null;
-  // Itens da contratação aberta na gaveta (reaproveitados pelo modal "+ Meus Negócios")
-  let currentDrawerItems = [];
-  let drawerItemsPromise = null;
-  // Identifica a abertura mais recente da gaveta; respostas de aberturas anteriores são descartadas
-  let drawerRequestSeq = 0;
-
-  async function openTenderDrawer(tenderId) {
-    const requestSeq = ++drawerRequestSeq;
-    const backdrop = document.getElementById('drawer-backdrop');
-    const drawer = document.getElementById('tender-drawer');
-    currentDrawerTender = null;
-    currentDrawerItems = [];
-    drawerItemsPromise = null;
-    document.getElementById('drawer-title').textContent = 'Carregando...';
-    document.getElementById('drawer-entity').textContent = '';
-
-    backdrop.classList.remove('opacity-0', 'pointer-events-none');
-    backdrop.classList.add('opacity-100');
-    drawer.classList.remove('translate-x-full');
-    drawer.classList.add('translate-x-0');
-    document.body.classList.add('overflow-hidden');
-    resetDrawerAiState();
-
-    const tbody = document.getElementById('drawer-items-tbody');
-    tbody.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-slate-400"><i class="fa-solid fa-spinner animate-spin mr-2"></i>Carregando dados completos do certame...</td></tr>';
-    document.getElementById('drawer-items-count').textContent = 'Carregando...';
-
-    try {
-      const resp = await fetch(`/api/tenders/${tenderId}`);
-      if (!resp.ok) throw new Error('Falha ao carregar certame');
-      const data = await resp.json();
-      if (requestSeq !== drawerRequestSeq) return;  // outra gaveta foi aberta nesse meio-tempo
-      currentDrawerTender = data;
-
-      // Badges
-      const sourceBadge = document.getElementById('drawer-source-badge');
-      const uasgBadge = document.getElementById('drawer-uasg-badge');
-      if (data.source_system === 'compras_gov' || data.sicaf_ready) {
-        sourceBadge.className = 'px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30';
-        sourceBadge.innerHTML = '<i class="fa-solid fa-shield-halved text-[11px] mr-1"></i> Compras.gov.br (SICAF)';
-        if (data.uasg_code) {
-          uasgBadge.textContent = `UASG ${data.uasg_code}`;
-          uasgBadge.classList.remove('hidden');
-        } else {
-          uasgBadge.classList.add('hidden');
-        }
-      } else {
-        sourceBadge.className = 'px-3 py-1 rounded-full text-xs font-bold bg-sky-500/15 text-sky-400 border border-sky-500/30';
-        sourceBadge.innerHTML = '<i class="fa-solid fa-landmark text-[11px] mr-1"></i> Outros / PNCP';
-        uasgBadge.classList.add('hidden');
-      }
-
-      document.getElementById('drawer-modality-badge').textContent = (data.modality || 'PREGÃO ELETRÔNICO').toUpperCase();
-
-      // Title & Entity
-      document.getElementById('drawer-entity').textContent = data.contracting_entity || 'Órgão Não Informado';
-      document.getElementById('drawer-title').textContent = data.title || 'Contratação Pública';
-      document.getElementById('drawer-process').textContent = `Processo: ${data.process_number || 'Não informado'}`;
-      document.getElementById('drawer-notice').textContent = `Certame: ${data.notice_number || data.external_id || 'Não informado'}`;
-      document.getElementById('drawer-location').textContent = `Local: ${[data.city, data.state].filter(Boolean).join(' - ') || 'Não informado'}`;
-
-      // Value
-      const valorTotal = toNumberOrNull(data.estimated_total_value);
-      document.getElementById('drawer-value').textContent = valorTotal ? formatBRL(valorTotal) : 'Valor sigiloso / A definir';
-
-      // Dates
-      const formatDt = (dtStr) => {
-        if (!dtStr) return 'Não informado';
-        try {
-          const d = new Date(dtStr);
-          if (Number.isNaN(d.getTime())) return String(dtStr);
-          return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-        } catch { return dtStr; }
-      };
-
-      document.getElementById('drawer-date-pub').textContent = formatDt(data.publication_date);
-      document.getElementById('drawer-date-limit').textContent = formatDt(data.proposal_deadline);
-      document.getElementById('drawer-date-open').textContent = formatDt(data.opening_date);
-
-      // Description
-      document.getElementById('drawer-desc').textContent = data.object_description || 'Sem descrição detalhada.';
-
-      // Action Buttons: Priorização do portal de origem / sala de disputa
-      const disputeBtn = document.getElementById('drawer-btn-dispute');
-      const disputeUrl = data.url_disputa || data.url_pncp || data.link_comprasnet || data.official_notice_url || data.link_pncp || data.source_url || '#';
-      disputeBtn.href = disputeUrl;
-      const portalLabel = data.executor_portal || (data.sicaf_ready || data.source_system === 'compras_gov' ? 'Compras.gov.br' : 'Sala de Disputa');
-      disputeBtn.innerHTML = `<i class="fa-solid fa-gavel text-xs"></i> <span>Acessar Edital / Disputa (${portalLabel})</span> <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>`;
-
-      // Referência documental discreta para o PNCP
-      const pncpLink = document.getElementById('drawer-link-pncp');
-      if (pncpLink) {
-        const canonicalPncp = data.url_pncp || data.link_pncp || data.source_url || 'https://pncp.gov.br/app/editais';
-        pncpLink.href = canonicalPncp;
-        const textPncp = document.getElementById('drawer-text-pncp');
-        if (textPncp) {
-          textPncp.textContent = data.external_id ? `PNCP: ${data.external_id}` : 'Ver no PNCP';
-        }
-      }
-
-      const filesBtn = document.getElementById('drawer-btn-files');
-      const docUrl = (data.documents && data.documents[0] && data.documents[0].source_url) || data.official_notice_url || data.link_pncp || data.source_url || '#';
-      filesBtn.href = docUrl;
-
-      document.getElementById('drawer-link-full').href = `/tenders/${data.id}`;
-
-      // Itens detalhados do PNCP (carregamento independente: falha aqui não derruba a gaveta)
-      await loadDrawerItems(tenderId, data.items || [], requestSeq);
-
-    } catch (err) {
-      if (requestSeq !== drawerRequestSeq) return;
-      document.getElementById('drawer-items-count').textContent = '—';
-      tbody.innerHTML = drawerItemsMessageRow('Não foi possível carregar os detalhes do certame. Verifique sua conexão.', 'error', tenderId);
-    }
-  }
-
-  // ---------------- Itens da contratação (gaveta lateral) ----------------
-  const DRAWER_ITEMS_TIMEOUT_MS = 20000;
-
-  function toNumberOrNull(val) {
-    if (val === null || val === undefined || val === '') return null;
-    const str = String(val).trim();
-    // "1.234,56" (pt-BR) → 1234.56; "1234.56" segue como está
-    const n = typeof val === 'number' ? val : Number(str.includes(',') ? str.replace(/\./g, '').replace(',', '.') : str);
-    return Number.isFinite(n) ? n : null;
-  }
-
-  function formatBRL(val) {
-    const n = toNumberOrNull(val);
-    return n === null ? null : n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-  }
-
-  function formatQuantity(val) {
-    const n = toNumberOrNull(val);
-    return n === null ? null : n.toLocaleString('pt-BR', { maximumFractionDigits: 4 });
-  }
-
-  function drawerItemsMessageRow(msg, tone = 'info', retryTenderId = null) {
-    const color = tone === 'error' ? 'text-rose-400' : tone === 'warn' ? 'text-amber-300' : 'text-slate-400';
-    const icon = tone === 'error' ? 'fa-triangle-exclamation' : tone === 'warn' ? 'fa-circle-exclamation' : 'fa-circle-info';
-    const retry = retryTenderId
-      ? ` <button type="button" onclick="loadDrawerItems('${escapeHtml(retryTenderId)}', [], drawerRequestSeq, true)" class="ml-2 underline text-sky-400 hover:text-sky-300 font-semibold cursor-pointer">Tentar novamente</button>`
-      : '';
-    return `<tr><td colspan="5" class="py-4 px-3 text-center font-sans ${color}"><i class="fa-solid ${icon} mr-1" aria-hidden="true"></i>${escapeHtml(msg)}${retry}</td></tr>`;
-  }
-
-  function renderDrawerItemRow(item, idx) {
-    const numero = item.item_number ?? (idx + 1);
-    const descricao = (item.description || '').trim() || 'Item sem descrição';
-    const qtd = formatQuantity(item.quantity);
-    const unidade = item.unit && item.unit !== 'Não informado' ? item.unit : null;
-    const total = formatBRL(item.estimated_total_value);
-    const unitario = formatBRL(item.estimated_unit_value);
-    const sigiloso = item.orcamento_sigiloso === true;
-    const valorHtml = total
-      ? `<span class="text-emerald-300 font-bold">${total}</span>${unitario && qtd ? `<span class="block text-[10px] text-slate-400 font-normal">${unitario} / un.</span>` : ''}`
-      : `<span class="text-slate-500 font-normal font-sans">${sigiloso ? 'Sigiloso' : 'Não informado'}</span>`;
-    const categoria = item.classification_code && item.classification_code !== 'Não informado'
-      ? `<span class="text-[10px] text-slate-400 block font-mono mt-0.5">Cat: ${escapeHtml(item.classification_code)}</span>` : '';
-    return `
-      <tr class="hover:bg-slate-800/50 transition align-top">
-        <td class="py-2.5 px-3 font-bold text-sky-400 whitespace-nowrap">${escapeHtml(numero)}</td>
-        <td class="py-2.5 px-3 text-slate-200 font-sans leading-snug min-w-[12rem] max-w-md break-words">
-          <div class="line-clamp-3" title="${escapeHtml(descricao)}">${escapeHtml(descricao)}</div>
-          ${categoria}
-        </td>
-        <td class="py-2.5 px-3 font-bold whitespace-nowrap ${qtd ? 'text-slate-300' : 'text-slate-500 font-normal'}">${qtd ? escapeHtml(qtd) : '—'}</td>
-        <td class="py-2.5 px-3 text-slate-400 text-[11px] whitespace-nowrap">${unidade ? escapeHtml(unidade) : '—'}</td>
-        <td class="py-2.5 px-3 text-right whitespace-nowrap">${valorHtml}</td>
-      </tr>`;
-  }
-
-  function loadDrawerItems(tenderId, fallbackItems = [], requestSeq = drawerRequestSeq, forceRefresh = false) {
-    drawerItemsPromise = fetchAndRenderDrawerItems(tenderId, fallbackItems, requestSeq, forceRefresh);
-    return drawerItemsPromise;
-  }
-
-  async function fetchAndRenderDrawerItems(tenderId, fallbackItems, requestSeq, forceRefresh) {
-    const tbody = document.getElementById('drawer-items-tbody');
-    const countEl = document.getElementById('drawer-items-count');
-    const isStale = () => requestSeq !== drawerRequestSeq;
-
-    tbody.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-slate-400 font-sans" aria-live="polite"><i class="fa-solid fa-spinner animate-spin mr-2" aria-hidden="true"></i>Consultando itens no PNCP...</td></tr>';
-    countEl.textContent = 'Carregando...';
-
-    let items = Array.isArray(fallbackItems) ? fallbackItems : [];
-    let aviso = null;
-    let falhou = false;
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), DRAWER_ITEMS_TIMEOUT_MS);
-    try {
-      const resp = await fetch(`/api/tenders/${encodeURIComponent(tenderId)}/itens${forceRefresh ? '?atualizar=true' : ''}`, { signal: controller.signal });
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const json = await resp.json();
-      if (json && Array.isArray(json.itens) && json.itens.length > 0) items = json.itens;
-      if (json && ['indisponivel', 'nao_encontrado', 'vazio', 'sem_identificador'].includes(json.status) && json.mensagem) {
-        aviso = json.mensagem;
-      }
-    } catch (e) {
-      falhou = true;
-      aviso = e.name === 'AbortError'
-        ? 'O PNCP demorou a responder.'
-        : 'Falha de rede ao consultar os itens no PNCP.';
-    } finally {
-      clearTimeout(timer);
-    }
-
-    if (isStale()) return items;  // usuário já abriu outro certame
-    currentDrawerItems = items;
-
-    countEl.textContent = items.length ? `${items.length} item(ns)` : (falhou ? '—' : '0 itens');
-    if (items.length === 0) {
-      tbody.innerHTML = falhou
-        ? drawerItemsMessageRow(aviso, 'error', tenderId)
-        : drawerItemsMessageRow(aviso || 'Nenhum item individual cadastrado para este certame.');
-      return items;
-    }
-
-    let html = items.map(renderDrawerItemRow).join('');
-    if (aviso) html = drawerItemsMessageRow(falhou ? `${aviso} Exibindo itens da base local.` : aviso, 'warn', falhou ? tenderId : null) + html;
-    tbody.innerHTML = html;
-    return items;
-  }
-
-  function closeTenderDrawer() {
-    const backdrop = document.getElementById('drawer-backdrop');
-    const drawer = document.getElementById('tender-drawer');
-    if (!backdrop || !drawer) return;
-
-    backdrop.classList.remove('opacity-100');
-    backdrop.classList.add('opacity-0', 'pointer-events-none');
-    drawer.classList.remove('translate-x-0');
-    drawer.classList.add('translate-x-full');
-    document.body.classList.remove('overflow-hidden');
-  }
-
-  document.addEventListener('keydown', (e) => {
-    if (e.key !== 'Escape') return;
-    if (isDealItemsModalOpen()) closeDealItemsModal();
-    else closeTenderDrawer();
-  });
-
-  async function addOpportunityToPipeline(tenderId, identifier, selectedItems = undefined) {
-    try {
-      const body = { tender_id: tenderId };
-      if (selectedItems !== undefined) body.selected_items = selectedItems;
-      const headers = { 'Content-Type': 'application/json' };
-      const token = AppSession.getToken();
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-      const resp = await fetch('/api/deals', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body)
-      });
-      const data = await resp.json().catch(() => ({}));
-      if (resp.status === 401) {
-        showToast('Entre na sua conta para salvar certames em Meus Negócios.', 'info');
-        setTimeout(() => { window.location.href = '/login'; }, 1200);
-        return false;
-      }
-      if (!resp.ok) throw new Error(data.detail || `HTTP ${resp.status}`);
-      const qtd = data.selected_items_count || 0;
-      showToast(qtd
-        ? `Certame ${identifier} salvo em Meus Negócios com ${qtd} ${qtd === 1 ? 'item' : 'itens'} para disputa!`
-        : `Certame ${identifier} adicionado com sucesso ao seu funil de negócios!`, 'success');
-
-      let deals = JSON.parse(localStorage.getItem('my_pipeline_deals') || '[]');
-      if (!deals.includes(tenderId)) {
-        deals.push(tenderId);
-        localStorage.setItem('my_pipeline_deals', JSON.stringify(deals));
-      }
-      return true;
-    } catch (e) {
-      showToast(`Não foi possível salvar o certame ${identifier} em Meus Negócios. ${e.message || ''}`.trim(), 'error');
-      return false;
-    }
-  }
-
-  // ---------------- Modal de seleção de itens ("+ Meus Negócios") ----------------
-  let dealModalItems = [];
-  let dealModalTender = null;
-
-  function isDealItemsModalOpen() {
-    const modal = document.getElementById('deal-items-modal');
-    return modal && !modal.classList.contains('hidden');
-  }
-
-  function closeDealItemsModal() {
-    const modal = document.getElementById('deal-items-modal');
-    modal.classList.add('hidden');
-    modal.classList.remove('flex');
-    dealModalTender = null;
-  }
-
-  function dealItemCheckboxes() {
-    return Array.from(document.querySelectorAll('#deal-items-list input[type="checkbox"][data-item-number]'));
-  }
-
-  function updateDealItemsSummary() {
-    const boxes = dealItemCheckboxes();
-    const marcados = boxes.filter(b => b.checked);
-    const selectAll = document.getElementById('deal-items-select-all');
-    const confirmBtn = document.getElementById('deal-items-confirm');
-    document.getElementById('deal-items-summary').textContent = `${marcados.length} de ${boxes.length} selecionados`;
-    selectAll.checked = boxes.length > 0 && marcados.length === boxes.length;
-    selectAll.indeterminate = marcados.length > 0 && marcados.length < boxes.length;
-    selectAll.disabled = boxes.length === 0;
-
-    const soma = marcados.reduce((acc, b) => {
-      const item = dealModalItems.find(i => String(i.item_number) === b.dataset.itemNumber);
-      const v = item ? toNumberOrNull(item.estimated_total_value) : null;
-      return v === null ? acc : acc + v;
-    }, 0);
-    document.getElementById('deal-items-total').textContent = marcados.length && soma > 0 ? `Valor estimado selecionado: ${formatBRL(soma)}` : '';
-
-    // Sem itens cadastrados o negócio vale para o certame inteiro; com itens, exige ao menos um marcado
-    confirmBtn.disabled = boxes.length > 0 && marcados.length === 0;
-  }
-
-  function toggleAllDealItems(checked) {
-    dealItemCheckboxes().forEach(b => { b.checked = checked; });
-    updateDealItemsSummary();
-  }
-
-  function renderDealModalItem(item, idx, marcado) {
-    const numero = item.item_number ?? (idx + 1);
-    const descricao = (item.description || '').trim() || 'Item sem descrição';
-    const qtd = formatQuantity(item.quantity);
-    const unidade = item.unit && item.unit !== 'Não informado' ? item.unit : '';
-    const total = formatBRL(item.estimated_total_value);
-    return `
-      <label class="flex items-start gap-3 px-5 py-3 hover:bg-slate-800/50 cursor-pointer transition">
-        <input type="checkbox" data-item-number="${escapeHtml(numero)}" ${marcado ? 'checked' : ''} onchange="updateDealItemsSummary()" class="mt-0.5 w-4 h-4 shrink-0 rounded border-slate-600 bg-slate-800 accent-sky-500 cursor-pointer" />
-        <span class="font-mono font-bold text-sky-400 text-xs w-8 shrink-0">${escapeHtml(numero)}</span>
-        <span class="flex-1 min-w-0">
-          <span class="block text-xs text-slate-200 leading-snug line-clamp-2" title="${escapeHtml(descricao)}">${escapeHtml(descricao)}</span>
-          <span class="block text-[10px] text-slate-400 font-mono mt-0.5">${qtd ? `${escapeHtml(qtd)} ${escapeHtml(unidade)}` : 'Qtd. não informada'}</span>
-        </span>
-        <span class="text-xs font-mono font-bold whitespace-nowrap ${total ? 'text-emerald-300' : 'text-slate-500 font-normal'}">${total || '—'}</span>
-      </label>`;
-  }
-
-  async function addCurrentTenderToPipeline() {
-    if (!currentDrawerTender) return;
-    const tender = currentDrawerTender;
-    dealModalTender = tender;
-    dealModalItems = [];
-
-    const modal = document.getElementById('deal-items-modal');
-    const list = document.getElementById('deal-items-list');
-    document.getElementById('deal-items-modal-subtitle').textContent =
-      `${tender.notice_number || tender.external_id || 'Certame'} · ${tender.title || ''}`;
-    list.innerHTML = '<div class="py-8 text-center text-xs text-slate-400"><i class="fa-solid fa-spinner animate-spin mr-2"></i>Carregando itens da contratação...</div>';
-    document.getElementById('deal-items-total').textContent = '';
-    document.getElementById('deal-items-confirm').disabled = true;
-    modal.classList.remove('hidden');
-    modal.classList.add('flex');
-
-    // Itens já carregados na gaveta + seleção anterior (se o certame já estiver no funil)
-    const [itens, selecaoAnterior] = await Promise.all([
-      drawerItemsPromise ? drawerItemsPromise.catch(() => currentDrawerItems) : Promise.resolve(currentDrawerItems),
-      fetch('/api/deals', { headers: AppSession.getToken() ? { 'Authorization': `Bearer ${AppSession.getToken()}` } : {} }).then(r => r.ok ? r.json() : null).then(data => {
-        const deal = (data && data.deals || []).find(d => String(d.tender_id) === String(tender.id));
-        return deal && Array.isArray(deal.selected_items) ? deal.selected_items.map(i => String(i.item_number)) : null;
-      }).catch(() => null)
-    ]);
-    if (dealModalTender !== tender) return;  // modal fechado ou trocado durante o carregamento
-
-    dealModalItems = Array.isArray(itens) ? itens : [];
-    if (dealModalItems.length === 0) {
-      list.innerHTML = '<div class="py-8 px-5 text-center text-xs text-slate-400"><i class="fa-solid fa-circle-info mr-1"></i>Nenhum item individual disponível para este certame. O negócio será criado para a contratação inteira.</div>';
-    } else {
-      list.innerHTML = dealModalItems.map((item, idx) => {
-        const numero = String(item.item_number ?? (idx + 1));
-        return renderDealModalItem(item, idx, selecaoAnterior ? selecaoAnterior.includes(numero) : true);
-      }).join('');
-    }
-    updateDealItemsSummary();
-  }
-
-  async function confirmDealItems() {
-    const tender = dealModalTender;
-    if (!tender) return;
-    const marcados = new Set(dealItemCheckboxes().filter(b => b.checked).map(b => b.dataset.itemNumber));
-    const selecionados = dealModalItems
-      .map((item, idx) => ({ item, numero: item.item_number ?? (idx + 1) }))
-      .filter(({ numero }) => marcados.has(String(numero)))
-      .map(({ item, numero }) => ({
-        item_number: numero,
-        description: item.description,
-        unit: item.unit,
-        quantity: item.quantity,
-        estimated_unit_value: item.estimated_unit_value,
-        estimated_total_value: item.estimated_total_value,
-        degrau_minimo: item.degrau_minimo
-      }));
-
-    const btn = document.getElementById('deal-items-confirm');
-    btn.disabled = true;
-    const ok = await addOpportunityToPipeline(
-      tender.id,
-      tender.notice_number || tender.external_id,
-      dealModalItems.length ? selecionados : undefined
-    );
-    if (ok) closeDealItemsModal();
-    else btn.disabled = false;
-  }
-
-  function escapeHtml(text) {
-    if (!text) return '';
-    return String(text)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
-  }
-
   async function saveSearchAlert() {
     const queryParams = new URLSearchParams(window.location.search);
     const qInput = document.querySelector('input[name="q"]');
@@ -1571,254 +840,6 @@
     url.searchParams.set('page_size', newSize);
     url.searchParams.set('page', '1');
     window.location.href = url.toString();
-  }
-
-  // ==============================================================================
-  // MÓDULO DE IA: RESUMO ESTRUTURADO E CONVERSE COM O EDITAL (GEMINI)
-  // ==============================================================================
-  function switchDrawerAiTab(tab) {
-    const btnSummary = document.getElementById('tab-btn-ai-summary');
-    const btnChat = document.getElementById('tab-btn-ai-chat');
-    const tabSummary = document.getElementById('drawer-ai-tab-summary');
-    const tabChat = document.getElementById('drawer-ai-tab-chat');
-
-    if (tab === 'summary') {
-      btnSummary.className = 'flex-1 py-1.5 px-3 rounded-lg text-center transition bg-indigo-600 text-white shadow-sm flex items-center justify-center gap-1.5 cursor-pointer';
-      btnChat.className = 'flex-1 py-1.5 px-3 rounded-lg text-center transition text-slate-400 hover:text-slate-200 flex items-center justify-center gap-1.5 cursor-pointer';
-      tabSummary.classList.remove('hidden');
-      tabChat.classList.add('hidden');
-    } else {
-      btnChat.className = 'flex-1 py-1.5 px-3 rounded-lg text-center transition bg-indigo-600 text-white shadow-sm flex items-center justify-center gap-1.5 cursor-pointer';
-      btnSummary.className = 'flex-1 py-1.5 px-3 rounded-lg text-center transition text-slate-400 hover:text-slate-200 flex items-center justify-center gap-1.5 cursor-pointer';
-      tabChat.classList.remove('hidden');
-      tabSummary.classList.add('hidden');
-      setTimeout(() => {
-        const inp = document.getElementById('drawer-chat-input');
-        if (inp) inp.focus();
-      }, 100);
-    }
-  }
-
-  function resetDrawerAiState() {
-    const content = document.getElementById('drawer-ai-summary-content');
-    const skeleton = document.getElementById('drawer-ai-summary-skeleton');
-    const btnText = document.getElementById('btn-generate-ai-summary-text');
-    const btn = document.getElementById('btn-generate-ai-summary');
-    const cacheStatus = document.getElementById('ai-summary-cache-status');
-
-    if (content) content.classList.add('hidden');
-    if (skeleton) skeleton.classList.add('hidden');
-    if (cacheStatus) {
-      cacheStatus.classList.add('hidden');
-      cacheStatus.textContent = '';
-    }
-    if (btn) {
-      btn.disabled = false;
-      btn.classList.remove('opacity-75', 'cursor-not-allowed');
-      btn.onclick = () => generateAiSummaryForDrawer(false);
-    }
-    if (btnText) btnText.innerHTML = '<i class="fa-solid fa-sparkles mr-1.5"></i> Gerar Resumo com IA';
-
-    // Reset Chat messages
-    const chatMsgs = document.getElementById('drawer-chat-messages');
-    if (chatMsgs) {
-      chatMsgs.innerHTML = `
-        <div class="flex gap-2.5 items-start">
-          <div class="w-6 h-6 rounded-full bg-indigo-600/30 border border-indigo-500/40 flex items-center justify-center text-indigo-400 shrink-0 text-[10px]">
-            <i class="fa-solid fa-robot"></i>
-          </div>
-          <div class="bg-slate-800/80 p-3 rounded-2xl rounded-tl-none border border-slate-700/60 text-slate-200 max-w-[85%] leading-relaxed">
-            Olá! Sou o assistente de IA especialista em licitações públicas. Pergunte qualquer dúvida sobre as regras, exigências técnicas, prazos ou condições deste edital!
-          </div>
-        </div>
-      `;
-    }
-    const chatInput = document.getElementById('drawer-chat-input');
-    if (chatInput) chatInput.value = '';
-    switchDrawerAiTab('summary');
-  }
-
-  async function generateAiSummaryForDrawer(forceRefresh = false) {
-    if (!currentDrawerTender) return;
-    const tenderId = currentDrawerTender.id;
-
-    const btn = document.getElementById('btn-generate-ai-summary');
-    const btnText = document.getElementById('btn-generate-ai-summary-text');
-    const skeleton = document.getElementById('drawer-ai-summary-skeleton');
-    const content = document.getElementById('drawer-ai-summary-content');
-    const cacheStatus = document.getElementById('ai-summary-cache-status');
-
-    btn.disabled = true;
-    btn.classList.add('opacity-75', 'cursor-not-allowed');
-    btnText.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-1.5"></i> Analisando edital com IA...';
-    skeleton.classList.remove('hidden');
-    content.classList.add('hidden');
-    cacheStatus.classList.add('hidden');
-
-    try {
-      const resp = await fetch(`/api/tenders/${tenderId}/ai-summary${forceRefresh ? '?force_refresh=true' : ''}`, {
-        method: 'POST'
-      });
-      const data = await resp.json();
-
-      if (!resp.ok) {
-        throw new Error(data.detail || 'Erro ao gerar análise');
-      }
-
-      const summary = data.summary || {};
-
-      // Objeto resumido
-      document.getElementById('ai-summary-objeto').textContent = summary.objeto_resumido || 'Não informado.';
-
-      // Habilitação técnica
-      const habList = document.getElementById('ai-summary-habilitacao');
-      const habItems = Array.isArray(summary.habilitacao_tecnica) ? summary.habilitacao_tecnica : [summary.habilitacao_tecnica].filter(Boolean);
-      habList.innerHTML = habItems.map(h => `<li>${escapeHtml(h)}</li>`).join('') || '<li>Verificar exigências completas no termo de referência.</li>';
-
-      // Prazos
-      document.getElementById('ai-summary-prazos').textContent = summary.prazos_entrega_execucao || 'Conforme cronograma oficial.';
-
-      // Pagamento e sanções
-      document.getElementById('ai-summary-pagamento').textContent = summary.condicoes_pagamento_sancoes || 'Conforme Lei nº 14.133/2021.';
-
-      // Pontos de atenção
-      const pontosBox = document.getElementById('ai-summary-pontos-box');
-      const pontosList = document.getElementById('ai-summary-pontos');
-      if (summary.pontos_atencao && summary.pontos_atencao.length > 0) {
-        const pItems = Array.isArray(summary.pontos_atencao) ? summary.pontos_atencao : [summary.pontos_atencao];
-        pontosList.innerHTML = pItems.map(p => `<li>${escapeHtml(p)}</li>`).join('');
-        pontosBox.classList.remove('hidden');
-      } else {
-        pontosBox.classList.add('hidden');
-      }
-
-      // Badge de cache/IA
-      cacheStatus.classList.remove('hidden');
-      if (data.cached) {
-        cacheStatus.innerHTML = '<span class="text-amber-400"><i class="fa-solid fa-bolt mr-1"></i>Em Cache</span>';
-      } else {
-        cacheStatus.innerHTML = `<span class="text-indigo-400"><i class="fa-solid fa-sparkles mr-1"></i>Gerado via ${escapeHtml(data.model || 'Gemini')}</span>`;
-      }
-
-      skeleton.classList.add('hidden');
-      content.classList.remove('hidden');
-      btnText.innerHTML = '<i class="fa-solid fa-rotate-right mr-1.5"></i> Atualizar Resumo';
-      btn.disabled = false;
-      btn.classList.remove('opacity-75', 'cursor-not-allowed');
-      btn.onclick = () => generateAiSummaryForDrawer(true);
-
-    } catch (err) {
-      skeleton.classList.add('hidden');
-      btnText.innerHTML = '<i class="fa-solid fa-triangle-exclamation mr-1.5"></i> Tentar Novamente';
-      btn.disabled = false;
-      btn.classList.remove('opacity-75', 'cursor-not-allowed');
-      showToast('Não foi possível gerar o resumo por IA: ' + err.message, 'error');
-    }
-  }
-
-  async function sendDrawerAiChat() {
-    if (!currentDrawerTender) return;
-    const tenderId = currentDrawerTender.id;
-    const input = document.getElementById('drawer-chat-input');
-    const sendBtn = document.getElementById('drawer-chat-btn-send');
-    const question = input.value.trim();
-    if (!question) return;
-
-    const chatMsgs = document.getElementById('drawer-chat-messages');
-
-    // Append User Message
-    const userMsgEl = document.createElement('div');
-    userMsgEl.className = 'flex gap-2.5 items-start justify-end';
-    userMsgEl.innerHTML = `
-      <div class="bg-indigo-600 text-white p-3 rounded-2xl rounded-tr-none shadow-md max-w-[85%] leading-relaxed">
-        ${escapeHtml(question)}
-      </div>
-      <div class="w-6 h-6 rounded-full bg-slate-700 border border-slate-600 flex items-center justify-center text-slate-300 shrink-0 text-[10px]">
-        <i class="fa-solid fa-user"></i>
-      </div>
-    `;
-    chatMsgs.appendChild(userMsgEl);
-    input.value = '';
-    sendBtn.disabled = true;
-
-    // Append Typing Indicator
-    const typingId = 'typing-' + Date.now();
-    const typingEl = document.createElement('div');
-    typingEl.id = typingId;
-    typingEl.className = 'flex gap-2.5 items-start';
-    typingEl.innerHTML = `
-      <div class="w-6 h-6 rounded-full bg-indigo-600/30 border border-indigo-500/40 flex items-center justify-center text-indigo-400 shrink-0 text-[10px]">
-        <i class="fa-solid fa-robot"></i>
-      </div>
-      <div class="bg-slate-800/80 p-3 rounded-2xl rounded-tl-none border border-slate-700/60 text-indigo-300 max-w-[85%] flex items-center gap-2">
-        <i class="fa-solid fa-circle-notch fa-spin text-xs"></i>
-        <span>Consultando edital com IA...</span>
-      </div>
-    `;
-    chatMsgs.appendChild(typingEl);
-    chatMsgs.scrollTop = chatMsgs.scrollHeight;
-
-    try {
-      const resp = await fetch(`/api/tenders/${tenderId}/ai-chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: question })
-      });
-      const data = await resp.json();
-      const typing = document.getElementById(typingId);
-      if (typing) typing.remove();
-
-      if (!resp.ok) {
-        throw new Error(data.detail || 'Erro ao consultar IA');
-      }
-
-      // Format markdown-like response
-      let answerFormatted = escapeHtml(data.answer || '')
-        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-        .replace(/\*(.*?)\*/g, '<em>$1</em>')
-        .replace(/\n\n/g, '<br/><br/>')
-        .replace(/\n/g, '<br/>');
-
-      const aiMsgEl = document.createElement('div');
-      aiMsgEl.className = 'flex gap-2.5 items-start';
-      aiMsgEl.innerHTML = `
-        <div class="w-6 h-6 rounded-full bg-indigo-600/30 border border-indigo-500/40 flex items-center justify-center text-indigo-400 shrink-0 text-[10px]">
-          <i class="fa-solid fa-robot"></i>
-        </div>
-        <div class="bg-slate-800/80 p-3.5 rounded-2xl rounded-tl-none border border-slate-700/60 text-slate-200 max-w-[85%] leading-relaxed text-xs">
-          ${answerFormatted}
-          <div class="mt-2 pt-1 border-t border-slate-700/40 text-[10px] text-slate-400 font-mono flex items-center justify-between">
-            <span>IA Consultiva • ${escapeHtml(data.model || 'Gemini')}</span>
-          </div>
-        </div>
-      `;
-      chatMsgs.appendChild(aiMsgEl);
-
-    } catch (err) {
-      const typing = document.getElementById(typingId);
-      if (typing) typing.remove();
-
-      const errEl = document.createElement('div');
-      errEl.className = 'flex gap-2.5 items-start';
-      errEl.innerHTML = `
-        <div class="w-6 h-6 rounded-full bg-rose-600/30 border border-rose-500/40 flex items-center justify-center text-rose-400 shrink-0 text-[10px]">
-          <i class="fa-solid fa-triangle-exclamation"></i>
-        </div>
-        <div class="bg-rose-950/40 p-3 rounded-2xl rounded-tl-none border border-rose-800/50 text-rose-300 max-w-[85%] text-xs">
-          Erro ao consultar IA: ${escapeHtml(err.message)}
-        </div>
-      `;
-      chatMsgs.appendChild(errEl);
-    } finally {
-      sendBtn.disabled = false;
-      chatMsgs.scrollTop = chatMsgs.scrollHeight;
-    }
-  }
-
-  function askPresetQuestion(text) {
-    switchDrawerAiTab('chat');
-    document.getElementById('drawer-chat-input').value = text;
-    sendDrawerAiChat();
   }
 
   // ---------------- Barra horizontal de UFs ----------------
