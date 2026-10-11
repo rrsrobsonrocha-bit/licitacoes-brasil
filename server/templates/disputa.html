@@ -156,7 +156,8 @@
         <div class="grid grid-cols-2 gap-3">
           <div>
             <label class="block text-[11px] font-semibold text-slate-500 mb-1">Degrau Mínimo (R$)</label>
-            <input type="number" step="0.01" id="track-degrau" value="0.01" min="0.01" class="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-sky-500 outline-none">
+            <input type="number" step="0.01" id="track-degrau" min="0.01" placeholder="0.01" oninput="this.dataset.origem = this.value ? 'manual' : ''" class="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-sky-500 outline-none">
+            <span id="track-degrau-hint" class="block text-[10px] text-slate-400 mt-0.5">Preenchido pelo edital quando informado; senão R$ 0,01.</span>
           </div>
           <div>
             <label class="block text-[11px] font-semibold text-slate-500 mb-1">Piso Stop-Loss (R$)</label>
@@ -550,7 +551,11 @@
                     Degrau Mínimo / Taxa de Disputa (R$)
                   </label>
                   <input type="number" step="0.01" min="0.01" id="input-degrau-${sKey}" value="${item.degrau_minimo.toFixed(2)}" class="w-full px-3 py-1.5 text-xs font-mono rounded-lg border border-slate-300 focus:ring-2 focus:ring-sky-500 outline-none">
-                  <span class="text-[10px] text-slate-400">Valor decrementado por lance (ex: R$ 0,01).</span>
+                  <span class="text-[10px] ${item.degrau_origem === 'edital' ? 'text-emerald-600 font-semibold' : 'text-slate-400'}">${item.degrau_origem === 'edital'
+                    ? '<i class="fa-solid fa-file-circle-check"></i> Intervalo mínimo informado no edital (PNCP/Compras.gov).'
+                    : item.degrau_origem === 'manual'
+                      ? 'Valor ajustado manualmente.'
+                      : 'Edital sem intervalo mínimo informado: usando R$ 0,01 (padrão).'}</span>
                 </div>
 
                 <div>
@@ -869,6 +874,34 @@
     document.getElementById('modal-track').classList.remove('hidden');
   }
 
+  // Busca o degrau mínimo do edital para o certame/item informados e preenche o campo,
+  // sem sobrescrever um valor digitado pelo usuário.
+  let degrauLookupSeq = 0;
+  async function autofillTrackDegrau() {
+    const idPregao = document.getElementById('track-id-pregao').value.trim();
+    const numItem = parseInt(document.getElementById('track-num-item').value) || 1;
+    const input = document.getElementById('track-degrau');
+    const hint = document.getElementById('track-degrau-hint');
+    if (!idPregao || input.dataset.origem === 'manual') return;
+    const seq = ++degrauLookupSeq;
+    try {
+      const res = await fetch(`/api/disputes/degrau?id_pregao=${encodeURIComponent(idPregao)}&numero_item=${numItem}`);
+      if (!res.ok || seq !== degrauLookupSeq || input.dataset.origem === 'manual') return;
+      const data = await res.json();
+      if (data.origem === 'edital') {
+        input.value = Number(data.degrau_minimo).toFixed(2);
+        input.dataset.origem = 'edital';
+        hint.textContent = 'Intervalo mínimo informado no edital (PNCP/Compras.gov).';
+        hint.className = 'block text-[10px] text-emerald-600 font-semibold mt-0.5';
+      } else {
+        input.value = '';
+        input.dataset.origem = '';
+        hint.textContent = 'Edital sem intervalo mínimo informado: será usado R$ 0,01.';
+        hint.className = 'block text-[10px] text-slate-400 mt-0.5';
+      }
+    } catch (e) { /* mantém o fallback de R$ 0,01 */ }
+  }
+
   function closeTrackModal() {
     document.getElementById('modal-track').classList.add('hidden');
   }
@@ -884,7 +917,9 @@
       melhor_lance: parseFloat(document.getElementById('track-meu-lance').value),
       fase: document.getElementById('track-fase').value,
       fonte_portal: document.getElementById('track-fonte-portal') ? document.getElementById('track-fonte-portal').value : 'Compras.gov.br',
-      degrau_minimo: parseFloat(document.getElementById('track-degrau').value) || 0.01,
+      // Vazio → o servidor usa o degrau do edital (PNCP/Compras.gov) e, na falta dele, R$ 0,01
+      degrau_minimo: parseFloat(document.getElementById('track-degrau').value) || null,
+      degrau_origem: document.getElementById('track-degrau').dataset.origem || undefined,
       valor_minimo_limite: parseFloat(document.getElementById('track-piso').value) || 0.0,
       posicao_alvo: parseInt(document.getElementById('track-pos-alvo').value) || 1,
       auto_lance_ativo: document.getElementById('track-auto-ativo').checked
@@ -900,6 +935,7 @@
       if (data.status === 'success') {
         closeTrackModal();
         document.getElementById('form-track-item').reset();
+        document.getElementById('track-degrau').dataset.origem = '';
         showToast('Lote adicionado com sucesso ao monitor de disputa!', 'success');
       }
     } catch (err) {
@@ -908,6 +944,10 @@
   }
 
   document.addEventListener('DOMContentLoaded', () => {
+    ['track-id-pregao', 'track-num-item'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('change', autofillTrackDegrau);
+    });
     updateAudioButtonUI();
     loadInitialActiveDisputes();
     initSSE();

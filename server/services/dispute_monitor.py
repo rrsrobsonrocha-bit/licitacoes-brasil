@@ -17,6 +17,20 @@ def get_sp_now() -> datetime:
     return datetime.now(SP_TZ)
 
 
+DEGRAU_PADRAO = 0.01
+
+
+def normalizar_degrau(valor: Any) -> Optional[float]:
+    """Converte o degrau informado em float positivo com 2 casas (None se ausente ou inválido)."""
+    try:
+        degrau = float(valor)
+    except (TypeError, ValueError):
+        return None
+    if degrau != degrau or degrau <= 0:  # NaN ou não positivo
+        return None
+    return max(DEGRAU_PADRAO, round(degrau, 2))
+
+
 @dataclass
 class PregaoItem:
     id_pregao: str
@@ -26,7 +40,8 @@ class PregaoItem:
     melhor_lance: float = 0.0
     meu_lance: float = 0.0
     fase: str = "ABERTO"  # "AGUARDANDO", "ABERTO", "IMINENCIA", "ENCERRADO"
-    degrau_minimo: float = 0.01
+    degrau_minimo: float = DEGRAU_PADRAO
+    degrau_origem: str = "padrao"  # "edital" (informado pela API do PNCP/Compras.gov), "manual" ou "padrao"
     valor_minimo_limite: float = 0.0
     posicao_alvo: int = 1
     auto_lance_ativo: bool = False
@@ -55,6 +70,7 @@ class PregaoItem:
             "meu_lance": float(self.meu_lance),
             "fase": self.fase.upper(),
             "degrau_minimo": float(self.degrau_minimo),
+            "degrau_origem": self.degrau_origem,
             "valor_minimo_limite": float(self.valor_minimo_limite),
             "posicao_alvo": int(self.posicao_alvo),
             "auto_lance_ativo": bool(self.auto_lance_ativo),
@@ -135,7 +151,10 @@ class DisputeMonitorService:
             my_bid = float(item_data.get("meu_lance", best_bid))
             phase = str(item_data.get("fase", "ABERTO")).upper().strip()
 
-            degrau = float(item_data.get("degrau_minimo", 0.01))
+            degrau = normalizar_degrau(item_data.get("degrau_minimo"))
+            degrau_origem = str(item_data.get("degrau_origem") or ("manual" if degrau else "padrao"))
+            if degrau is None:
+                degrau, degrau_origem = DEGRAU_PADRAO, "padrao"
             val_piso = float(item_data.get("valor_minimo_limite", round(val_ref * 0.70, 2) if val_ref > 0 else 0.0))
             pos_alvo = int(item_data.get("posicao_alvo", 1))
             auto_bid = bool(item_data.get("auto_lance_ativo", False))
@@ -158,6 +177,7 @@ class DisputeMonitorService:
                 meu_lance=my_bid,
                 fase=phase,
                 degrau_minimo=degrau,
+                degrau_origem=degrau_origem,
                 valor_minimo_limite=val_piso,
                 posicao_alvo=pos_alvo,
                 auto_lance_ativo=auto_bid,
@@ -208,7 +228,10 @@ class DisputeMonitorService:
             return None
 
         if degrau_minimo is not None:
-            item.degrau_minimo = max(0.01, round(float(degrau_minimo), 2))
+            novo_degrau = normalizar_degrau(degrau_minimo) or DEGRAU_PADRAO
+            if novo_degrau != item.degrau_minimo:
+                item.degrau_minimo = novo_degrau
+                item.degrau_origem = "manual"
         if valor_minimo_limite is not None:
             item.valor_minimo_limite = round(float(valor_minimo_limite), 2)
         if posicao_alvo is not None:

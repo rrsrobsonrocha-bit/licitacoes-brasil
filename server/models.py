@@ -351,6 +351,9 @@ class Deal(Base):
     tender_id = Column(Integer, ForeignKey("tenders.id", ondelete="CASCADE"), nullable=False, index=True)
     stage = Column(String(50), default="oportunidades", nullable=False, index=True) # oportunidades, qualificacao, disputa, classificacao, contrato
     notes = Column(Text, nullable=True)
+    # Itens do certame que a empresa decidiu disputar (lista de dicts com item_number, description, ...).
+    # None = nenhuma seleção feita (o negócio vale para o certame inteiro).
+    selected_items = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

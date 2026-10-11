@@ -62,6 +62,10 @@ COLUNAS_ITENS_DOCUMENTOS: List[Tuple[str, str, str]] = [
     ("tender_documents", "origem", "VARCHAR(20)"),
 ]
 
+COLUNAS_DEALS: List[Tuple[str, str, str]] = [
+    ("deals", "selected_items", "JSON"),
+]
+
 # (nome do índice, tabela, colunas)
 INDICES_EXPLICITOS: List[Tuple[str, str, str]] = [
     ("ix_tenders_opening_date", "tenders", "opening_date"),
@@ -260,6 +264,7 @@ def run_db_migrations():
     _adicionar_colunas(COLUNAS_SAVED_SEARCHES)
     _adicionar_colunas(COLUNAS_TENDERS)
     _adicionar_colunas(COLUNAS_ITENS_DOCUMENTOS)
+    _adicionar_colunas(COLUNAS_DEALS)
 
     # 2. Tabelas auxiliares (auditoria de disputas, cofre de documentos e recuperação de senha)
     _criar_tabela_do_modelo(HistoricoDisputa)

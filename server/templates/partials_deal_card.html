@@ -1,4 +1,3 @@
-cat << 'EOF' > server/templates/partials_deal_card.html
 <div 
   id="deal-card-{{ deal.id }}" 
   class="kanban-card bg-slate-900/95 hover:bg-slate-850 border border-slate-800/90 hover:border-slate-700 rounded-xl p-3.5 shadow-md transition-all duration-200 group relative flex flex-col justify-between cursor-grab active:cursor-grabbing"
@@ -58,6 +57,18 @@ cat << 'EOF' > server/templates/partials_deal_card.html
         <span class="text-slate-400 truncate">{{ deal.tender.city if deal.tender and deal.tender.city else 'Âmbito Federal' }}</span>
       </div>
     </div>
+
+    <!-- Itens escolhidos para disputa (modal "+ Meus Negócios" da busca) -->
+    {% if deal.selected_items %}
+      {% set nums_sel = deal.selected_items|map(attribute='item_number')|map('string')|list %}
+      <div
+        class="deal-selected-items mb-3 inline-flex items-center gap-1.5 max-w-full text-[10px] font-semibold px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-300 border border-sky-500/30"
+        title="Itens em disputa: {{ nums_sel|join(', ') }}"
+      >
+        <i class="fa-solid fa-list-check text-[9px] shrink-0"></i>
+        <span class="truncate">{{ nums_sel|length }} {{ 'item' if nums_sel|length == 1 else 'itens' }} em disputa: {{ nums_sel[:6]|join(', ') }}{% if nums_sel|length > 6 %}…{% endif %}</span>
+      </div>
+    {% endif %}
   </div>
 
   <!-- Rodapé do Card: Valores, Datas e Ações -->
@@ -167,4 +178,3 @@ cat << 'EOF' > server/templates/partials_deal_card.html
     </div>
   </div>
 </div>
-EOF

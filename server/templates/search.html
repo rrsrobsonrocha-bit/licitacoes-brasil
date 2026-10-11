@@ -270,6 +270,20 @@
             {% if params.q %}
               <span class="text-xs text-slate-400 block mt-1">Filtro textual: "<strong class="text-slate-200">{{ params.q }}</strong>"</span>
             {% endif %}
+            {% if params.date_from or params.date_to %}
+              {% set qs_sem_data = {} %}
+              {% for chave, valor in qs_uf_base.items() if chave not in ('date_from', 'date_to') %}{% set _ = qs_sem_data.update({chave: valor}) %}{% endfor %}
+              {% if uf_ativa %}{% set _ = qs_sem_data.update({'uf': uf_ativa}) %}{% endif %}
+              <span id="active-date-filter" class="inline-flex items-center gap-1.5 mt-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-300 border border-amber-500/30">
+                <i class="fa-regular fa-calendar text-[10px]"></i>
+                {% if params.date_from and params.date_from == params.date_to %}
+                  Publicadas em {{ params.date_from[8:10] }}/{{ params.date_from[5:7] }}/{{ params.date_from[0:4] }}
+                {% else %}
+                  Publicação: {{ params.date_from or '…' }} até {{ params.date_to or '…' }}
+                {% endif %}
+                <a href="/search{% if qs_sem_data %}?{{ qs_sem_data|urlencode }}{% endif %}" class="ml-1 text-amber-200 hover:text-white" title="Remover filtro de data" aria-label="Remover filtro de data"><i class="fa-solid fa-xmark text-[10px]"></i></a>
+              </span>
+            {% endif %}
           </div>
           
           <div class="flex items-center gap-3 flex-wrap">
@@ -823,6 +837,43 @@
   </div>
 </aside>
 
+<!-- Modal: seleção de itens ao adicionar o certame em "Meus Negócios" (acima da gaveta) -->
+<div id="deal-items-modal" class="fixed inset-0 bg-black/75 backdrop-blur-xs z-[60] hidden items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="deal-items-modal-title" onclick="if (event.target === this) closeDealItemsModal()">
+  <div class="bg-[#111827] border border-slate-800 rounded-2xl max-w-2xl w-full max-h-[85vh] flex flex-col shadow-2xl text-slate-100">
+    <div class="flex items-start justify-between gap-3 p-5 border-b border-slate-800">
+      <div class="min-w-0">
+        <h3 id="deal-items-modal-title" class="text-base font-bold text-white flex items-center gap-2">
+          <i class="fa-solid fa-briefcase text-sky-400"></i> Adicionar a Meus Negócios
+        </h3>
+        <p id="deal-items-modal-subtitle" class="text-xs text-slate-400 mt-1 truncate">Selecione os itens que a empresa vai disputar.</p>
+      </div>
+      <button type="button" onclick="closeDealItemsModal()" class="text-slate-400 hover:text-white p-1 cursor-pointer" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+
+    <div class="flex items-center justify-between gap-3 px-5 py-3 border-b border-slate-800 bg-slate-900/60">
+      <label class="flex items-center gap-2 text-xs font-semibold text-slate-200 cursor-pointer select-none">
+        <input type="checkbox" id="deal-items-select-all" onchange="toggleAllDealItems(this.checked)" class="w-4 h-4 rounded border-slate-600 bg-slate-800 accent-sky-500 cursor-pointer" />
+        Selecionar todos
+      </label>
+      <span id="deal-items-summary" class="text-xs font-mono text-slate-400" aria-live="polite">0 de 0 selecionados</span>
+    </div>
+
+    <div id="deal-items-list" class="flex-1 overflow-y-auto divide-y divide-slate-800/80">
+      <!-- Itens preenchidos via JS -->
+    </div>
+
+    <div class="flex items-center justify-between gap-2 p-4 border-t border-slate-800">
+      <span id="deal-items-total" class="text-xs text-slate-400"></span>
+      <div class="flex gap-2">
+        <button type="button" onclick="closeDealItemsModal()" class="px-4 py-2 rounded-xl text-xs border border-slate-700 font-semibold text-slate-300 hover:bg-slate-800 transition cursor-pointer">Cancelar</button>
+        <button type="button" id="deal-items-confirm" onclick="confirmDealItems()" class="px-4 py-2 rounded-xl text-xs bg-sky-600 text-white font-semibold hover:bg-sky-500 transition shadow-md cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5">
+          <i class="fa-solid fa-check text-[11px]"></i> <span>Confirmar</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Modal Salvar Alerta (Dark Theme) -->
 <div id="save-alert-modal" class="fixed inset-0 bg-black/70 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
   <div class="bg-[#111827] border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl text-slate-100">
@@ -864,6 +915,9 @@
 {% block scripts %}
 <script>
   let currentDrawerTender = null;
+  // Itens da contratação aberta na gaveta (reaproveitados pelo modal "+ Meus Negócios")
+  let currentDrawerItems = [];
+  let drawerItemsPromise = null;
   // Identifica a abertura mais recente da gaveta; respostas de aberturas anteriores são descartadas
   let drawerRequestSeq = 0;
 
@@ -872,6 +926,8 @@
     const backdrop = document.getElementById('drawer-backdrop');
     const drawer = document.getElementById('tender-drawer');
     currentDrawerTender = null;
+    currentDrawerItems = [];
+    drawerItemsPromise = null;
     document.getElementById('drawer-title').textContent = 'Carregando...';
     document.getElementById('drawer-entity').textContent = '';
 
@@ -1031,7 +1087,12 @@
       </tr>`;
   }
 
-  async function loadDrawerItems(tenderId, fallbackItems = [], requestSeq = drawerRequestSeq, forceRefresh = false) {
+  function loadDrawerItems(tenderId, fallbackItems = [], requestSeq = drawerRequestSeq, forceRefresh = false) {
+    drawerItemsPromise = fetchAndRenderDrawerItems(tenderId, fallbackItems, requestSeq, forceRefresh);
+    return drawerItemsPromise;
+  }
+
+  async function fetchAndRenderDrawerItems(tenderId, fallbackItems, requestSeq, forceRefresh) {
     const tbody = document.getElementById('drawer-items-tbody');
     const countEl = document.getElementById('drawer-items-count');
     const isStale = () => requestSeq !== drawerRequestSeq;
@@ -1062,19 +1123,21 @@
       clearTimeout(timer);
     }
 
-    if (isStale()) return;  // usuário já abriu outro certame
+    if (isStale()) return items;  // usuário já abriu outro certame
+    currentDrawerItems = items;
 
     countEl.textContent = items.length ? `${items.length} item(ns)` : (falhou ? '—' : '0 itens');
     if (items.length === 0) {
       tbody.innerHTML = falhou
         ? drawerItemsMessageRow(aviso, 'error', tenderId)
         : drawerItemsMessageRow(aviso || 'Nenhum item individual cadastrado para este certame.');
-      return;
+      return items;
     }
 
     let html = items.map(renderDrawerItemRow).join('');
     if (aviso) html = drawerItemsMessageRow(falhou ? `${aviso} Exibindo itens da base local.` : aviso, 'warn', falhou ? tenderId : null) + html;
     tbody.innerHTML = html;
+    return items;
   }
 
   function closeTenderDrawer() {
@@ -1090,29 +1153,167 @@
   }
 
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeTenderDrawer();
+    if (e.key !== 'Escape') return;
+    if (isDealItemsModalOpen()) closeDealItemsModal();
+    else closeTenderDrawer();
   });
 
-  async function addOpportunityToPipeline(tenderId, identifier) {
+  async function addOpportunityToPipeline(tenderId, identifier, selectedItems = undefined) {
     try {
-      const resp = await fetch(`/api/deals?tender_id=${tenderId}`, { method: 'POST' });
-      const data = await resp.json();
-      showToast(`Certame ${identifier} adicionado com sucesso ao seu funil de negócios!`, 'success');
-      
+      const body = { tender_id: tenderId };
+      if (selectedItems !== undefined) body.selected_items = selectedItems;
+      const resp = await fetch('/api/deals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data.detail || `HTTP ${resp.status}`);
+      const qtd = data.selected_items_count || 0;
+      showToast(qtd
+        ? `Certame ${identifier} salvo em Meus Negócios com ${qtd} ${qtd === 1 ? 'item' : 'itens'} para disputa!`
+        : `Certame ${identifier} adicionado com sucesso ao seu funil de negócios!`, 'success');
+
       let deals = JSON.parse(localStorage.getItem('my_pipeline_deals') || '[]');
       if (!deals.includes(tenderId)) {
         deals.push(tenderId);
         localStorage.setItem('my_pipeline_deals', JSON.stringify(deals));
       }
-    } catch {
-      showToast(`Oportunidade ${identifier} salva em seus negócios!`, 'success');
+      return true;
+    } catch (e) {
+      showToast(`Não foi possível salvar o certame ${identifier} em Meus Negócios. ${e.message || ''}`.trim(), 'error');
+      return false;
     }
   }
 
-  function addCurrentTenderToPipeline() {
-    if (currentDrawerTender) {
-      addOpportunityToPipeline(currentDrawerTender.id, currentDrawerTender.notice_number || currentDrawerTender.external_id);
+  // ---------------- Modal de seleção de itens ("+ Meus Negócios") ----------------
+  let dealModalItems = [];
+  let dealModalTender = null;
+
+  function isDealItemsModalOpen() {
+    const modal = document.getElementById('deal-items-modal');
+    return modal && !modal.classList.contains('hidden');
+  }
+
+  function closeDealItemsModal() {
+    const modal = document.getElementById('deal-items-modal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+    dealModalTender = null;
+  }
+
+  function dealItemCheckboxes() {
+    return Array.from(document.querySelectorAll('#deal-items-list input[type="checkbox"][data-item-number]'));
+  }
+
+  function updateDealItemsSummary() {
+    const boxes = dealItemCheckboxes();
+    const marcados = boxes.filter(b => b.checked);
+    const selectAll = document.getElementById('deal-items-select-all');
+    const confirmBtn = document.getElementById('deal-items-confirm');
+    document.getElementById('deal-items-summary').textContent = `${marcados.length} de ${boxes.length} selecionados`;
+    selectAll.checked = boxes.length > 0 && marcados.length === boxes.length;
+    selectAll.indeterminate = marcados.length > 0 && marcados.length < boxes.length;
+    selectAll.disabled = boxes.length === 0;
+
+    const soma = marcados.reduce((acc, b) => {
+      const item = dealModalItems.find(i => String(i.item_number) === b.dataset.itemNumber);
+      const v = item ? toNumberOrNull(item.estimated_total_value) : null;
+      return v === null ? acc : acc + v;
+    }, 0);
+    document.getElementById('deal-items-total').textContent = marcados.length && soma > 0 ? `Valor estimado selecionado: ${formatBRL(soma)}` : '';
+
+    // Sem itens cadastrados o negócio vale para o certame inteiro; com itens, exige ao menos um marcado
+    confirmBtn.disabled = boxes.length > 0 && marcados.length === 0;
+  }
+
+  function toggleAllDealItems(checked) {
+    dealItemCheckboxes().forEach(b => { b.checked = checked; });
+    updateDealItemsSummary();
+  }
+
+  function renderDealModalItem(item, idx, marcado) {
+    const numero = item.item_number ?? (idx + 1);
+    const descricao = (item.description || '').trim() || 'Item sem descrição';
+    const qtd = formatQuantity(item.quantity);
+    const unidade = item.unit && item.unit !== 'Não informado' ? item.unit : '';
+    const total = formatBRL(item.estimated_total_value);
+    return `
+      <label class="flex items-start gap-3 px-5 py-3 hover:bg-slate-800/50 cursor-pointer transition">
+        <input type="checkbox" data-item-number="${escapeHtml(numero)}" ${marcado ? 'checked' : ''} onchange="updateDealItemsSummary()" class="mt-0.5 w-4 h-4 shrink-0 rounded border-slate-600 bg-slate-800 accent-sky-500 cursor-pointer" />
+        <span class="font-mono font-bold text-sky-400 text-xs w-8 shrink-0">${escapeHtml(numero)}</span>
+        <span class="flex-1 min-w-0">
+          <span class="block text-xs text-slate-200 leading-snug line-clamp-2" title="${escapeHtml(descricao)}">${escapeHtml(descricao)}</span>
+          <span class="block text-[10px] text-slate-400 font-mono mt-0.5">${qtd ? `${escapeHtml(qtd)} ${escapeHtml(unidade)}` : 'Qtd. não informada'}</span>
+        </span>
+        <span class="text-xs font-mono font-bold whitespace-nowrap ${total ? 'text-emerald-300' : 'text-slate-500 font-normal'}">${total || '—'}</span>
+      </label>`;
+  }
+
+  async function addCurrentTenderToPipeline() {
+    if (!currentDrawerTender) return;
+    const tender = currentDrawerTender;
+    dealModalTender = tender;
+    dealModalItems = [];
+
+    const modal = document.getElementById('deal-items-modal');
+    const list = document.getElementById('deal-items-list');
+    document.getElementById('deal-items-modal-subtitle').textContent =
+      `${tender.notice_number || tender.external_id || 'Certame'} · ${tender.title || ''}`;
+    list.innerHTML = '<div class="py-8 text-center text-xs text-slate-400"><i class="fa-solid fa-spinner animate-spin mr-2"></i>Carregando itens da contratação...</div>';
+    document.getElementById('deal-items-total').textContent = '';
+    document.getElementById('deal-items-confirm').disabled = true;
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+
+    // Itens já carregados na gaveta + seleção anterior (se o certame já estiver no funil)
+    const [itens, selecaoAnterior] = await Promise.all([
+      drawerItemsPromise ? drawerItemsPromise.catch(() => currentDrawerItems) : Promise.resolve(currentDrawerItems),
+      fetch('/api/deals').then(r => r.ok ? r.json() : null).then(data => {
+        const deal = (data && data.deals || []).find(d => String(d.tender_id) === String(tender.id));
+        return deal && Array.isArray(deal.selected_items) ? deal.selected_items.map(i => String(i.item_number)) : null;
+      }).catch(() => null)
+    ]);
+    if (dealModalTender !== tender) return;  // modal fechado ou trocado durante o carregamento
+
+    dealModalItems = Array.isArray(itens) ? itens : [];
+    if (dealModalItems.length === 0) {
+      list.innerHTML = '<div class="py-8 px-5 text-center text-xs text-slate-400"><i class="fa-solid fa-circle-info mr-1"></i>Nenhum item individual disponível para este certame. O negócio será criado para a contratação inteira.</div>';
+    } else {
+      list.innerHTML = dealModalItems.map((item, idx) => {
+        const numero = String(item.item_number ?? (idx + 1));
+        return renderDealModalItem(item, idx, selecaoAnterior ? selecaoAnterior.includes(numero) : true);
+      }).join('');
     }
+    updateDealItemsSummary();
+  }
+
+  async function confirmDealItems() {
+    const tender = dealModalTender;
+    if (!tender) return;
+    const marcados = new Set(dealItemCheckboxes().filter(b => b.checked).map(b => b.dataset.itemNumber));
+    const selecionados = dealModalItems
+      .map((item, idx) => ({ item, numero: item.item_number ?? (idx + 1) }))
+      .filter(({ numero }) => marcados.has(String(numero)))
+      .map(({ item, numero }) => ({
+        item_number: numero,
+        description: item.description,
+        unit: item.unit,
+        quantity: item.quantity,
+        estimated_unit_value: item.estimated_unit_value,
+        estimated_total_value: item.estimated_total_value,
+        degrau_minimo: item.degrau_minimo
+      }));
+
+    const btn = document.getElementById('deal-items-confirm');
+    btn.disabled = true;
+    const ok = await addOpportunityToPipeline(
+      tender.id,
+      tender.notice_number || tender.external_id,
+      dealModalItems.length ? selecionados : undefined
+    );
+    if (ok) closeDealItemsModal();
+    else btn.disabled = false;
   }
 
   function escapeHtml(text) {

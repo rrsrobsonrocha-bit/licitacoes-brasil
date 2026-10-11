@@ -12,6 +12,7 @@ Integração com a API pública de integração do PNCP para uma compra específ
 """
 import asyncio
 import hashlib
+import json
 import logging
 import mimetypes
 import os
@@ -240,6 +241,44 @@ async def buscar_itens_pncp(ident: IdentificadorCompra) -> List[Dict[str, Any]]:
     return [itens[k] for k in sorted(itens)]
 
 
+# Nomes com que PNCP/Compras.gov.br (e seus espelhos) publicam o intervalo mínimo entre lances.
+# O endpoint público /itens do PNCP nem sempre traz o campo: sem ele, a disputa usa 0,01 como fallback.
+CHAVES_DEGRAU_MINIMO = (
+    "degrauMinimo",
+    "valorDegrauMinimo",
+    "intervaloMinimoEntreLances",
+    "valorIntervaloMinimoEntreLances",
+    "intervaloMinimoLances",
+    "intervaloMinimo",
+    "variacaoMinimaEntreLances",
+    "valorVariacaoMinimaEntreLances",
+    "diferencaMinimaEntreLances",
+    "valorMinimoEntreLances",
+    "degrau_minimo",
+    "intervalo_minimo",
+)
+
+
+def extrair_degrau_minimo(raw: Any) -> Optional[float]:
+    """Degrau/intervalo mínimo entre lances informado no item bruto da API (None se ausente)."""
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except (TypeError, ValueError):
+            return None
+    if not isinstance(raw, dict):
+        return None
+    for chave in CHAVES_DEGRAU_MINIMO:
+        valor = raw.get(chave)
+        if isinstance(valor, str):
+            texto = valor.strip().replace("R$", "").strip()
+            valor = texto.replace(".", "").replace(",", ".") if "," in texto else texto
+        degrau = _float(valor)
+        if degrau is not None and degrau > 0:
+            return round(degrau, 2) if degrau >= 0.01 else 0.01
+    return None
+
+
 def serializar_item(item: TenderItem) -> Dict[str, Any]:
     return {
         "id": item.id,
@@ -256,6 +295,7 @@ def serializar_item(item: TenderItem) -> Dict[str, Any]:
         "beneficio": item.beneficio,
         "orcamento_sigiloso": item.orcamento_sigiloso,
         "informacao_complementar": item.informacao_complementar,
+        "degrau_minimo": extrair_degrau_minimo(item.raw_data),
         "origem": item.origem or "LOCAL",
     }
 

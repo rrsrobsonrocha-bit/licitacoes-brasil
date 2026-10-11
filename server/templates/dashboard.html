@@ -82,8 +82,13 @@
         </div>
       </div>
 
-      <!-- Card 3: Licitações publicadas hoje -->
-      <div class="bg-slate-900/80 border border-slate-800 hover:border-amber-500/40 rounded-2xl p-5 shadow-lg transition-all duration-200 flex flex-col justify-between">
+      <!-- Card 3: Licitações publicadas hoje (abre a busca filtrada pela data de publicação de hoje) -->
+      <a
+        id="card-tenders-today"
+        href="/search?{{ {'date_from': hoje_iso, 'date_to': hoje_iso}|urlencode }}"
+        title="Ver as licitações publicadas hoje"
+        class="cursor-pointer bg-slate-900/80 border border-slate-800 hover:border-amber-500/40 hover:bg-slate-900 rounded-2xl p-5 shadow-lg transition-all duration-200 flex flex-col justify-between focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+      >
         <div class="flex items-center justify-between">
           <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Licitações publicadas hoje</span>
           <div class="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center">
@@ -96,10 +101,10 @@
           </div>
           <div class="text-xs text-slate-400 mt-1 flex items-center justify-between">
             <span><strong class="text-slate-300 font-mono" id="stat-items-today">{{ summary.items_today_count if summary else 0 }}</strong> itens catalogados</span>
-            <span class="text-[10px] bg-slate-800 text-amber-300 px-1.5 py-0.5 rounded border border-slate-700">Hoje</span>
+            <span class="text-[10px] bg-slate-800 text-amber-300 px-1.5 py-0.5 rounded border border-slate-700">Hoje <i class="fa-solid fa-arrow-right text-[9px] ml-0.5"></i></span>
           </div>
         </div>
-      </div>
+      </a>
 
       <!-- Card 4: Eventos na agenda -->
       <div class="bg-slate-900/80 border border-slate-800 hover:border-rose-500/40 rounded-2xl p-5 shadow-lg transition-all duration-200 flex flex-col justify-between">

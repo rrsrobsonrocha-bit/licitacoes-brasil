@@ -62,7 +62,7 @@ from server.alerts_engine import run_alert_processing_job
 from server.seed_data import seed_database
 from server.integrations.opportunity_collector import sync_procurement_opportunities
 from server.migrate import run_db_migrations
-from server.services.dispute_monitor import dispute_monitor, PregaoItem
+from server.services.dispute_monitor import dispute_monitor, PregaoItem, DEGRAU_PADRAO, normalizar_degrau
 from server.services.portal_collector import (
     classificar_natureza_certame, NATUREZAS_OBJETO, NATUREZA_LABELS
 )
@@ -557,7 +557,8 @@ def page_dashboard(request: Request, db: Session = Depends(get_db)):
     summary = get_dashboard_summary_data(db, user)
     return templates.TemplateResponse(request, "dashboard.html", {
         "summary": summary,
-        "user": user
+        "user": user,
+        "hoje_iso": hoje_sao_paulo().isoformat()
     })
 
 @app.get("/favorites", response_class=HTMLResponse)
@@ -1029,10 +1030,46 @@ def api_agenda_events(db: Session = Depends(get_db)):
 # DISPUTAS MULTI-PREGÃO E TRANSMISSÃO EM TEMPO REAL (SSE)
 # ==============================================================================
 
+def degrau_minimo_do_edital(db: Session, id_pregao: Any, numero_item: Any) -> Optional[float]:
+    """Degrau mínimo publicado pela API do PNCP/Compras.gov para o item do certame (None se ausente)."""
+    chave = str(id_pregao or "").strip()
+    try:
+        numero = int(numero_item)
+    except (TypeError, ValueError):
+        return None
+    if not chave:
+        return None
+    tender = (
+        db.query(Tender).filter((Tender.id == chave) | (Tender.external_id == chave)).first()
+        or db.query(Tender).filter(Tender.notice_number == chave).first()
+    )
+    if not tender:
+        return None
+    item = db.query(TenderItem).filter(
+        TenderItem.tender_id == tender.id, TenderItem.item_number == numero
+    ).first()
+    return pncp_compras.extrair_degrau_minimo(item.raw_data) if item else None
+
+
+@app.get("/api/disputes/degrau")
+def api_dispute_degrau(id_pregao: str = Query(...), numero_item: int = Query(1), db: Session = Depends(get_db)):
+    """Degrau mínimo do item no edital; ``origem`` = "edital" ou "padrao" (fallback de R$ 0,01)."""
+    degrau = degrau_minimo_do_edital(db, id_pregao, numero_item)
+    return {
+        "degrau_minimo": degrau if degrau is not None else DEGRAU_PADRAO,
+        "origem": "edital" if degrau is not None else "padrao",
+    }
+
+
 @app.post("/api/disputes/track")
-async def api_track_dispute_item(payload: Dict[str, Any] = Body(...)):
+async def api_track_dispute_item(payload: Dict[str, Any] = Body(...), db: Session = Depends(get_db)):
     """Registra ou atualiza um certame/lote na matriz de monitoramento multi-pregão."""
     try:
+        # Sem degrau informado pelo usuário, usa o do edital (PNCP/Compras.gov); 0,01 só como fallback
+        if normalizar_degrau(payload.get("degrau_minimo")) is None:
+            degrau_edital = degrau_minimo_do_edital(db, payload.get("id_pregao"), payload.get("numero_item", 1))
+            if degrau_edital is not None:
+                payload = {**payload, "degrau_minimo": degrau_edital, "degrau_origem": "edital"}
         item = dispute_monitor.track_item(payload)
         return {
             "status": "success",
@@ -1849,15 +1886,55 @@ def serialize_deal(deal: Deal, tender: Optional[Tender] = None) -> Dict[str, Any
             "url_pncp": getattr(t, "url_pncp", None) or t.link_pncp or t.source_url,
             "source_url": t.source_url
         }
+    selected_items = deal.selected_items if isinstance(deal.selected_items, list) else None
     return {
         "id": deal.id,
         "tender_id": deal.tender_id,
         "stage": deal.stage,
         "notes": deal.notes or "",
+        "selected_items": selected_items,
+        "selected_items_count": len(selected_items) if selected_items else 0,
         "created_at": deal.created_at.isoformat() if deal.created_at else None,
         "updated_at": deal.updated_at.isoformat() if deal.updated_at else None,
         "tender": tender_data
     }
+
+MAX_ITENS_SELECIONADOS = 2000
+_CAMPOS_ITEM_SELECIONADO = (
+    "description", "unit", "quantity", "estimated_unit_value", "estimated_total_value", "degrau_minimo"
+)
+
+
+def normalizar_itens_selecionados(db: Session, tender: Tender, brutos: Any) -> Optional[List[Dict[str, Any]]]:
+    """
+    Normaliza a seleção de itens enviada pelo modal "+ Meus Negócios".
+    Aceita números de item ou dicts com ``item_number``; completa os dados a partir de
+    TenderItem quando o item existe no banco. Lista vazia ou inválida → None (certame inteiro).
+    """
+    if not isinstance(brutos, list):
+        return None
+    do_banco = {
+        i.item_number: pncp_compras.serializar_item(i)
+        for i in db.query(TenderItem).filter(TenderItem.tender_id == tender.id).all()
+    }
+    selecionados: Dict[int, Dict[str, Any]] = {}
+    for bruto in brutos[:MAX_ITENS_SELECIONADOS]:
+        origem = bruto if isinstance(bruto, dict) else {"item_number": bruto}
+        try:
+            numero = int(origem.get("item_number"))
+        except (TypeError, ValueError):
+            continue
+        base = do_banco.get(numero, {})
+        item: Dict[str, Any] = {"item_number": numero}
+        for campo in _CAMPOS_ITEM_SELECIONADO:
+            valor = base.get(campo)
+            if valor in (None, "", "Não informado"):
+                valor = origem.get(campo)
+            if valor not in (None, "", "Não informado"):
+                item[campo] = str(valor)[:2000] if isinstance(valor, str) else valor
+        selecionados[numero] = item
+    return [selecionados[k] for k in sorted(selecionados)] or None
+
 
 @app.post("/api/deals", status_code=status.HTTP_201_CREATED)
 async def api_create_deal(
@@ -1892,12 +1969,19 @@ async def api_create_deal(
     if not tender:
         raise HTTPException(status_code=404, detail="Licitação não encontrada.")
 
+    # "selected_items" ausente no payload preserva a seleção atual; presente, substitui.
+    tem_selecao = isinstance(payload, dict) and "selected_items" in payload
+    itens_selecionados = normalizar_itens_selecionados(db, tender, payload.get("selected_items")) if tem_selecao else None
+
     deal = db.query(Deal).filter(Deal.tender_id == tender.id).first()
     if deal:
-        if target_stage in DEAL_STAGES:
+        # Reenvio a partir da busca (sem estágio explícito) não deve recuar um negócio já avançado
+        if payload.get("stage") or stage:
             deal.stage = target_stage
         if target_notes:
             deal.notes = target_notes
+        if tem_selecao:
+            deal.selected_items = itens_selecionados
         deal.updated_at = datetime.utcnow()
         db.commit()
         db.refresh(deal)
@@ -1907,6 +1991,7 @@ async def api_create_deal(
         tender_id=tender.id,
         stage=target_stage,
         notes=target_notes,
+        selected_items=itens_selecionados,
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow()
     )
