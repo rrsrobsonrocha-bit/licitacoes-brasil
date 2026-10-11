@@ -25,10 +25,14 @@
         </div>
 
         <div class="flex items-center gap-2.5">
-          <span id="auto-sync-status" title="O catálogo é atualizado automaticamente a partir da API oficial do PNCP" class="bg-slate-800/70 text-slate-300 border border-slate-700 font-medium px-3.5 py-2 rounded-xl text-xs flex items-center gap-2">
-            <span class="relative flex h-2 w-2"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60"></span><span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"></span></span>
-            <span id="auto-sync-label">Catálogo atualizado automaticamente</span>
+          <span id="auto-sync-status" class="hidden sm:flex items-center gap-1.5 text-[11px] text-slate-400" title="O catálogo também é atualizado automaticamente a partir da API oficial do PNCP">
+            <span id="auto-sync-dot" class="inline-flex rounded-full h-2 w-2 bg-emerald-400"></span>
+            <span id="auto-sync-label">Atualização automática ativa</span>
           </span>
+          <button type="button" onclick="sincronizarAgora()" id="btn-dash-sync" class="bg-slate-800 hover:bg-slate-700 disabled:opacity-70 disabled:cursor-wait text-slate-200 border border-slate-700 font-medium px-3.5 py-2 rounded-xl text-xs transition flex items-center gap-2 cursor-pointer shadow-sm">
+            <i class="fa-solid fa-arrows-rotate text-emerald-400" id="dash-sync-icon"></i>
+            <span id="dash-sync-label">Sincronizar agora</span>
+          </button>
           <a href="/negocios?view=quadros" class="bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-semibold px-4 py-2 rounded-xl text-xs transition shadow-sm flex items-center gap-2">
             <i class="fa-solid fa-table-columns"></i> Funil Kanban
           </a>
@@ -45,40 +49,59 @@
     <!-- 1. OS 4 CARDS DE TOPO — todos clicáveis; o principal é o volume de editais vigentes do catálogo global -->
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
 
-      <!-- Card 1 (principal): Editais vigentes para disputa, com as publicadas hoje como métrica secundária -->
-      <div class="metric-card group cursor-pointer bg-gradient-to-br from-sky-950/80 via-slate-900/90 to-emerald-950/60 border border-sky-800/60 hover:border-sky-500/70 hover:-translate-y-0.5 hover:shadow-xl rounded-2xl p-5 shadow-lg transition-all duration-200 flex flex-col justify-between">
-        <a id="card-vigentes" href="/search?vigentes=true&amp;sort_by=deadline_asc" title="Ver todos os editais vigentes, abertos para disputa" class="block focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 rounded-xl">
-          <div class="flex items-center justify-between">
-            <span class="text-xs font-bold uppercase tracking-wider text-sky-300">Editais vigentes para disputa</span>
-            <div class="w-10 h-10 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-300 flex items-center justify-center">
-              <i class="fa-solid fa-gavel text-base"></i>
-            </div>
+      <!-- Card 1: Editais publicados hoje (data oficial de publicação no PNCP, horário de Brasília) -->
+      <a
+        id="card-tenders-today"
+        href="/search?{{ {'date_from': hoje_iso, 'date_to': hoje_iso}|urlencode }}"
+        title="Ver os editais publicados hoje no PNCP"
+        class="metric-card group cursor-pointer bg-slate-900/80 border border-slate-800 hover:bg-slate-900 hover:-translate-y-0.5 hover:shadow-xl rounded-2xl p-5 shadow-lg transition-all duration-200 flex flex-col justify-between focus:outline-none focus-visible:ring-2 hover:border-amber-500/40 focus-visible:ring-amber-400"
+      >
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Editais publicados hoje</span>
+          <div class="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center">
+            <i class="fa-regular fa-calendar-check text-base"></i>
           </div>
-          <div class="mt-4">
-            <div class="text-3xl font-black font-mono text-white tracking-tight" id="stat-vigentes">
-              {{ summary.vigentes_count if summary else 0 }}
-            </div>
-            <div class="text-xs text-slate-400 mt-1">
-              Propostas abertas · de <span id="stat-total-tenders" class="font-mono">{{ summary.total_tenders_count if summary else 0 }}</span> no catálogo
-            </div>
+        </div>
+        <div class="mt-4">
+          <div class="text-3xl font-black font-mono text-amber-400 tracking-tight" id="stat-tenders-today">
+            {{ summary.tenders_today_count if summary else 0 }}
           </div>
-        </a>
-        <a
-          id="card-tenders-today"
-          href="/search?{{ {'date_from': hoje_iso, 'date_to': hoje_iso}|urlencode }}"
-          title="Ver as licitações publicadas hoje (data oficial do PNCP, horário de Brasília)"
-          class="mt-3 pt-2.5 border-t border-slate-700/60 flex items-center justify-between text-xs text-slate-300 hover:text-amber-300 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 rounded"
-        >
-          <span><i class="fa-regular fa-calendar-check text-amber-400 mr-1"></i><strong class="font-mono text-amber-300" id="stat-tenders-today">{{ summary.tenders_today_count if summary else 0 }}</strong> publicadas hoje</span>
-          <span class="text-[11px] text-amber-300">Ver →</span>
-        </a>
-      </div>
+          <div class="text-xs text-slate-400 mt-1 flex items-center justify-between">
+            <span>Data oficial do PNCP · {{ hoje_iso[8:10] }}/{{ hoje_iso[5:7] }}</span>
+            <span class="text-amber-400 group-hover:underline font-medium text-[11px]">Ver →</span>
+          </div>
+        </div>
+      </a>
 
-      <!-- Card 2: Órgãos mapeados (órgãos públicos com editais vigentes; abre Fornecedores / Órgãos) -->
-      <a id="card-companies" href="/fornecedores" title="Ver órgãos e compradores mapeados" class="metric-card group cursor-pointer bg-slate-900/80 border border-slate-800 hover:bg-slate-900 hover:-translate-y-0.5 hover:shadow-xl rounded-2xl p-5 shadow-lg transition-all duration-200 flex flex-col justify-between focus:outline-none focus-visible:ring-2 hover:border-sky-500/40 focus-visible:ring-sky-400">
+      <!-- Card 2: Editais vigentes em disputa (propostas abertas no catálogo global) -->
+      <a
+        id="card-vigentes"
+        href="/search?vigentes=true&amp;sort_by=deadline_asc"
+        title="Ver todos os editais com propostas abertas"
+        class="metric-card group cursor-pointer bg-slate-900/80 border border-slate-800 hover:bg-slate-900 hover:-translate-y-0.5 hover:shadow-xl rounded-2xl p-5 shadow-lg transition-all duration-200 flex flex-col justify-between focus:outline-none focus-visible:ring-2 hover:border-sky-500/40 focus-visible:ring-sky-400"
+      >
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Editais vigentes em disputa</span>
+          <div class="w-10 h-10 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-400 flex items-center justify-center">
+            <i class="fa-solid fa-gavel text-base"></i>
+          </div>
+        </div>
+        <div class="mt-4">
+          <div class="text-3xl font-black font-mono text-sky-300 tracking-tight" id="stat-vigentes">
+            {{ summary.vigentes_count if summary else 0 }}
+          </div>
+          <div class="text-xs text-slate-400 mt-1 flex items-center justify-between">
+            <span>Propostas abertas · de <span id="stat-total-tenders" class="font-mono">{{ summary.total_tenders_count if summary else 0 }}</span></span>
+            <span class="text-sky-400 group-hover:underline font-medium text-[11px]">Ver →</span>
+          </div>
+        </div>
+      </a>
+
+      <!-- Card 3: Órgãos mapeados (órgãos públicos com editais vigentes; abre Fornecedores / Órgãos) -->
+      <a id="card-companies" href="/fornecedores" title="Ver órgãos e compradores mapeados" class="metric-card group cursor-pointer bg-slate-900/80 border border-slate-800 hover:bg-slate-900 hover:-translate-y-0.5 hover:shadow-xl rounded-2xl p-5 shadow-lg transition-all duration-200 flex flex-col justify-between focus:outline-none focus-visible:ring-2 hover:border-violet-500/40 focus-visible:ring-violet-400">
         <div class="flex items-center justify-between">
           <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Órgãos mapeados</span>
-          <div class="w-10 h-10 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-400 flex items-center justify-center">
+          <div class="w-10 h-10 rounded-xl bg-violet-500/10 border border-violet-500/20 text-violet-400 flex items-center justify-center">
             <i class="fa-solid fa-building-columns text-base"></i>
           </div>
         </div>
@@ -87,13 +110,13 @@
             {{ summary.companies_identified_count if summary else 0 }}
           </div>
           <div class="text-xs text-slate-400 mt-1 flex items-center justify-between">
-            <span>Órgãos públicos com editais abertos</span>
-            <span class="text-sky-400 group-hover:underline font-medium text-[11px]">Ver órgãos →</span>
+            <span>Órgãos com editais abertos</span>
+            <span class="text-violet-400 group-hover:underline font-medium text-[11px]">Ver →</span>
           </div>
         </div>
       </a>
 
-      <!-- Card 3: Negócios ativos (funil privado do usuário; abre o Kanban) -->
+      <!-- Card 4: Negócios ativos (funil comercial privado do usuário; abre o Kanban) -->
       <a id="card-active-deals" href="/negocios?view=quadros" title="Abrir o funil de negócios" class="metric-card group cursor-pointer bg-slate-900/80 border border-slate-800 hover:bg-slate-900 hover:-translate-y-0.5 hover:shadow-xl rounded-2xl p-5 shadow-lg transition-all duration-200 flex flex-col justify-between focus:outline-none focus-visible:ring-2 hover:border-emerald-500/40 focus-visible:ring-emerald-400">
         <div class="flex items-center justify-between">
           <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Negócios ativos</span>
@@ -106,27 +129,8 @@
             {{ summary.active_deals_count if summary else 0 }}
           </div>
           <div class="flex items-center justify-between text-xs text-slate-400 mt-1">
-            <span id="stat-active-deals-hint">{% if summary and summary.active_deals_count %}Oportunidades em acompanhamento{% else %}Seu funil está pronto{% endif %}</span>
+            <span id="stat-active-deals-hint">{% if summary and summary.active_deals_count %}Oportunidades no funil{% else %}Seu funil está pronto{% endif %}</span>
             <span class="text-emerald-400 group-hover:underline font-medium text-[11px]">Ver funil →</span>
-          </div>
-        </div>
-      </a>
-
-      <!-- Card 4: Eventos na agenda (abre a Agenda) -->
-      <a id="card-agenda" href="/agenda" title="Abrir a agenda de prazos e disputas" class="metric-card group cursor-pointer bg-slate-900/80 border border-slate-800 hover:bg-slate-900 hover:-translate-y-0.5 hover:shadow-xl rounded-2xl p-5 shadow-lg transition-all duration-200 flex flex-col justify-between focus:outline-none focus-visible:ring-2 hover:border-rose-500/40 focus-visible:ring-rose-400">
-        <div class="flex items-center justify-between">
-          <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Eventos na agenda</span>
-          <div class="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center justify-center">
-            <i class="fa-solid fa-calendar-check text-base"></i>
-          </div>
-        </div>
-        <div class="mt-4">
-          <div class="text-3xl font-black font-mono text-rose-400 tracking-tight" id="stat-agenda-events">
-            {{ summary.agenda_events_count if summary else 0 }}
-          </div>
-          <div class="text-xs text-slate-400 mt-1 flex items-center justify-between">
-            <span>Disputas e prazos de envio</span>
-            <span class="text-rose-400 group-hover:underline font-medium text-[11px]">Ver agenda →</span>
           </div>
         </div>
       </a>
@@ -492,7 +496,7 @@
         const activeDealsEl = document.getElementById('stat-active-deals');
         if (activeDealsEl) activeDealsEl.textContent = data.active_deals_count || data.deals_count || 0;
         const dealsHintEl = document.getElementById('stat-active-deals-hint');
-        if (dealsHintEl) dealsHintEl.textContent = (data.active_deals_count || 0) > 0 ? 'Oportunidades em acompanhamento' : 'Seu funil está pronto';
+        if (dealsHintEl) dealsHintEl.textContent = (data.active_deals_count || 0) > 0 ? 'Oportunidades no funil' : 'Seu funil está pronto';
 
         const companiesEl = document.getElementById('stat-companies');
         if (companiesEl) companiesEl.textContent = data.companies_identified_count || data.companies_count || 0;
@@ -562,27 +566,83 @@
     }
   }
 
-  async function loadAutoSyncStatus() {
+  // Sincronização com o PNCP: botão manual (em background) e acompanhamento do andamento
+  let acompanhamentoSync = null;
+
+  function estadoBotaoSync(rodando, texto) {
+    const btn = document.getElementById('btn-dash-sync');
+    const icon = document.getElementById('dash-sync-icon');
+    const label = document.getElementById('dash-sync-label');
+    if (btn) btn.disabled = rodando;
+    if (icon) icon.classList.toggle('animate-spin', rodando);
+    if (label) label.textContent = texto;
+  }
+
+  function textoProgresso(p) {
+    if (!p) return 'Sincronizando com o PNCP…';
+    const paginas = p.total_paginas ? `${p.pagina}/${p.total_paginas}` : p.pagina;
+    return `Dia ${p.dia_indice}/${p.total_dias} (${p.dia}) · ${p.modalidade} pág. ${paginas} · ${p.coletados.toLocaleString('pt-BR')} coletados`;
+  }
+
+  async function atualizarStatusSync() {
     const label = document.getElementById('auto-sync-label');
-    if (!label) return;
+    const dot = document.getElementById('auto-sync-dot');
     try {
       const resp = await fetch('/api/sync/status');
       if (!resp.ok) return;
       const st = await resp.json();
       if (st.em_execucao) {
-        label.textContent = 'Atualizando catálogo com o PNCP…';
-      } else if (st.ultima_execucao) {
-        const quando = new Date(st.ultima_execucao + 'Z');
-        label.textContent = `Catálogo atualizado às ${quando.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+        estadoBotaoSync(true, 'Sincronizando…');
+        if (label) label.textContent = textoProgresso(st.progresso);
+        if (dot) dot.classList.add('animate-pulse');
+        if (!acompanhamentoSync) acompanhamentoSync = setInterval(atualizarStatusSync, 4000);
+        loadDashboardData();
+      } else {
+        if (acompanhamentoSync) {
+          clearInterval(acompanhamentoSync);
+          acompanhamentoSync = null;
+          loadDashboardData();
+        }
+        estadoBotaoSync(false, 'Sincronizar agora');
+        if (dot) dot.classList.remove('animate-pulse');
+        if (label && st.ultima_execucao) {
+          const quando = new Date(st.ultima_execucao + 'Z');
+          label.textContent = `Atualizado às ${quando.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+        }
       }
     } catch (e) {
-      /* indicador opcional: mantém o texto padrão */
+      /* indicador opcional: mantém o estado atual */
     }
+  }
+
+  async function sincronizarAgora() {
+    estadoBotaoSync(true, 'Iniciando…');
+    try {
+      const headers = {};
+      if (typeof AppSession !== 'undefined' && AppSession.getToken()) {
+        headers['Authorization'] = `Bearer ${AppSession.getToken()}`;
+      }
+      const resp = await fetch('/api/sync/run', { method: 'POST', headers });
+      if (resp.status === 401) {
+        estadoBotaoSync(false, 'Entre para sincronizar');
+        return;
+      }
+      if (!resp.ok) {
+        estadoBotaoSync(false, 'Tente novamente');
+        return;
+      }
+    } catch (e) {
+      estadoBotaoSync(false, 'Tente novamente');
+      return;
+    }
+    // A coleta segue no servidor: a página continua livre e o andamento é consultado a cada 4s
+    if (!acompanhamentoSync) acompanhamentoSync = setInterval(atualizarStatusSync, 4000);
+    atualizarStatusSync();
   }
 
   document.addEventListener('DOMContentLoaded', () => {
     loadDashboardData();
-    loadAutoSyncStatus();
+    atualizarStatusSync();
   });
 </script>
 {% endblock %}

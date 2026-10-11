@@ -43,8 +43,10 @@ class Settings(BaseModel):
     
     # PNCP Integration
     PNCP_API_BASE_URL: str = os.getenv("PNCP_API_BASE_URL", "https://pncp.gov.br/api/consulta")
-    PNCP_RATE_LIMIT_PER_MINUTE: int = int(os.getenv("PNCP_RATE_LIMIT_PER_MINUTE", "60"))
+    # Ritmo máximo de consultas à API do PNCP (medido: rajadas acima de ~8 req. recebem HTTP 429)
+    PNCP_RATE_LIMIT_PER_MINUTE: int = int(os.getenv("PNCP_RATE_LIMIT_PER_MINUTE", "12"))
     PNCP_REQUEST_TIMEOUT_SECONDS: int = int(os.getenv("PNCP_REQUEST_TIMEOUT_SECONDS", "15"))
+    # Novas tentativas por página quando o PNCP responde 429/5xx ou não responde (10s, 20s, 40s)
     PNCP_MAX_RETRIES: int = int(os.getenv("PNCP_MAX_RETRIES", "3"))
     
     # Storage
@@ -91,7 +93,7 @@ class Settings(BaseModel):
     AUTO_SYNC_DIAS: int = int(os.getenv("AUTO_SYNC_DIAS", "15"))
     AUTO_SYNC_MIN_VIGENTES: int = int(os.getenv("AUTO_SYNC_MIN_VIGENTES", "500"))
     AUTO_SYNC_INTERVALO_MINUTOS: int = int(os.getenv("AUTO_SYNC_INTERVALO_MINUTOS", "60"))
-    AUTO_SYNC_PAGINAS_POR_DIA: int = int(os.getenv("AUTO_SYNC_PAGINAS_POR_DIA", "100"))
+    AUTO_SYNC_PAGINAS_POR_DIA: int = int(os.getenv("AUTO_SYNC_PAGINAS_POR_DIA", "300"))
 
     # PNCP — API de integração (itens e arquivos das compras)
     PNCP_INTEGRACAO_BASE_URL: str = os.getenv("PNCP_INTEGRACAO_BASE_URL", "https://pncp.gov.br/api/pncp/v1").rstrip("/")

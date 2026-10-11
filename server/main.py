@@ -3292,6 +3292,16 @@ async def iniciar_sincronizacao_automatica():
     if settings.AUTO_SYNC_ENABLED:
         _start_background_task(auto_sync.loop_sincronizacao_automatica())
 
+@app.post("/api/sync/run", status_code=202)
+def api_sync_run(user: User = Depends(require_auth)):
+    """Botão "Sincronizar agora": dispara a coleta do PNCP em background e responde na hora."""
+    iniciada = auto_sync.disparar_em_background()
+    return {
+        "iniciada": iniciada,
+        "mensagem": "Sincronização iniciada." if iniciada else "Já existe uma sincronização em andamento.",
+        **auto_sync.estado,
+    }
+
 @app.get("/api/sync/status")
 def api_sync_status(db: Session = Depends(get_db)):
     """Situação pública do abastecimento automático do catálogo global."""

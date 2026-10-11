@@ -1,4 +1,6 @@
 import re
+import threading
+import time
 import requests
 import logging
 from typing import List, Dict, Any, Optional, Union
@@ -7,6 +9,37 @@ from server.connectors.base import BaseConnector
 from server.config import settings
 
 logger = logging.getLogger(__name__)
+
+# Respostas temporárias do PNCP (limite de requisições, indisponibilidade): repetidas com backoff
+STATUS_TRANSITORIOS = {429, 500, 502, 503, 504}
+
+# A API de consulta do PNCP bloqueia rajadas (HTTP 429 após ~8 requisições seguidas) e libera em
+# ~10s; em ritmo constante de 12/min não há bloqueio. Todas as consultas passam por este limitador.
+_trava_ritmo = threading.Lock()
+_ultima_requisicao = 0.0
+
+
+def _aguardar_vez() -> None:
+    """Espaça as requisições conforme PNCP_RATE_LIMIT_PER_MINUTE (0 desliga o limitador)."""
+    global _ultima_requisicao
+    por_minuto = settings.PNCP_RATE_LIMIT_PER_MINUTE
+    if por_minuto <= 0:
+        return
+    with _trava_ritmo:
+        espera = _ultima_requisicao + 60.0 / por_minuto - time.monotonic()
+        if espera > 0:
+            time.sleep(espera)
+        _ultima_requisicao = time.monotonic()
+
+
+def _espera_retry(tentativa: int, retry_after: Optional[str] = None) -> float:
+    """Backoff exponencial (10s, 20s, 40s...) limitado a 60s; respeita o Retry-After do servidor."""
+    try:
+        if retry_after:
+            return min(max(float(retry_after), 1.0), 60.0)
+    except ValueError:
+        pass
+    return min(10.0 * 2 ** (tentativa - 1), 60.0)
 
 def build_canonical_pncp_url(
     cnpj: Optional[str] = None,
@@ -197,31 +230,39 @@ class PNCPConnector(BaseConnector):
         if uf:
             params["uf"] = uf
 
-        try:
-            resp = self.session.get(
-                endpoint,
-                params=params,
-                timeout=settings.PNCP_REQUEST_TIMEOUT_SECONDS
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                return {
-                    "success": True,
-                    "data": data,
-                    "status_code": 200
+        tentativas = 1 + max(0, settings.PNCP_MAX_RETRIES)
+        for tentativa in range(1, tentativas + 1):
+            _aguardar_vez()
+            try:
+                resp = self.session.get(
+                    endpoint,
+                    params=params,
+                    timeout=settings.PNCP_REQUEST_TIMEOUT_SECONDS
+                )
+                if resp.status_code == 200:
+                    return {"success": True, "data": resp.json(), "status_code": 200}
+                if resp.status_code == 204:  # PNCP: sem registros para os filtros
+                    return {"success": True, "data": {"data": [], "totalPaginas": 0}, "status_code": 204}
+                resultado = {
+                    "success": False,
+                    "error": f"HTTP {resp.status_code}: {resp.text[:200]}",
+                    "status_code": resp.status_code
                 }
-            return {
-                "success": False,
-                "error": f"HTTP {resp.status_code}: {resp.text[:200]}",
-                "status_code": resp.status_code
-            }
-        except Exception as e:
-            logger.warning(f"Erro ao consultar PNCP API: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "status_code": 500
-            }
+                if resp.status_code not in STATUS_TRANSITORIOS:
+                    return resultado
+                espera = _espera_retry(tentativa, resp.headers.get("Retry-After"))
+            except (requests.ConnectionError, requests.Timeout) as e:
+                resultado = {"success": False, "error": str(e), "status_code": 503}
+                espera = _espera_retry(tentativa)
+            except Exception as e:
+                logger.warning(f"Erro ao consultar PNCP API: {e}")
+                return {"success": False, "error": str(e), "status_code": 500}
+            if tentativa < tentativas:
+                logger.info("PNCP %s (página %s): nova tentativa em %.1fs (%s/%s).",
+                            resultado["status_code"], pagina, espera, tentativa, tentativas - 1)
+                time.sleep(espera)
+        logger.warning("PNCP: página %s sem resposta após %s tentativas (%s).", pagina, tentativas, resultado["error"][:80])
+        return resultado
 
     def fetch_recent_tenders(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
         """

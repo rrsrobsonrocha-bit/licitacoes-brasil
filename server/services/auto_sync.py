@@ -6,8 +6,9 @@ certames devolvidos pela API oficial do PNCP (upsert por numeroControlePNCP) e n
 Sem resposta da API, nada é gravado.
 
 - Auto-warmup: percorre os últimos ``AUTO_SYNC_DIAS`` dias de publicação, do mais recente para o
-  mais antigo, um dia por vez (cada dia é paginado até o fim e gravado em seguida, o que mantém a
-  memória baixa e deixa os editais mais novos disponíveis primeiro).
+  mais antigo, um dia por vez; cada dia e modalidade é paginado até a última página do PNCP e cada
+  página é gravada assim que chega. O ritmo respeita o limite da API (ver connectors/pncp.py), então
+  o warmup completo leva da ordem de uma hora; o andamento fica em ``estado["progresso"]``.
 - Atualização periódica: hoje e ontem, com entrega dos alertas dos usuários para os editais novos.
 """
 import asyncio
@@ -29,6 +30,7 @@ MODALIDADES_DISPUTA = [6, 8]
 _trava = threading.Lock()
 estado: Dict[str, Any] = {
     "em_execucao": None,
+    "progresso": None,
     "ultima_execucao": None,
     "ultimo_resultado": None,
     "proxima_execucao": None,
@@ -55,7 +57,22 @@ def _coletar_dias(dias: List[str], notificar_alertas: bool, tipo: str) -> Dict[s
     estado["em_execucao"] = tipo
     resumo = {"tipo": tipo, "dias": len(dias), "coletados": 0, "novos": 0, "atualizados": 0, "falhas": []}
     try:
-        for dia in dias:
+        for indice, dia in enumerate(dias, start=1):
+
+            def _progresso(pagina: Dict[str, Any], dia=dia, indice=indice) -> None:
+                estado["progresso"] = {
+                    "tipo": tipo,
+                    "dia": f"{dia[6:8]}/{dia[4:6]}/{dia[:4]}",
+                    "dia_indice": indice,
+                    "total_dias": len(dias),
+                    "modalidade": pagina["modalidade"],
+                    "pagina": pagina["pagina"],
+                    "total_paginas": pagina["total_paginas"],
+                    "coletados": resumo["coletados"] + pagina["coletados"],
+                    "novos": resumo["novos"] + pagina["novos"],
+                    "atualizado_em": datetime.utcnow().isoformat(),
+                }
+
             db = SessionLocal()
             try:
                 r = sync_procurement_opportunities(
@@ -67,11 +84,12 @@ def _coletar_dias(dias: List[str], notificar_alertas: bool, tipo: str) -> Dict[s
                     limit_per_page=50,
                     reforco_al=False,
                     notificar_alertas=notificar_alertas,
-                    pausa_entre_paginas=0.2,
+                    ao_progredir=_progresso,
                 )
                 resumo["coletados"] += r.get("total_coletados", 0)
                 resumo["novos"] += r.get("novos_inseridos", 0)
                 resumo["atualizados"] += r.get("atualizados", 0)
+                resumo["falhas"].extend(f"{dia}: {erro}" for erro in r.get("erros", []))
                 print(f"[AUTO-SYNC] {tipo} {dia}: {r.get('total_coletados', 0)} coletados, "
                       f"{r.get('novos_inseridos', 0)} novos (catálogo: {r.get('total_geral_banco', 0)}).")
             except Exception as exc:
@@ -87,6 +105,7 @@ def _coletar_dias(dias: List[str], notificar_alertas: bool, tipo: str) -> Dict[s
         return resumo
     finally:
         estado["em_execucao"] = None
+        estado["progresso"] = None
         _trava.release()
 
 
@@ -103,6 +122,25 @@ def executar_warmup(dias: Optional[int] = None) -> Dict[str, Any]:
 def executar_atualizacao() -> Dict[str, Any]:
     """Publicações de hoje e de ontem (Brasília), com entrega de alertas para os editais novos."""
     return _coletar_dias(_ultimos_dias(2), notificar_alertas=True, tipo="atualizacao")
+
+
+def disparar_em_background() -> bool:
+    """
+    Sincronização sob demanda (botão "Sincronizar agora"): roda numa thread, sem bloquear a
+    requisição. Devolve False se já houver uma sincronização em andamento.
+    """
+    if _trava.locked():
+        return False
+
+    def _rodar() -> None:
+        try:
+            resumo = executar_warmup() if precisa_warmup(no_arranque=False) else executar_atualizacao()
+            print(f"[AUTO-SYNC] Sincronização manual concluída: {resumo}")
+        except Exception as exc:
+            print(f"[AUTO-SYNC] Falha na sincronização manual: {exc!r}")
+
+    threading.Thread(target=_rodar, name="sincronizacao-manual", daemon=True).start()
+    return True
 
 
 def precisa_warmup(no_arranque: bool) -> bool:

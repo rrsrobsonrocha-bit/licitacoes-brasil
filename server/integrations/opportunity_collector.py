@@ -5,7 +5,7 @@ import logging
 import re
 import time
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Callable, Dict, Any, List, Optional, Tuple
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
@@ -206,6 +206,7 @@ def sync_procurement_opportunities(
     reforco_al: bool = True,
     notificar_alertas: bool = True,
     pausa_entre_paginas: float = 0.0,
+    ao_progredir: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> Dict[str, Any]:
     """
     Pipeline unificado de sincronização em larga escala:
@@ -217,7 +218,10 @@ def sync_procurement_opportunities(
 
     Para coletas em lote (auto-warmup), ``data_inicial``/``data_final`` (YYYYMMDD) fixam a janela de
     publicação, ``modalidades`` restringe os códigos consultados e ``paginas_por_modalidade`` pagina
-    cada modalidade até esse teto (a paginação para sozinha na última página).
+    cada modalidade até esse teto. A paginação segue até a última página informada pelo PNCP
+    (``totalPaginas``) ou até uma página vazia; cada página é gravada (commit) assim que chega, e
+    ``ao_progredir`` recebe o andamento (modalidade, página, total de páginas, coletados).
+    Falhas persistentes da API (após as novas tentativas do conector) ficam em ``erros``.
     """
     connector = PNCPConnector()
     now = datetime.utcnow()
@@ -235,7 +239,116 @@ def sync_procurement_opportunities(
         (9, "Inexigibilidade")
     ]
     if modalidades:
-        target_modalities = [(cod, rotulo) for cod, rotulo in target_modalities if cod in modalidades]
+        rotulos = dict(target_modalities)
+        target_modalities = [(cod, rotulos[cod]) for cod in modalidades if cod in rotulos]
+
+    # Somente certames realmente retornados pela API oficial do PNCP são gravados:
+    # sem rede ou sem resultados, a sincronização não insere nada (catálogo 100% real).
+    from server.seed_data import garantir_fonte_pncp
+    source = garantir_fonte_pncp(db)
+
+    novos_inseridos = 0
+    atualizados = 0
+    compras_gov_count = 0
+    pncp_count = 0
+    dispensas_count = 0
+    new_tenders: List[Tender] = []
+    erros: List[str] = []
+    persistidos = 0
+
+    def persistir_pendentes() -> None:
+        """Upsert idempotente (por external_id) dos registros ainda não gravados, com commit imediato."""
+        nonlocal novos_inseridos, atualizados, compras_gov_count, pncp_count, dispensas_count, persistidos
+        lote = records_to_process[persistidos:]
+        persistidos = len(records_to_process)
+        if not lote:
+            return
+        existentes = {
+            t.external_id: t
+            for t in db.query(Tender).filter(Tender.external_id.in_([o["external_id"] for o in lote]))
+        }
+        for opp in lote:
+            ext_id = opp["external_id"]
+            existing = existentes.get(ext_id)
+
+            if opp["source_system"] == "compras_gov":
+                compras_gov_count += 1
+            else:
+                pncp_count += 1
+
+            if "dispensa" in (opp.get("modality") or "").lower():
+                dispensas_count += 1
+
+            raw_ref = json.dumps({
+                "executor_portal": opp.get("executor_portal", "PNCP Geral"),
+                "sistema_origem": opp.get("sistema_origem")
+            }, ensure_ascii=False)
+
+            if existing:
+                existing.modality = opp["modality"]
+                existing.source_system = opp["source_system"]
+                existing.uasg_code = opp["uasg_code"]
+                existing.sicaf_ready = opp["sicaf_ready"]
+                existing.link_comprasnet = opp["link_comprasnet"]
+                existing.link_pncp = opp.get("url_pncp") or opp.get("link_pncp")
+                existing.url_pncp = opp.get("url_pncp") or opp.get("link_pncp")
+                existing.url_disputa = opp.get("url_disputa") or opp.get("official_notice_url") or opp.get("link_comprasnet") or existing.url_pncp
+                existing.source_url = existing.url_pncp or existing.link_pncp or existing.source_url
+                existing.official_notice_url = opp.get("official_notice_url") or existing.url_disputa
+                existing.title = opp["title"]
+                existing.object_description = opp["object_description"]
+                existing.status = opp["status"]
+                existing.estimated_total_value = opp.get("estimated_total_value", existing.estimated_total_value)
+                for campo in ("publication_date", "opening_date", "proposal_deadline"):
+                    if opp.get(campo):
+                        setattr(existing, campo, opp[campo])
+                existing.raw_data_reference = raw_ref
+                existing.last_synced_at = now
+                atualizados += 1
+            else:
+                new_tender = Tender(
+                    source_id=source.id,
+                    external_id=ext_id,
+                    process_number=opp.get("process_number"),
+                    notice_number=opp.get("notice_number"),
+                    title=opp["title"],
+                    object_description=opp["object_description"],
+                    contracting_entity=opp["contracting_entity"],
+                    purchasing_unit=opp.get("purchasing_unit"),
+                    state=opp.get("state", "DF"),
+                    city=opp.get("city", "Brasília"),
+                    region=opp.get("region", "Centro-Oeste"),
+                    administrative_sphere=opp.get("administrative_sphere", "FEDERAL"),
+                    modality=opp.get("modality", "Pregão Eletrônico"),
+                    category=opp.get("category", "Geral"),
+                    status=opp.get("status", "Divulgada no PNCP"),
+                    publication_date=opp.get("publication_date"),
+                    opening_date=opp.get("opening_date"),
+                    proposal_deadline=opp.get("proposal_deadline"),
+                    estimated_total_value=opp.get("estimated_total_value"),
+                    source_url=opp.get("url_pncp") or opp.get("link_pncp") or opp.get("source_url", "https://pncp.gov.br"),
+                    official_notice_url=opp.get("official_notice_url") or opp.get("url_disputa"),
+                    source_system=opp["source_system"],
+                    uasg_code=opp["uasg_code"],
+                    sicaf_ready=opp["sicaf_ready"],
+                    link_comprasnet=opp["link_comprasnet"],
+                    link_pncp=opp.get("url_pncp") or opp.get("link_pncp"),
+                    url_pncp=opp.get("url_pncp") or opp.get("link_pncp"),
+                    url_disputa=opp.get("url_disputa") or opp.get("official_notice_url") or opp.get("link_comprasnet") or opp.get("url_pncp"),
+                    raw_data_reference=raw_ref,
+                    data_completeness="COMPLETO",
+                    created_at=now,
+                    last_synced_at=now
+                )
+                db.add(new_tender)
+                db.flush()
+                # Os itens reais são obtidos do endpoint /itens do PNCP sob demanda (pncp_compras.sincronizar_itens)
+                new_tenders.append(new_tender)
+                novos_inseridos += 1
+        if dry_run:
+            db.flush()
+        else:
+            db.commit()
 
     try:
         page_size = max(10, min(limit_per_page, 100))
@@ -341,10 +454,24 @@ def sync_procurement_opportunities(
                             "executor_portal": portal_name
                         })
 
-                    if len(raw_data) < page_size:
+                    persistir_pendentes()
+                    total_paginas = int(live_result["data"].get("totalPaginas") or 0)
+                    if ao_progredir:
+                        ao_progredir({
+                            "modalidade": mod_label,
+                            "pagina": page_num,
+                            "total_paginas": total_paginas,
+                            "coletados": len(records_to_process),
+                            "novos": novos_inseridos,
+                        })
+                    if len(raw_data) < page_size or (total_paginas and page_num >= total_paginas):
                         break
+                elif live_result.get("success"):
+                    break  # página vazia: não há mais registros nesta modalidade
                 else:
-                    # Falha da API ou página vazia: fim desta modalidade (sem martelar as páginas seguintes)
+                    # Falha persistente mesmo após as novas tentativas do conector (ex.: 429 contínuo)
+                    erros.append(f"{mod_label} página {page_num}: {str(live_result.get('error', ''))[:120]}")
+                    logger.warning("[Sync] %s", erros[-1])
                     break
 
         # Coleta de reforço para Alagoas (AL) se uf não for restritivo para outro estado
@@ -404,110 +531,12 @@ def sync_procurement_opportunities(
                     })
 
     except Exception as exc:
+        # Páginas já gravadas permanecem; o lote em andamento é descartado e a coleta segue no próximo ciclo
+        db.rollback()
+        erros.append(f"Erro na consulta contínua ao PNCP: {exc}")
         logger.warning(f"[Sync] Erro na consulta contínua ao PNCP: {exc}")
 
-    # Somente certames realmente retornados pela API oficial do PNCP são gravados:
-    # sem rede ou sem resultados, a sincronização não insere nada (catálogo 100% real).
-
-    # 3. Assegura a fonte PNCP no banco
-    source = db.query(Source).filter(Source.id == "pncp-source-01").first()
-    if not source:
-        source = Source(
-            id="pncp-source-01",
-            name="Portal Nacional de Contratações Públicas (PNCP)",
-            source_type="API_GOV",
-            base_url="https://pncp.gov.br/api/consulta",
-            active=True
-        )
-        db.add(source)
-        db.flush()
-
-    novos_inseridos = 0
-    atualizados = 0
-    compras_gov_count = 0
-    pncp_count = 0
-    dispensas_count = 0
-    new_tenders: List[Tender] = []
-
-    # 4. Upsert idempotente no SQLite dev_licitacoes.db por external_id
-    for opp in records_to_process:
-        ext_id = opp["external_id"]
-        existing = db.query(Tender).filter(Tender.external_id == ext_id).first()
-
-        if opp["source_system"] == "compras_gov":
-            compras_gov_count += 1
-        else:
-            pncp_count += 1
-
-        if "dispensa" in (opp.get("modality") or "").lower():
-            dispensas_count += 1
-
-        raw_ref = json.dumps({
-            "executor_portal": opp.get("executor_portal", "PNCP Geral"),
-            "sistema_origem": opp.get("sistema_origem")
-        }, ensure_ascii=False)
-
-        if existing:
-            existing.modality = opp["modality"]
-            existing.source_system = opp["source_system"]
-            existing.uasg_code = opp["uasg_code"]
-            existing.sicaf_ready = opp["sicaf_ready"]
-            existing.link_comprasnet = opp["link_comprasnet"]
-            existing.link_pncp = opp.get("url_pncp") or opp.get("link_pncp")
-            existing.url_pncp = opp.get("url_pncp") or opp.get("link_pncp")
-            existing.url_disputa = opp.get("url_disputa") or opp.get("official_notice_url") or opp.get("link_comprasnet") or existing.url_pncp
-            existing.source_url = existing.url_pncp or existing.link_pncp or existing.source_url
-            existing.official_notice_url = opp.get("official_notice_url") or existing.url_disputa
-            existing.title = opp["title"]
-            existing.object_description = opp["object_description"]
-            existing.status = opp["status"]
-            existing.estimated_total_value = opp.get("estimated_total_value", existing.estimated_total_value)
-            for campo in ("publication_date", "opening_date", "proposal_deadline"):
-                if opp.get(campo):
-                    setattr(existing, campo, opp[campo])
-            existing.raw_data_reference = raw_ref
-            existing.last_synced_at = now
-            atualizados += 1
-        else:
-            new_tender = Tender(
-                source_id=source.id,
-                external_id=ext_id,
-                process_number=opp.get("process_number"),
-                notice_number=opp.get("notice_number"),
-                title=opp["title"],
-                object_description=opp["object_description"],
-                contracting_entity=opp["contracting_entity"],
-                purchasing_unit=opp.get("purchasing_unit"),
-                state=opp.get("state", "DF"),
-                city=opp.get("city", "Brasília"),
-                region=opp.get("region", "Centro-Oeste"),
-                administrative_sphere=opp.get("administrative_sphere", "FEDERAL"),
-                modality=opp.get("modality", "Pregão Eletrônico"),
-                category=opp.get("category", "Geral"),
-                status=opp.get("status", "Divulgada no PNCP"),
-                publication_date=opp.get("publication_date"),
-                opening_date=opp.get("opening_date"),
-                proposal_deadline=opp.get("proposal_deadline"),
-                estimated_total_value=opp.get("estimated_total_value"),
-                source_url=opp.get("url_pncp") or opp.get("link_pncp") or opp.get("source_url", "https://pncp.gov.br"),
-                official_notice_url=opp.get("official_notice_url") or opp.get("url_disputa"),
-                source_system=opp["source_system"],
-                uasg_code=opp["uasg_code"],
-                sicaf_ready=opp["sicaf_ready"],
-                link_comprasnet=opp["link_comprasnet"],
-                link_pncp=opp.get("url_pncp") or opp.get("link_pncp"),
-                url_pncp=opp.get("url_pncp") or opp.get("link_pncp"),
-                url_disputa=opp.get("url_disputa") or opp.get("official_notice_url") or opp.get("link_comprasnet") or opp.get("url_pncp"),
-                raw_data_reference=raw_ref,
-                data_completeness="COMPLETO",
-                created_at=now,
-                last_synced_at=now
-            )
-            db.add(new_tender)
-            db.flush()
-            # Os itens reais são obtidos do endpoint /itens do PNCP sob demanda (pncp_compras.sincronizar_itens)
-            new_tenders.append(new_tender)
-            novos_inseridos += 1
+    persistir_pendentes()
 
     if not dry_run:
         db.commit()
@@ -536,7 +565,8 @@ def sync_procurement_opportunities(
         "compras_gov_count": compras_gov_count,
         "pncp_count": pncp_count,
         "dispensas_count": dispensas_count,
-        "total_geral_banco": total_geral_banco
+        "total_geral_banco": total_geral_banco,
+        "erros": erros
     }
 
 if __name__ == "__main__":

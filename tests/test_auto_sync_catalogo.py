@@ -219,13 +219,19 @@ def test_painel_destaca_vigentes_orgaos_ativos_e_funil_pronto():
         assert resumo["companies_identified_count"] == antes + 2  # só órgãos com editais vigentes
 
         html = client.get("/dashboard").text
-        card = html.split('id="card-vigentes"', 1)[1].split('id="card-companies"', 1)[0]
-        assert "Editais vigentes para disputa" in card and 'id="card-tenders-today"' in card
-        assert "publicadas hoje" in card
-        assert html.index('id="card-vigentes"') < html.index('id="card-companies"') < html.index('id="card-active-deals"')
+        # Quatro cards separados, nesta ordem: publicados hoje, vigentes, órgãos, negócios
+        ordem = [html.index(f'id="{c}"') for c in ("card-tenders-today", "card-vigentes", "card-companies", "card-active-deals")]
+        assert ordem == sorted(ordem)
+        assert html.count("metric-card group cursor-pointer") == 4
+        hoje = html.split('id="card-tenders-today"', 1)[1].split("</a>", 1)[0]
+        assert "Editais publicados hoje" in hoje and 'id="stat-tenders-today"' in hoje
+        vigentes = html.split('id="card-vigentes"', 1)[1].split("</a>", 1)[0]
+        assert "Editais vigentes em disputa" in vigentes and 'id="stat-vigentes"' in vigentes
         assert "Órgãos mapeados" in html
         assert 'id="funil-vazio-cta"' in html and "Seu funil está pronto." in html
-        assert "syncFromDashboard" not in html and 'id="auto-sync-status"' in html
+        # Botão manual ao lado do Funil Kanban, disparando a sincronização em background
+        assert 'id="btn-dash-sync"' in html and "Sincronizar agora" in html and "/api/sync/run" in html
+        assert html.index('id="btn-dash-sync"') < html.index("Funil Kanban")
     finally:
         _apagar_por_prefixo(marcador)
 
@@ -265,3 +271,108 @@ def test_busca_abre_com_vigentes_e_tem_atalhos_de_periodo():
         assert aberto in periodo and encerrado in periodo
     finally:
         _apagar_por_prefixo(marcador)
+
+
+# ---------------- 4. Paginação completa, limite de requisições e progresso ----------------
+class PNCPPaginado:
+    """PNCP simulado com totalPaginas: Pregão em várias páginas; uma página pode falhar (429 persistente)."""
+
+    def __init__(self, prefixo: str, total_paginas: int = 4, ultima: int = 20, falha_na_pagina: int = 0):
+        self.prefixo, self.total_paginas, self.ultima, self.falha_na_pagina = prefixo, total_paginas, ultima, falha_na_pagina
+        self.chamadas = []
+        self.progresso_visto = []
+        self.gravados_ao_pedir = []
+
+    def __call__(self, data_inicial, data_final, codigo_modalidade=None, uf=None, pagina=1, tamanho_pagina=50):
+        self.chamadas.append((codigo_modalidade, pagina))
+        self.progresso_visto.append(auto_sync.estado.get("progresso"))
+        self.gravados_ao_pedir.append(_contar(self.prefixo))
+        if codigo_modalidade != 6:
+            return {"success": True, "data": {"data": [], "totalPaginas": 0}}
+        if pagina == self.falha_na_pagina:
+            return {"success": False, "error": "HTTP 429: Limite de Requisições Excedido", "status_code": 429}
+        qtd = self.ultima if pagina == self.total_paginas else 50
+        base = PNCPPorDia(f"{self.prefixo}-p{pagina}", {6: qtd})
+        dados = base(data_inicial, data_final, codigo_modalidade, uf, 1, tamanho_pagina)["data"]
+        dados["totalPaginas"] = self.total_paginas
+        return {"success": True, "data": dados}
+
+
+def test_warmup_pagina_ate_total_paginas_gravando_cada_pagina_e_reportando_progresso():
+    prefixo = f"PAGINADO-{uuid.uuid4().hex[:8]}"
+    api = PNCPPaginado(prefixo, total_paginas=4, ultima=20)
+    try:
+        with patch.object(PNCPConnector, "fetch_tenders_live", api):
+            resumo = auto_sync.executar_warmup(dias=1)
+        assert [p for m, p in api.chamadas if m == 6] == [1, 2, 3, 4]  # todas as páginas do dia
+        assert resumo["novos"] == 170 and not resumo["falhas"]
+        # Cada página já estava gravada (commit) antes de a próxima ser pedida
+        assert api.gravados_ao_pedir[:4] == [0, 50, 100, 150]
+        # O andamento é publicado em /api/sync/status durante a coleta
+        antes_da_pagina_4 = api.progresso_visto[3]
+        assert antes_da_pagina_4["modalidade"] == "Pregão Eletrônico"
+        assert (antes_da_pagina_4["pagina"], antes_da_pagina_4["total_paginas"]) == (3, 4)
+        assert antes_da_pagina_4["coletados"] == 150 and antes_da_pagina_4["dia_indice"] == 1
+        assert auto_sync.estado["progresso"] is None  # limpo ao terminar
+    finally:
+        _apagar_por_prefixo(prefixo)
+
+
+def test_bloqueio_persistente_da_api_vira_falha_registrada_sem_perder_paginas_gravadas():
+    prefixo = f"BLOQUEIO-{uuid.uuid4().hex[:8]}"
+    api = PNCPPaginado(prefixo, total_paginas=3, falha_na_pagina=2)
+    try:
+        with patch.object(PNCPConnector, "fetch_tenders_live", api):
+            resumo = auto_sync.executar_warmup(dias=1)
+        assert resumo["novos"] == 50 and _contar(prefixo) == 50
+        assert any("página 2" in f and "429" in f for f in resumo["falhas"])
+    finally:
+        _apagar_por_prefixo(prefixo)
+
+
+def test_conector_tenta_de_novo_com_backoff_quando_pncp_responde_429(monkeypatch):
+    from server.connectors import pncp as modulo_pncp
+
+    monkeypatch.setattr(settings, "PNCP_MAX_RETRIES", 3)
+    respostas = [MagicMock(status_code=429, text="Limite de Requisições Excedido", headers={}),
+                 MagicMock(status_code=429, text="Limite de Requisições Excedido", headers={}),
+                 MagicMock(status_code=200, headers={}, json=MagicMock(return_value={"data": [], "totalPaginas": 0}))]
+    conector = PNCPConnector()
+    esperas = []
+    with patch.object(conector.session, "get", side_effect=respostas), \
+         patch.object(modulo_pncp.time, "sleep", side_effect=esperas.append):
+        r = conector.fetch_tenders_live("20261001", "20261001", codigo_modalidade=6, pagina=2)
+    assert r["success"] is True
+    assert esperas == [10.0, 20.0]  # backoff exponencial
+
+    # Erro definitivo (4xx diferente de 429) não é repetido
+    with patch.object(conector.session, "get", return_value=MagicMock(status_code=400, text="parâmetro inválido", headers={})) as get, \
+         patch.object(modulo_pncp.time, "sleep"):
+        r = conector.fetch_tenders_live("20261001", "20261001", codigo_modalidade=6)
+    assert r["success"] is False and get.call_count == 1
+
+
+def test_limitador_espaca_as_consultas_ao_pncp(monkeypatch):
+    from server.connectors import pncp as modulo_pncp
+
+    monkeypatch.setattr(settings, "PNCP_RATE_LIMIT_PER_MINUTE", 12)
+    monkeypatch.setattr(modulo_pncp, "_ultima_requisicao", modulo_pncp.time.monotonic())
+    esperas = []
+    with patch.object(modulo_pncp.time, "sleep", side_effect=esperas.append):
+        modulo_pncp._aguardar_vez()
+    assert len(esperas) == 1 and 4.5 < esperas[0] <= 5.0  # 12/min = uma consulta a cada 5s
+
+
+def test_botao_sincronizar_exige_login_e_dispara_em_background(criar_usuario, monkeypatch):
+    assert client.post("/api/sync/run").status_code == 401
+
+    disparo = MagicMock(return_value=True)
+    monkeypatch.setattr(auto_sync, "disparar_em_background", disparo)
+    conta = criar_usuario("Quem Sincroniza")
+    resp = client.post("/api/sync/run", headers=conta.headers)
+    assert resp.status_code == 202 and resp.json()["iniciada"] is True
+    disparo.assert_called_once()
+
+    disparo.return_value = False
+    assert client.post("/api/sync/run", headers=conta.headers).json()["iniciada"] is False
+    assert "progresso" in client.get("/api/sync/status").json()

@@ -220,7 +220,6 @@ def test_cards_do_dashboard_sao_links():
     html = client.get("/dashboard").text
     assert 'id="card-active-deals" href="/negocios?view=quadros"' in html
     assert 'id="card-companies" href="/fornecedores"' in html
-    assert 'id="card-agenda" href="/agenda"' in html
     assert 'id="card-tenders-today"' in html
     assert 'id="card-vigentes"' in html and "/search?vigentes=true" in html
     assert html.count("metric-card group cursor-pointer") == 4
