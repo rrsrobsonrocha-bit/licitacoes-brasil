@@ -160,7 +160,7 @@ if "no_proxy" in os.environ and "[" in os.environ["no_proxy"]:
 
 
 DEFAULT_HEADERS = {
-    "User-Agent": "licitacoes-brasil-collector/2.0 (+https://licitacoesbrasil.gov.br; contato@licitacoesbrasil.com.br)",
+    "User-Agent": "licitacoes-brasil-collector/2.0",
     "Accept": "application/json, text/plain, */*",
     "Accept-Encoding": "gzip, deflate"
 }
@@ -318,21 +318,10 @@ class PortalCollectorService:
         persisted_count = 0
         if db_session:
             try:
-                from server.models import Tender, Source
-                # Garante uma Source padrão para portais agregados
-                default_source = db_session.query(Source).filter(Source.official_domain == "licitacoesbrasil.gov.br").first()
-                if not default_source:
-                    default_source = Source(
-                        name="Hub Multifonte Licitações Brasil",
-                        base_url="https://licitacoesbrasil.gov.br",
-                        official_domain="licitacoesbrasil.gov.br",
-                        source_type="AGREGADOR_MULTIFONTE",
-                        integration_type="API_OFICIAL",
-                        active=True
-                    )
-                    db_session.add(default_source)
-                    db_session.commit()
-                    db_session.refresh(default_source)
+                from server.models import Tender
+                from server.seed_data import garantir_fonte_pncp
+                # Os certames vêm da API pública do PNCP: pertencem à fonte oficial pncp-source-01
+                default_source = garantir_fonte_pncp(db_session)
 
                 for item in collected_map.values():
                     existing = db_session.query(Tender).filter(Tender.external_id == item["external_id"]).first()

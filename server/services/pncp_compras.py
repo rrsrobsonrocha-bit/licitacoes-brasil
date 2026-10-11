@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 HOSTS_PERMITIDOS = {"pncp.gov.br", "www.pncp.gov.br", "treina.pncp.gov.br"}
 CABECALHOS = {
-    "User-Agent": "licitacoes-brasil/2.0 (+https://licitacoesbrasil.gov.br)",
+    "User-Agent": "licitacoes-brasil/2.0",
     "Accept": "application/json, */*",
 }
 TIMEOUT_JSON = httpx.Timeout(20.0, connect=10.0)

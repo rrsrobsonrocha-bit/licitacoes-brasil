@@ -347,6 +347,41 @@ def _remover_certames_ficticios_legados(lote: int = 200) -> None:
         db.close()
 
 
+DOMINIO_HUB_MULTIFONTE = "licitacoesbrasil.gov.br"
+
+
+def _migrar_hub_multifonte_para_pncp() -> None:
+    """
+    Remove a antiga fonte genérica "Hub Multifonte" (domínio fictício licitacoesbrasil.gov.br),
+    criada pelo coletor multifonte para agrupar certames de várias origens. Os certames ligados
+    a ela vêm da API pública do PNCP: primeiro são reatribuídos à fonte oficial pncp-source-01 e
+    só depois a fonte é apagada, porque tenders.source_id usa ON DELETE CASCADE. Idempotente.
+    """
+    from server.database import SessionLocal
+    from server.models import Source, Tender
+    from server.seed_data import garantir_fonte_pncp
+
+    db = SessionLocal()
+    try:
+        hubs = [s.id for s in db.query(Source.id).filter(Source.official_domain == DOMINIO_HUB_MULTIFONTE)]
+        if not hubs:
+            return
+        pncp = garantir_fonte_pncp(db)
+        movidos = db.query(Tender).filter(Tender.source_id.in_(hubs)).update(
+            {Tender.source_id: pncp.id}, synchronize_session=False
+        )
+        db.commit()
+        restantes = db.query(Tender.id).filter(Tender.source_id.in_(hubs)).count()
+        if restantes:
+            logger.warning("Migração: fonte Hub Multifonte mantida (%s certames ainda ligados a ela).", restantes)
+            return
+        db.query(Source).filter(Source.id.in_(hubs)).delete(synchronize_session=False)
+        db.commit()
+        logger.info("Migração: %s certames reatribuídos ao PNCP oficial e fonte Hub Multifonte removida.", movidos)
+    finally:
+        db.close()
+
+
 def _garantir_admin_inicial() -> None:
     from server.database import SessionLocal
     from server.seed_data import garantir_admin_inicial
@@ -475,6 +510,8 @@ def run_db_migrations():
     if "deals" in _tabelas_existentes():
         _remover_deals_de_demonstracao()
     from server.config import settings
+    if "sources" in _tabelas_existentes():
+        _migrar_hub_multifonte_para_pncp()
     if "users" in _tabelas_existentes():
         # Conta ADMIN_EMAIL criada/atualizada já aqui, para receber os dados legados no mesmo boot
         _garantir_admin_inicial()

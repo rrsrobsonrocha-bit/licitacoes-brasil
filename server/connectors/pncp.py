@@ -138,7 +138,7 @@ class PNCPConnector(BaseConnector):
         )
         self.session = requests.Session()
         self.session.headers.update({
-            "User-Agent": "licitacoes-brasil/1.0 (+https://licitacoesbrasil.gov.br)",
+            "User-Agent": "licitacoes-brasil/2.0",
             "Accept": "application/json"
         })
 

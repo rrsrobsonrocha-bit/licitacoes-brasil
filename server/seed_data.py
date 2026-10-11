@@ -21,16 +21,15 @@ IDS_CERTAMES_EXEMPLO = (
 )
 
 
-def seed_database(db: Session):
-    """
-    Dados essenciais de produção: fontes oficiais (PNCP / Compras.gov.br) e modelos de peças
-    jurídicas. Nenhuma conta, certame, negócio, alerta ou evento de exemplo é criado.
-    """
-    # 1. Fontes Oficiais
-    pncp_source = db.query(Source).filter(Source.id == "pncp-source-01").first()
-    if not pncp_source:
-        pncp_source = Source(
-            id="pncp-source-01",
+ID_FONTE_PNCP = "pncp-source-01"
+
+
+def garantir_fonte_pncp(db: Session) -> Source:
+    """Fonte oficial do PNCP, à qual pertencem todos os certames coletados da API pública."""
+    fonte = db.get(Source, ID_FONTE_PNCP)
+    if not fonte:
+        fonte = Source(
+            id=ID_FONTE_PNCP,
             name="Portal Nacional de Contratações Públicas (PNCP)",
             base_url="https://pncp.gov.br/api/consulta",
             official_domain="pncp.gov.br",
@@ -41,7 +40,18 @@ def seed_database(db: Session):
             last_sync_at=datetime.utcnow(),
             last_sync_status="SUCESSO"
         )
-        db.add(pncp_source)
+        db.add(fonte)
+        db.flush()
+    return fonte
+
+
+def seed_database(db: Session):
+    """
+    Dados essenciais de produção: fontes oficiais (PNCP / Compras.gov.br) e modelos de peças
+    jurídicas. Nenhuma conta, certame, negócio, alerta ou evento de exemplo é criado.
+    """
+    # 1. Fontes Oficiais
+    garantir_fonte_pncp(db)
 
     comprasgov_source = db.query(Source).filter(Source.id == "comprasgov-source-02").first()
     if not comprasgov_source:
@@ -254,26 +264,26 @@ def seed_dados_de_teste(db: Session):
     SOMENTE PARA A SUÍTE DE TESTES (tests/conftest.py): contas e certames de exemplo com
     itens, documento e alerta. Nunca é chamado pela aplicação.
     """
-    # 1. Usuários
-    admin = db.query(User).filter(User.email == "admin@licitacoesbrasil.gov.br").first()
+    # 1. Usuários (contas exclusivas da suíte, em domínio de exemplo)
+    admin = db.query(User).filter(User.email == "admin.testes@exemplo.com.br").first()
     if not admin:
         admin = User(
             id="usr-admin-01",
-            name="Administrador do Sistema",
-            email="admin@licitacoesbrasil.gov.br",
-            password_hash=hash_password("AdminSeguro!2025"),
+            name="Administrador de Testes",
+            email="admin.testes@exemplo.com.br",
+            password_hash=hash_password("SenhaTesteAdmin@2026"),
             role="ADMIN",
             status="ACTIVE"
         )
         db.add(admin)
 
-    demo_user = db.query(User).filter(User.email == "usuario@empresa.com.br").first()
+    demo_user = db.query(User).filter(User.email == "usuario.testes@exemplo.com.br").first()
     if not demo_user:
         demo_user = User(
             id="usr-user-01",
-            name="Maria Silva Compras",
-            email="usuario@empresa.com.br",
-            password_hash=hash_password("UsuarioSenha@123"),
+            name="Usuário de Testes",
+            email="usuario.testes@exemplo.com.br",
+            password_hash=hash_password("SenhaTesteUsuario@2026"),
             role="USER",
             status="ACTIVE"
         )

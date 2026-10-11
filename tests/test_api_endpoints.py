@@ -20,17 +20,17 @@ def test_api_search_endpoint():
 
 def test_api_login_success():
     response = client.post("/api/auth/login", json={
-        "email": "usuario@empresa.com.br",
-        "password": "UsuarioSenha@123"
+        "email": "usuario.testes@exemplo.com.br",
+        "password": "SenhaTesteUsuario@2026"
     })
     assert response.status_code == 200
     data = response.json()
     assert "access_token" in data
-    assert data["user"]["email"] == "usuario@empresa.com.br"
+    assert data["user"]["email"] == "usuario.testes@exemplo.com.br"
 
 def test_api_login_invalid_password():
     response = client.post("/api/auth/login", json={
-        "email": "usuario@empresa.com.br",
+        "email": "usuario.testes@exemplo.com.br",
         "password": "SenhaCompletamenteIncorreta"
     })
     assert response.status_code == 401

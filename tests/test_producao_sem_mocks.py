@@ -17,7 +17,9 @@ from server.migrate import (
 )
 from server.models import Deal, SavedSearch, Tender, TenderItem, User, hoje_sao_paulo
 from server.security import hash_password
-from server.seed_data import EMAILS_CONTAS_DEMONSTRACAO, garantir_admin_inicial, seed_database
+from server.seed_data import (
+    EMAILS_CONTAS_DEMONSTRACAO, SENHAS_PADRAO_DEMONSTRACAO, garantir_admin_inicial, seed_database
+)
 
 client = TestClient(app)
 
@@ -101,9 +103,12 @@ def test_admin_inicial_somente_via_variaveis_de_ambiente(monkeypatch):
 def test_contas_de_demonstracao_com_senha_publica_sao_desativadas(criar_usuario, monkeypatch):
     db = SessionLocal()
     try:
-        demo = db.query(User).filter(User.email == EMAILS_CONTAS_DEMONSTRACAO[1]).first()
-        assert demo is not None and demo.status == "ACTIVE"
-        senha_original = demo.password_hash
+        # Conta demo legada (como ainda pode existir em bancos antigos), com a senha pública
+        email_demo = EMAILS_CONTAS_DEMONSTRACAO[1]
+        demo = User(name="Conta demo legada", email=email_demo, role="USER", status="ACTIVE",
+                    password_hash=hash_password(SENHAS_PADRAO_DEMONSTRACAO[email_demo]))
+        db.add(demo)
+        db.commit()
         try:
             # Sem conta real ativa: nada é desativado (o sistema nunca fica sem acesso)
             reais = db.query(User).filter(~User.email.in_(EMAILS_CONTAS_DEMONSTRACAO), User.status == "ACTIVE").all()
@@ -138,8 +143,7 @@ def test_contas_de_demonstracao_com_senha_publica_sao_desativadas(criar_usuario,
             db.refresh(demo)
             assert demo.status == "ACTIVE"
         finally:
-            demo.status = "ACTIVE"
-            demo.password_hash = senha_original
+            db.delete(demo)
             db.commit()
     finally:
         db.close()
