@@ -216,23 +216,31 @@ Requer a retificação do edital."""
 
 def garantir_admin_inicial(db: Session) -> None:
     """
-    Se ADMIN_EMAIL estiver configurado: promove a conta existente a ADMIN ou, com ADMIN_PASSWORD,
-    cria a conta. Sem as variáveis, não cria nenhuma conta padrão.
+    Se ADMIN_EMAIL estiver configurado: atualiza a conta existente (papel ADMIN, conta ativa e,
+    com ADMIN_NAME, o nome) ou, com ADMIN_PASSWORD, cria a conta. A senha de uma conta existente
+    nunca é sobrescrita. Sem as variáveis, não cria nenhuma conta padrão.
     """
     email = (settings.ADMIN_EMAIL or "").strip().lower()
     if not email:
         return
+    nome = (settings.ADMIN_NAME or "").strip()
     user = db.query(User).filter(User.email == email).first()
     if user:
+        alterado = False
         if user.role != "ADMIN":
-            user.role = "ADMIN"
+            user.role, alterado = "ADMIN", True
+        if user.status != "ACTIVE":
+            user.status, alterado = "ACTIVE", True
+        if nome and user.name != nome:
+            user.name, alterado = nome, True
+        if alterado:
             db.commit()
         return
     senha = settings.ADMIN_PASSWORD or ""
     if len(senha) < 8:
         return
     db.add(User(
-        name=settings.ADMIN_NAME or "Administrador",
+        name=nome or "Administrador",
         email=email,
         password_hash=hash_password(senha),
         role="ADMIN",

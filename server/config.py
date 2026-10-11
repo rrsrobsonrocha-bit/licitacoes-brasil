@@ -72,7 +72,7 @@ class Settings(BaseModel):
     # Com ADMIN_EMAIL de conta existente, ela é promovida a ADMIN; com ADMIN_PASSWORD, a conta é criada.
     ADMIN_EMAIL: str = os.getenv("ADMIN_EMAIL", "")
     ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "")
-    ADMIN_NAME: str = os.getenv("ADMIN_NAME", "Administrador")
+    ADMIN_NAME: str = os.getenv("ADMIN_NAME", "")
     # Conta que recebe os negócios/alertas legados sem dono (padrão: ADMIN_EMAIL ou a conta real principal)
     ORPHAN_OWNER_EMAIL: str = os.getenv("ORPHAN_OWNER_EMAIL", "")
     # Limpeza automática das contas/certames de demonstração antigos na migração (desligada só na suíte de testes)

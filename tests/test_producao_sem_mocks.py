@@ -80,12 +80,17 @@ def test_admin_inicial_somente_via_variaveis_de_ambiente(monkeypatch):
         admin = db.query(User).filter(User.email == email).first()
         assert admin is not None and admin.role == "ADMIN"
 
-        # Conta existente é promovida
-        admin.role = "USER"
+        # Conta existente é promovida, reativada e renomeada por ADMIN_NAME; a senha é mantida
+        admin.role, admin.status = "USER", "INACTIVE"
+        senha_hash = admin.password_hash
         db.commit()
+        monkeypatch.setattr(settings, "ADMIN_NAME", "Nome Definido no Ambiente")
+        monkeypatch.setattr(settings, "ADMIN_PASSWORD", "OutraSenha@2026")
         garantir_admin_inicial(db)
         db.refresh(admin)
-        assert admin.role == "ADMIN"
+        assert admin.role == "ADMIN" and admin.status == "ACTIVE"
+        assert admin.name == "Nome Definido no Ambiente"
+        assert admin.password_hash == senha_hash
         db.delete(admin)
         db.commit()
     finally:

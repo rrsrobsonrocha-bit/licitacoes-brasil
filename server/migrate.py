@@ -347,6 +347,17 @@ def _remover_certames_ficticios_legados(lote: int = 200) -> None:
         db.close()
 
 
+def _garantir_admin_inicial() -> None:
+    from server.database import SessionLocal
+    from server.seed_data import garantir_admin_inicial
+
+    db = SessionLocal()
+    try:
+        garantir_admin_inicial(db)
+    finally:
+        db.close()
+
+
 def _dono_dos_registros_orfaos(db):
     """
     Conta que recebe os registros legados sem dono: ORPHAN_OWNER_EMAIL, depois ADMIN_EMAIL;
@@ -465,6 +476,8 @@ def run_db_migrations():
         _remover_deals_de_demonstracao()
     from server.config import settings
     if "users" in _tabelas_existentes():
+        # Conta ADMIN_EMAIL criada/atualizada já aqui, para receber os dados legados no mesmo boot
+        _garantir_admin_inicial()
         if settings.REMOVER_DADOS_DEMONSTRACAO:
             _desativar_contas_demonstracao()
             _remover_certames_de_exemplo()
