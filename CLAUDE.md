@@ -16,6 +16,8 @@ FastAPI + Jinja2 + SQLAlchemy (SQLite em desenvolvimento, PostgreSQL em produç�
 - `server/services/auto_sync.py`: agendador híbrido do catálogo (horário de Brasília). O boot fica em repouso
   (nunca varre 15 dias); de dia, a cada 2 h, só as últimas 24 h + itens dos editais novos (o botão
   "Sincronizar agora" faz o mesmo); das 02h às 04h, consolidação dos últimos 15 dias + fila de itens ME/EPP.
+  Exceção: boot com catálogo vazio (menos de `AUTO_SYNC_MIN_VIGENTES` vigentes) recupera os 15 dias na hora.
+  `/healthz/db` mostra o tipo de banco e o volume do catálogo (sqlite em produção = disco efêmero).
 - `server/templates/partials_tender_drawer.html` + `GET /api/tenders/{id}/drawer`: drawer lateral de detalhes
   (busca e painel) com itens e anexos oficiais do PNCP e realce dos termos pesquisados.
 - `server/services/minutas.py` + `/api/minutas`: declarações e proposta readequada (Lei 14.133/2021) em DOCX.

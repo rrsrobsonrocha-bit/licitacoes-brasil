@@ -99,6 +99,8 @@ class Settings(BaseModel):
     # editais novos; na janela noturna, consolidação dos últimos AUTO_SYNC_DIAS + fila de itens ME/EPP.
     AUTO_SYNC_ENABLED: bool = os.getenv("AUTO_SYNC_ENABLED", "true").lower() in ("1", "true", "yes")
     AUTO_SYNC_DIAS: int = int(os.getenv("AUTO_SYNC_DIAS", "15"))
+    # Rede de segurança: boot com catálogo abaixo disto (banco novo, recriado ou efêmero) recupera os 15 dias
+    AUTO_SYNC_MIN_VIGENTES: int = int(os.getenv("AUTO_SYNC_MIN_VIGENTES", "500"))
     AUTO_SYNC_INTERVALO_MINUTOS: int = int(os.getenv("AUTO_SYNC_INTERVALO_MINUTOS", "120"))
     AUTO_SYNC_NOITE_INICIO: str = os.getenv("AUTO_SYNC_NOITE_INICIO", "02:00")
     AUTO_SYNC_NOITE_FIM: str = os.getenv("AUTO_SYNC_NOITE_FIM", "04:00")

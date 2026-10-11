@@ -10,6 +10,8 @@ Política híbrida (horário de Brasília):
   coleta logo de cara: agenda a próxima rotina diurna para 2 h após a última coleta gravada no banco
   (no mínimo ``AUTO_SYNC_REPOUSO_ARRANQUE_MINUTOS`` depois do boot). Um deploy dentro da janela
   noturna não consolida naquela noite; a consolidação volta na noite seguinte.
+  Exceção (rede de segurança): se o banco chegar sem catálogo (menos de ``AUTO_SYNC_MIN_VIGENTES``
+  vigentes: banco novo, recriado ou efêmero), o boot recupera os últimos 15 dias na hora, com retomada.
 - Rotina diurna (fora da janela noturna), a cada ``AUTO_SYNC_INTERVALO_MINUTOS`` (120): só as
   últimas 24 h (hoje e ontem), com alertas, e em seguida os itens oficiais dos editais novos
   vigentes, que já nascem com o filtro ME/EPP. O botão "Sincronizar agora" roda exatamente isto.
@@ -324,8 +326,13 @@ def executar_noturno(fim_da_janela: Optional[datetime] = None) -> Dict[str, Any]
     return _executar("noturna", _rotina)
 
 
+def catalogo_precisa_recuperacao() -> bool:
+    """Catálogo ausente ou quase vazio (banco novo, recriado ou efêmero): o boot não pode ficar em repouso."""
+    return contar_vigentes() < settings.AUTO_SYNC_MIN_VIGENTES
+
+
 def executar_warmup(dias: Optional[int] = None) -> Dict[str, Any]:
-    """Carga completa dos últimos ``dias`` (uso manual/administrativo; o agendador não a dispara)."""
+    """Carga completa dos últimos ``dias``: recuperação de catálogo vazio ou uso administrativo."""
     return _executar("warmup", lambda: _coletar_dias(
         _ultimos_dias(dias or settings.AUTO_SYNC_DIAS), notificar_alertas=False, tipo="warmup"))
 
@@ -410,6 +417,16 @@ async def loop_sincronizacao_automatica(atraso_inicial: float = 15.0,
     # Deploy dentro da janela noturna: sem consolidação nesta noite (o boot nunca dispara a carga pesada)
     noite_concluida: Optional[date] = arranque.date() if em_janela_noturna(arranque) else None
     estado["modo"] = "repouso"
+    if await asyncio.to_thread(catalogo_precisa_recuperacao):
+        print(f"[AUTO-SYNC] Catálogo vazio ou incompleto no boot: recuperando os últimos {settings.AUTO_SYNC_DIAS} dias...")
+        try:
+            print(f"[AUTO-SYNC] Recuperação concluída: {await asyncio.to_thread(executar_warmup)}")
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            print(f"[AUTO-SYNC] Falha na recuperação do catálogo: {exc!r}")
+        ultima_diurna = relogio()
+        nao_antes_de = relogio()
     while True:
         agora = relogio()
         manual = estado.get("ultima_diurna")
@@ -457,7 +474,9 @@ def _hhmm(utc_iso: Optional[str]) -> Optional[str]:
 def situacao_para_exibicao() -> Dict[str, Any]:
     """Texto do indicador do cabeçalho (horários em Brasília)."""
     ultima, proxima = _hhmm(estado.get("ultima_execucao")), _hhmm(estado.get("proxima_execucao"))
-    if estado.get("em_execucao") == "noturna":
+    if estado.get("em_execucao") == "warmup":
+        rotulo = f"Recuperando o catálogo (últimos {settings.AUTO_SYNC_DIAS} dias)..."
+    elif estado.get("em_execucao") == "noturna":
         rotulo = ROTULO_NOTURNA.replace("15 dias", f"{settings.AUTO_SYNC_DIAS} dias")
     elif estado.get("em_execucao"):
         rotulo = ROTULO_DIURNA

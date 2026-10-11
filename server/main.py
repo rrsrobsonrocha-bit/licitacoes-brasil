@@ -3753,6 +3753,10 @@ def health_check_db(db: Session = Depends(get_db)):
     try:
         db.execute(text("SELECT 1"))
         status_diag["database"] = "connected"
+        # Diagnóstico sem segredos: tipo de banco (sqlite no Render = disco efêmero, zerado a cada deploy)
+        status_diag["engine"] = db.get_bind().dialect.name
+        status_diag["editais"] = db.query(func.count(Tender.id)).scalar() or 0
+        status_diag["editais_vigentes"] = db.query(func.count(Tender.id)).filter(filtro_vigentes()).scalar() or 0
     except Exception as e:
         status_diag["status"] = "error"
         status_diag["database"] = f"unreachable: {str(e)}"

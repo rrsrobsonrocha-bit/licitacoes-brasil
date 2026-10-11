@@ -50,6 +50,7 @@ def rotinas(monkeypatch):
     mocks = {nome: MagicMock(return_value={"tipo": nome}) for nome in ("executar_warmup", "executar_noturno", "executar_atualizacao")}
     for nome, mock in mocks.items():
         monkeypatch.setattr(auto_sync, nome, mock)
+    monkeypatch.setattr(auto_sync, "catalogo_precisa_recuperacao", lambda: False)  # catálogo já carregado
     return mocks
 
 
@@ -63,6 +64,24 @@ def test_boot_nao_dispara_varredura_e_fica_em_repouso(rotinas, monkeypatch, hora
         mock.assert_not_called()
     assert auto_sync.estado["modo"] == "repouso" and auto_sync.estado["em_execucao"] is None
     assert auto_sync.estado["proxima_execucao"] and auto_sync.estado["proxima_rotina"] in ("diurna", "noturna")
+
+
+def test_boot_com_catalogo_vazio_recupera_os_15_dias(rotinas, monkeypatch):
+    # Banco novo/recriado/efêmero: ficar em repouso deixaria o painel zerado até a noite
+    monkeypatch.setattr(auto_sync, "catalogo_precisa_recuperacao", lambda: True)
+    monkeypatch.setattr(auto_sync, "ultima_coleta_registrada", lambda: None)
+    _rodar_loop(lambda: _as("10:00"))
+    rotinas["executar_warmup"].assert_called_once_with()
+    rotinas["executar_atualizacao"].assert_not_called()
+    assert auto_sync.estado["proxima_rotina"] == "diurna"  # depois da recuperação, volta à rotina normal
+
+
+def test_criterio_de_recuperacao(monkeypatch):
+    monkeypatch.setattr(auto_sync, "contar_vigentes", lambda: 103)
+    monkeypatch.setattr(settings, "AUTO_SYNC_MIN_VIGENTES", 500)
+    assert auto_sync.catalogo_precisa_recuperacao() is True
+    monkeypatch.setattr(auto_sync, "contar_vigentes", lambda: 15300)
+    assert auto_sync.catalogo_precisa_recuperacao() is False
 
 
 def test_boot_agenda_proxima_diurna_e_respeita_repouso_minimo(rotinas, monkeypatch):
@@ -285,5 +304,7 @@ def test_rotulos_do_status_no_cabecalho():
 
     auto_sync.estado["em_execucao"] = "diurna"
     assert client.get("/api/sync/status").json()["rotulo"] == "Sincronizando últimas 24h..."
+    auto_sync.estado["em_execucao"] = "warmup"
+    assert client.get("/api/sync/status").json()["rotulo"] == "Recuperando o catálogo (últimos 15 dias)..."
     auto_sync.estado["em_execucao"] = "noturna"
     assert client.get("/api/sync/status").json()["rotulo"] == "Consolidação noturna (15 dias + itens) em andamento"
