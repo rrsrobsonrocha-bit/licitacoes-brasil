@@ -223,48 +223,51 @@ def _remover_deals_de_demonstracao() -> None:
         logger.info("Migração: %s negócios de demonstração removidos do funil.", removidos)
 
 
-def _desativar_contas_demonstracao() -> None:
+def _remover_contas_demonstracao() -> None:
     """
-    Desativa as antigas contas padrão de demonstração enquanto ainda usam a senha pública
-    documentada (risco de acesso indevido em produção). Para nunca deixar o sistema sem acesso,
-    só age quando já existe uma conta real ativa; antes de desativar, transfere para a conta
-    principal os dados privados criados nelas (negócios, alertas, favoritos). Contas cuja senha
-    foi trocada são mantidas. Nada é apagado. Idempotente.
+    Apaga em definitivo as antigas contas padrão de demonstração (ativas ou já desativadas).
+    Antes, transfere para a conta principal (ORPHAN_OWNER_EMAIL, depois ADMIN_EMAIL; ver
+    _dono_dos_registros_orfaos) tudo o que foi criado nelas: negócios, buscas salvas, alertas,
+    histórico, favoritos e anotações. Para nunca perder esses dados, só age quando já existe uma
+    conta real ativa. Idempotente.
     """
     from server.database import SessionLocal
-    from server.models import Alert, Deal, Favorite, SavedSearch, User
-    from server.security import verify_password
-    from server.seed_data import EMAILS_CONTAS_DEMONSTRACAO, SENHAS_PADRAO_DEMONSTRACAO
+    from server.models import (
+        Alert, Deal, Favorite, PasswordResetToken, SavedSearch, SearchHistory, User, UserNote,
+    )
+    from server.seed_data import EMAILS_CONTAS_DEMONSTRACAO
 
     db = SessionLocal()
     try:
-        demos = [
-            u for u in db.query(User).filter(User.email.in_(EMAILS_CONTAS_DEMONSTRACAO), User.status == "ACTIVE").all()
-            if verify_password(SENHAS_PADRAO_DEMONSTRACAO[u.email], u.password_hash)
-        ]
+        demos = db.query(User).filter(User.email.in_(EMAILS_CONTAS_DEMONSTRACAO)).all()
         if not demos:
             return
         principal = _dono_dos_registros_orfaos(db)
         if not principal:
             logger.warning(
-                "Migração: contas de demonstração com senha padrão continuam ativas porque ainda não há "
-                "conta real cadastrada. Cadastre uma conta (ou defina ADMIN_EMAIL/ADMIN_PASSWORD) e reinicie."
+                "Migração: contas de demonstração mantidas porque ainda não há conta real para receber "
+                "os dados delas. Defina ADMIN_EMAIL/ADMIN_PASSWORD (ou cadastre uma conta) e reinicie."
             )
             return
         for demo in demos:
-            for modelo in (Deal, SavedSearch, Alert):
+            for modelo in (Deal, SavedSearch, Alert, SearchHistory):
                 db.query(modelo).filter(modelo.user_id == demo.id).update(
                     {modelo.user_id: principal.id}, synchronize_session=False
                 )
-            ja_favoritos = {f.tender_id for f in db.query(Favorite).filter(Favorite.user_id == principal.id)}
-            for fav in db.query(Favorite).filter(Favorite.user_id == demo.id).all():
-                if fav.tender_id in ja_favoritos:
-                    db.delete(fav)
-                else:
-                    fav.user_id = principal.id
-            demo.status = "INACTIVE"
-            logger.warning("Migração: conta de demonstração %s desativada (senha padrão pública); dados "
-                           "transferidos para %s.", demo.email, principal.email)
+            # Favoritos e anotações são únicos por usuário + certame: duplicados ficam com a principal
+            for modelo in (Favorite, UserNote):
+                ja_tem = {r.tender_id for r in db.query(modelo.tender_id).filter(modelo.user_id == principal.id)}
+                for registro in db.query(modelo).filter(modelo.user_id == demo.id).all():
+                    if registro.tender_id in ja_tem:
+                        db.delete(registro)
+                    else:
+                        registro.user_id = principal.id
+            db.query(PasswordResetToken).filter(PasswordResetToken.user_id == demo.id).delete(synchronize_session=False)
+            db.flush()
+            db.expire(demo)
+            db.delete(demo)
+            logger.warning("Migração: conta de demonstração %s apagada; dados transferidos para %s.",
+                           demo.email, principal.email)
         db.commit()
     finally:
         db.close()
@@ -516,7 +519,7 @@ def run_db_migrations():
         # Conta ADMIN_EMAIL criada/atualizada já aqui, para receber os dados legados no mesmo boot
         _garantir_admin_inicial()
         if settings.REMOVER_DADOS_DEMONSTRACAO:
-            _desativar_contas_demonstracao()
+            _remover_contas_demonstracao()
             _remover_certames_de_exemplo()
             _remover_certames_ficticios_legados()
         if "deals" in _tabelas_existentes():

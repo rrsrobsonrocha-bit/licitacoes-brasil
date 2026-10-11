@@ -27,7 +27,8 @@ FastAPI + Jinja2 + SQLAlchemy (SQLite em desenvolvimento, PostgreSQL em produç�
   são isolados por usuário (`user_id` / `owner_id`).
 - **Datas oficiais.** `Tender.publication_date` é a `dataPublicacaoPncp` (horário de Brasília). Filtros
   por período ("Publicadas hoje", "Últimos 7 dias", De/Até) usam essa data, nunca a data de inserção local.
-- Conta administrativa inicial apenas via `ADMIN_EMAIL` / `ADMIN_PASSWORD`; registros legados sem dono
+- Contas iniciais apenas via ambiente: `ADMIN_EMAIL` / `ADMIN_PASSWORD` (ADMIN) e `USUARIO_INICIAL_*` (USER),
+  nunca com senha no código. Contas demo antigas são apagadas no boot; registros legados sem dono
   vão para `ORPHAN_OWNER_EMAIL` (ou `ADMIN_EMAIL`, ou a conta real principal).
 
 ## Desenvolvimento

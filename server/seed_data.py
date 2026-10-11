@@ -9,13 +9,9 @@ from server.models import (
 from server.config import settings
 from server.security import hash_password, calculate_sha256
 
-# Contas e certames de exemplo antigos: não são mais criados em produção. Os identificadores
-# ficam registrados para que a migração desative/remova o que já existir no banco.
+# Contas e certames de exemplo antigos: não são mais criados. Os identificadores ficam
+# registrados para que a migração apague o que ainda existir em bancos antigos.
 EMAILS_CONTAS_DEMONSTRACAO = ("admin@licitacoesbrasil.gov.br", "usuario@empresa.com.br")
-SENHAS_PADRAO_DEMONSTRACAO = {
-    "admin@licitacoesbrasil.gov.br": "AdminSeguro!2025",
-    "usuario@empresa.com.br": "UsuarioSenha@123",
-}
 IDS_CERTAMES_EXEMPLO = (
     "tnd-al-saude-001", "tnd-sp-ti-002", "tnd-df-equip-003", "tnd-mg-alim-004", "tnd-rs-obras-005",
 )
@@ -220,8 +216,29 @@ Requer a retificação do edital."""
             db.add(t_obj)
         db.commit()
 
-    # 3. Administrador inicial opcional, definido por variáveis de ambiente
+    # 3. Administrador e usuário iniciais opcionais, definidos por variáveis de ambiente
     garantir_admin_inicial(db)
+    garantir_usuario_inicial(db)
+
+
+def garantir_usuario_inicial(db: Session) -> None:
+    """
+    Se USUARIO_INICIAL_EMAIL estiver configurado e a conta não existir, cria-a com papel USER
+    usando USUARIO_INICIAL_SENHA (mín. 8 caracteres). Conta existente não é alterada: a senha,
+    o nome e o papel ficam como o próprio usuário (ou um administrador) deixou.
+    """
+    email = (settings.USUARIO_INICIAL_EMAIL or "").strip().lower()
+    senha = settings.USUARIO_INICIAL_SENHA or ""
+    if not email or len(senha) < 8 or db.query(User).filter(User.email == email).first():
+        return
+    db.add(User(
+        name=(settings.USUARIO_INICIAL_NOME or "").strip() or email.split("@")[0],
+        email=email,
+        password_hash=hash_password(senha),
+        role="USER",
+        status="ACTIVE",
+    ))
+    db.commit()
 
 
 def garantir_admin_inicial(db: Session) -> None:

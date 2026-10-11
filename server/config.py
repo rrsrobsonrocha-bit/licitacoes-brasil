@@ -53,7 +53,8 @@ class Settings(BaseModel):
     
     # Email / Notifications
     EMAIL_PROVIDER: str = os.getenv("EMAIL_PROVIDER", "MOCK")  # MOCK, SMTP ou RESEND
-    EMAIL_FROM: str = os.getenv("EMAIL_FROM", "alertas@licitacoesbrasil.gov.br")
+    # Remetente dos e-mails: defina EMAIL_FROM com um endereço de domínio verificado no provedor
+    EMAIL_FROM: str = os.getenv("EMAIL_FROM", "noreply@licitacoes-brasil.onrender.com")
     EMAIL_API_KEY: str = os.getenv("EMAIL_API_KEY", "")
     SMTP_HOST: str = os.getenv("SMTP_HOST", "")
     SMTP_PORT: int = int(os.getenv("SMTP_PORT", "587"))
@@ -73,6 +74,11 @@ class Settings(BaseModel):
     ADMIN_EMAIL: str = os.getenv("ADMIN_EMAIL", "")
     ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "")
     ADMIN_NAME: str = os.getenv("ADMIN_NAME", "")
+    # Conta de usuário comum (papel USER) garantida no arranque, se ainda não existir. A senha só é
+    # usada na criação (mín. 8 caracteres) e nunca sobrescreve a de uma conta existente.
+    USUARIO_INICIAL_EMAIL: str = os.getenv("USUARIO_INICIAL_EMAIL", "")
+    USUARIO_INICIAL_NOME: str = os.getenv("USUARIO_INICIAL_NOME", "")
+    USUARIO_INICIAL_SENHA: str = os.getenv("USUARIO_INICIAL_SENHA", "")
     # Conta que recebe os negócios/alertas legados sem dono (padrão: ADMIN_EMAIL ou a conta real principal)
     ORPHAN_OWNER_EMAIL: str = os.getenv("ORPHAN_OWNER_EMAIL", "")
     # Limpeza automática das contas/certames de demonstração antigos na migração (desligada só na suíte de testes)

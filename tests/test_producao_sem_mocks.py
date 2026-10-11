@@ -12,13 +12,13 @@ from server.database import SessionLocal
 from server.main import app
 from server.migrate import (
     _associar_registros_orfaos,
-    _desativar_contas_demonstracao,
+    _remover_contas_demonstracao,
     _remover_certames_ficticios_legados,
 )
-from server.models import Deal, SavedSearch, Tender, TenderItem, User, hoje_sao_paulo
+from server.models import Alert, Deal, Favorite, SavedSearch, Tender, TenderItem, User, hoje_sao_paulo
 from server.security import hash_password
 from server.seed_data import (
-    EMAILS_CONTAS_DEMONSTRACAO, SENHAS_PADRAO_DEMONSTRACAO, garantir_admin_inicial, seed_database
+    EMAILS_CONTAS_DEMONSTRACAO, garantir_admin_inicial, garantir_usuario_inicial, seed_database
 )
 
 client = TestClient(app)
@@ -99,53 +99,84 @@ def test_admin_inicial_somente_via_variaveis_de_ambiente(monkeypatch):
         db.close()
 
 
-# ---------------- Migrações de limpeza ----------------
-def test_contas_de_demonstracao_com_senha_publica_sao_desativadas(criar_usuario, monkeypatch):
+def test_usuario_inicial_somente_via_variaveis_de_ambiente(monkeypatch):
+    email = f"usuario-{uuid.uuid4().hex[:8]}@exemplo.com.br"
     db = SessionLocal()
     try:
-        # Conta demo legada (como ainda pode existir em bancos antigos), com a senha pública
-        email_demo = EMAILS_CONTAS_DEMONSTRACAO[1]
-        demo = User(name="Conta demo legada", email=email_demo, role="USER", status="ACTIVE",
-                    password_hash=hash_password(SENHAS_PADRAO_DEMONSTRACAO[email_demo]))
-        db.add(demo)
+        monkeypatch.setattr(settings, "USUARIO_INICIAL_EMAIL", email)
+        monkeypatch.setattr(settings, "USUARIO_INICIAL_NOME", "Usuária Inicial")
+        monkeypatch.setattr(settings, "USUARIO_INICIAL_SENHA", "curta")  # senha fraca: não cria
+        garantir_usuario_inicial(db)
+        assert db.query(User).filter(User.email == email).first() is None
+
+        monkeypatch.setattr(settings, "USUARIO_INICIAL_SENHA", "SenhaUsuaria@2026")
+        garantir_usuario_inicial(db)
+        conta = db.query(User).filter(User.email == email).one()
+        assert (conta.name, conta.role, conta.status) == ("Usuária Inicial", "USER", "ACTIVE")
+        resp = client.post("/api/auth/login", json={"email": email, "password": "SenhaUsuaria@2026"})
+        assert resp.status_code == 200
+
+        # Conta existente não é alterada (nem senha, nem nome)
+        senha_hash = conta.password_hash
+        monkeypatch.setattr(settings, "USUARIO_INICIAL_SENHA", "OutraSenha@2026")
+        monkeypatch.setattr(settings, "USUARIO_INICIAL_NOME", "Outro Nome")
+        garantir_usuario_inicial(db)
+        db.refresh(conta)
+        assert conta.password_hash == senha_hash and conta.name == "Usuária Inicial"
+        db.delete(conta)
         db.commit()
-        try:
-            # Sem conta real ativa: nada é desativado (o sistema nunca fica sem acesso)
-            reais = db.query(User).filter(~User.email.in_(EMAILS_CONTAS_DEMONSTRACAO), User.status == "ACTIVE").all()
-            for u in reais:
-                u.status = "SUSPENDED"
-            db.commit()
-            _desativar_contas_demonstracao()
-            db.refresh(demo)
-            assert demo.status == "ACTIVE"
-            for u in reais:
-                u.status = "ACTIVE"
-            db.commit()
-
-            # Com conta real: dados da conta demo vão para a principal e a demo é desativada
-            principal = criar_usuario("Conta Principal")
-            monkeypatch.setattr(settings, "ORPHAN_OWNER_EMAIL", principal.email)
-            tender = db.query(Tender).first()
-            negocio = Deal(tender_id=tender.id, user_id=demo.id, stage="disputa", notes="feito na conta demo")
-            db.add(negocio)
-            db.commit()
-            negocio_id = negocio.id
-            _desativar_contas_demonstracao()
-            db.expire_all()
-            assert demo.status == "INACTIVE"
-            assert db.query(Deal).filter(Deal.id == negocio_id).first().user_id == principal.id
-
-            # Com senha trocada, a conta é preservada
-            demo.status = "ACTIVE"
-            demo.password_hash = hash_password("OutraSenhaForte@2026")
-            db.commit()
-            _desativar_contas_demonstracao()
-            db.refresh(demo)
-            assert demo.status == "ACTIVE"
-        finally:
-            db.delete(demo)
-            db.commit()
     finally:
+        db.close()
+
+
+# ---------------- Migrações de limpeza ----------------
+def test_contas_de_demonstracao_sao_apagadas_com_dados_transferidos(criar_usuario, monkeypatch):
+    db = SessionLocal()
+    # Contas demo legadas como podem existir em bancos antigos: uma ativa, outra já desativada
+    demos = [
+        User(name="Demo admin legado", email=EMAILS_CONTAS_DEMONSTRACAO[0], role="ADMIN", status="INACTIVE",
+             password_hash=hash_password("QualquerSenha@1")),
+        User(name="Demo usuário legado", email=EMAILS_CONTAS_DEMONSTRACAO[1], role="USER", status="ACTIVE",
+             password_hash=hash_password("QualquerSenha@2")),
+    ]
+    db.add_all(demos)
+    db.commit()
+    ids_demo = [d.id for d in demos]
+    try:
+        # Sem conta real ativa para receber os dados: nada é apagado
+        reais = db.query(User).filter(~User.email.in_(EMAILS_CONTAS_DEMONSTRACAO), User.status == "ACTIVE").all()
+        for u in reais:
+            u.status = "SUSPENDED"
+        db.commit()
+        _remover_contas_demonstracao()
+        assert db.query(User).filter(User.id.in_(ids_demo)).count() == 2
+        for u in reais:
+            u.status = "ACTIVE"
+        db.commit()
+
+        # Com conta principal: tudo o que as demos criaram vai para ela e as demos são apagadas
+        principal = criar_usuario("Conta Principal")
+        monkeypatch.setattr(settings, "ORPHAN_OWNER_EMAIL", principal.email)
+        tender = db.query(Tender).first()
+        negocio = Deal(tender_id=tender.id, user_id=ids_demo[1], stage="disputa", notes="feito na conta demo")
+        alerta = Alert(user_id=ids_demo[0], name="Alerta da demo", keywords="obras", frequency="DAILY",
+                       channels="IN_APP", active=True)
+        favorito = Favorite(user_id=ids_demo[1], tender_id=tender.id)
+        db.add_all([negocio, alerta, favorito])
+        db.commit()
+        ids = (negocio.id, alerta.id, favorito.id)
+
+        _remover_contas_demonstracao()
+        _remover_contas_demonstracao()  # idempotente
+        db.expire_all()
+        assert db.query(User).filter(User.email.in_(EMAILS_CONTAS_DEMONSTRACAO)).count() == 0
+        assert db.get(Deal, ids[0]).user_id == principal.id
+        assert db.get(Alert, ids[1]).user_id == principal.id
+        assert db.get(Favorite, ids[2]).user_id == principal.id
+    finally:
+        db.rollback()
+        db.query(User).filter(User.id.in_(ids_demo)).delete(synchronize_session=False)
+        db.commit()
         db.close()
 
 
