@@ -4,7 +4,7 @@ from datetime import datetime, date, timedelta, timezone
 from typing import List, Optional
 from sqlalchemy import (
     Column, String, Text, Integer, Float, Boolean, DateTime, Date,
-    ForeignKey, UniqueConstraint, Index, JSON
+    ForeignKey, UniqueConstraint, Index, JSON, Numeric, func
 )
 from sqlalchemy.orm import relationship
 from server.database import Base
@@ -491,6 +491,31 @@ class SupplierProspect(Base):
     ai_summary = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
+# Status de um lance registrado na Mesa de Lances do operador (ADMIN)
+STATUS_LANCE = ("enviado", "lider", "superado", "cancelado")
+
+
+class AdminBid(Base):
+    """
+    Lance registrado pelo operador (ADMIN) na Mesa de Lances da Sala de Disputa. É o registro de
+    auditoria do lance dado no portal de compras; a plataforma não envia lances ao portal.
+    ``tender_id`` é o identificador do pregão na Sala de Disputa (id_pregao) e ``item_id`` o item/lote.
+    """
+    __tablename__ = "admin_bids"
+    __table_args__ = (Index("ix_admin_bids_user_tender_item", "user_id", "tender_id", "item_id"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    tender_id = Column(String(64), nullable=False, index=True)
+    item_id = Column(String(64), nullable=False)
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    valor_lance = Column(Numeric(14, 2), nullable=False)
+    preco_minimo_limite = Column(Numeric(14, 2), nullable=True)
+    colocacao_alvo = Column(Integer, nullable=False, default=1, server_default="1")
+    status = Column(String(30), nullable=False, default="enviado", server_default="enviado")
+    observacao = Column(String(255), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), default=datetime.utcnow)
 
 
 class HistoricoDisputa(Base):

@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Any
 
+from server.services.estrategia_lances import EstrategiaInvalidaError, dinheiro
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -18,6 +20,7 @@ def get_sp_now() -> datetime:
 
 
 DEGRAU_PADRAO = 0.01
+MAX_RANKING = 10
 
 
 def normalizar_degrau(valor: Any) -> Optional[float]:
@@ -52,6 +55,8 @@ class PregaoItem:
     status_automacao: str = "Aguardando"
     fonte_portal: str = "PNCP"
     historico_concorrentes: List[dict] = field(default_factory=list)
+    # Ranking (Top 10) dos concorrentes, informado pelo operador a partir da tela do portal
+    ranking: List[dict] = field(default_factory=list)
     updated_at: datetime = field(default_factory=get_sp_now)
     owner_id: Optional[str] = None  # conta dona do lote (multitenancy); cada usuário vê só os seus
 
@@ -87,6 +92,7 @@ class PregaoItem:
             "fonte_portal": self.fonte_portal,
             "posicao_atual": posicao_atual,
             "historico_concorrentes": list(self.historico_concorrentes),
+            "ranking": list(self.ranking),
             "is_losing": self.is_losing,
             "owner_id": self.owner_id,
             "updated_at": self.updated_at.isoformat() if isinstance(self.updated_at, datetime) else str(self.updated_at)
@@ -434,6 +440,52 @@ class DisputeMonitorService:
         })
         if item.auto_lance_ativo and item.is_losing:
             self.executar_lance_automatico(item.item_key, owner_id)
+        return item.to_dict()
+
+    def definir_ranking(self, item_id: str, entradas: List[Any], owner_id: Optional[str] = None) -> Optional[dict]:
+        """
+        Substitui o ranking (até 10 concorrentes) do lote com os lances vistos no portal. Cada entrada:
+        {"fornecedor": "...", "valor": 123.45}. Ordena do menor para o maior lance e atualiza o
+        melhor lance do lote. Nenhum concorrente é inventado: só entra o que o operador informou.
+        """
+        item = self._find_item(item_id, owner_id)
+        if not item:
+            return None
+        if not isinstance(entradas, list):
+            raise ValueError("Envie o ranking como lista de lances.")
+        if len(entradas) > MAX_RANKING:
+            raise ValueError(f"O ranking aceita no máximo {MAX_RANKING} concorrentes.")
+        ranking = []
+        for indice, entrada in enumerate(entradas, start=1):
+            entrada = entrada if isinstance(entrada, dict) else {"valor": entrada}
+            try:
+                valor = float(dinheiro(entrada.get("valor")))
+            except EstrategiaInvalidaError:
+                raise ValueError(f"Lance inválido na linha {indice} do ranking.")
+            if valor <= 0:
+                raise ValueError(f"O lance da linha {indice} deve ser maior que zero.")
+            fornecedor = str(entrada.get("fornecedor") or "").strip()[:80] or f"Fornecedor {indice}"
+            ranking.append({"fornecedor": fornecedor, "valor": valor})
+        ranking.sort(key=lambda r: r["valor"])
+        for posicao, r in enumerate(ranking, start=1):
+            r["posicao"] = posicao
+        item.ranking = ranking
+        if ranking:
+            item.melhor_lance = ranking[0]["valor"] if not item.meu_lance else min(ranking[0]["valor"], item.meu_lance)
+        item.updated_at = get_sp_now()
+        self.broadcast_sync({"type": "RANKING_UPDATE", "item": item.to_dict(), "timestamp": get_sp_now().isoformat()})
+        return item.to_dict()
+
+    def registrar_meu_lance(self, item_id: str, valor: float, owner_id: Optional[str] = None) -> Optional[dict]:
+        """Atualiza o lote com o lance registrado pelo operador na Mesa de Lances."""
+        item = self._find_item(item_id, owner_id)
+        if not item:
+            return None
+        item.meu_lance = round(float(valor), 2)
+        if not item.melhor_lance or item.meu_lance <= item.melhor_lance:
+            item.melhor_lance = item.meu_lance
+        item.updated_at = get_sp_now()
+        self.broadcast_sync({"type": "MANUAL_BID_PLACED", "item": item.to_dict(), "timestamp": get_sp_now().isoformat()})
         return item.to_dict()
 
     def subscribe(self, owner_id: Optional[str] = None) -> asyncio.Queue:

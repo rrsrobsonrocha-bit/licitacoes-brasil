@@ -216,8 +216,10 @@ from server.routes.webhooks import router as webhooks_router
 app.include_router(webhooks_router)
 from server.routes.documents import router as documentos_router
 from server.routes.dossie import router as dossie_router
+from server.routes.disputa import router as disputa_router
 app.include_router(documentos_router)
 app.include_router(dossie_router)
+app.include_router(disputa_router)
 
 # CORS
 app.add_middleware(
@@ -965,7 +967,11 @@ def page_agenda(
 
 @app.get("/disputa", response_class=HTMLResponse)
 def page_disputa(request: Request):
-    return templates.TemplateResponse(request, "disputa.html", {})
+    usuario = getattr(request.state, "usuario", None)
+    # A Mesa de Lances só é renderizada para ADMIN (as APIs também recusam outras contas com 403)
+    return templates.TemplateResponse(request, "disputa.html", {
+        "is_admin": bool(usuario and usuario.role == "ADMIN" and not usuario.motivo_bloqueio()),
+    })
 
 @app.get("/manifest.json")
 def pwa_manifest():

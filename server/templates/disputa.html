@@ -390,6 +390,10 @@
   // =========================================================================
   function renderDisputeAccordion() {
     const container = document.getElementById('dispute-accordion');
+    // Redesenho ao vivo (SSE) não pode tirar o foco do campo em que o operador está digitando
+    const ativo = document.activeElement;
+    const foco = ativo && ativo.id && container.contains(ativo)
+      ? { id: ativo.id, ini: ativo.selectionStart, fim: ativo.selectionEnd } : null;
     const items = Object.values(activeItems);
 
     document.getElementById('metric-total').textContent = items.length;
@@ -566,9 +570,7 @@
                     Posição Alvo Pretendida
                   </label>
                   <select id="select-pos-${sKey}" class="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-sky-500 outline-none bg-white">
-                    <option value="1" ${item.posicao_alvo === 1 ? 'selected' : ''}>1º Lugar (Cobrir melhor lance)</option>
-                    <option value="2" ${item.posicao_alvo === 2 ? 'selected' : ''}>2º Lugar (Atrás do líder)</option>
-                    <option value="3" ${item.posicao_alvo === 3 ? 'selected' : ''}>3º Lugar (Estratégico)</option>
+                    ${Array.from({ length: 10 }, (_, i) => i + 1).map(p => `<option value="${p}" ${item.posicao_alvo === p ? 'selected' : ''}>${p}º Lugar${p === 1 ? ' (Cobrir melhor lance)' : ''}</option>`).join('')}
                   </select>
                 </div>
 
@@ -673,6 +675,8 @@
               </div>
 
             </div>
+            ${renderRankingTop10(item, sKey)}
+            ${IS_ADMIN ? renderMesaDeLances(item, sKey) : ''}
           </div>
         </div>
       `;
@@ -682,6 +686,317 @@
     document.getElementById('metric-winning').textContent = winningCount;
     document.getElementById('metric-losing').textContent = losingCount;
     document.getElementById('last-update-time').textContent = 'Atualizado: ' + new Date().toLocaleTimeString('pt-BR');
+    if (foco) {
+      const campo = document.getElementById(foco.id);
+      if (campo) {
+        campo.focus();
+        try { if (foco.ini !== null) campo.setSelectionRange(foco.ini, foco.fim); } catch (e) { /* tipo sem seleção */ }
+      }
+    }
+  }
+
+  // =========================================================================
+  // RANKING TOP 10 (monitoramento) E MESA DE LANCES DO OPERADOR (ADMIN)
+  // =========================================================================
+  const IS_ADMIN = {{ is_admin|tojson }};
+  const rascunhoRanking = {};
+  const mesa = {};
+
+  function esc(v) {
+    return String(v ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+  }
+
+  // "1.234,56", "1234.56" ou "R$ 1.234,56" -> 1234.56
+  function numeroBR(texto) {
+    let t = String(texto ?? '').replace(/[R$\s]/g, '');
+    if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.');
+    const n = parseFloat(t);
+    return Number.isFinite(n) ? n : NaN;
+  }
+
+  function urlMesa(item, sufixo) {
+    return `/api/disputa/${encodeURIComponent(item.id_pregao)}/items/${encodeURIComponent(item.numero_item)}/${sufixo}`;
+  }
+
+  function linhasDoRanking(item) {
+    const meu = Number(item.meu_lance) || 0;
+    const linhas = (item.ranking || []).map(r => ({ ...r, voce: false }));
+    if (meu > 0) linhas.push({ fornecedor: 'Você', valor: meu, voce: true });
+    // Menor preço vence; em empate, o concorrente (que já ofertou) fica à frente
+    linhas.sort((a, b) => (a.valor - b.valor) || (a.voce - b.voce));
+    linhas.forEach((l, i) => { l.posicao = i + 1; });
+    const top = linhas.slice(0, 10);
+    const minha = linhas.find(l => l.voce);
+    if (minha && minha.posicao > 10) top.push(minha);
+    return { top, meu, minha };
+  }
+
+  function renderRankingTop10(item, sKey) {
+    const { top, meu, minha } = linhasDoRanking(item);
+    const linhas = top.map(l => {
+      let dif = '<span class="text-slate-300">—</span>';
+      if (!l.voce && meu > 0) {
+        const d = l.valor - meu;
+        const pct = (d / meu) * 100;
+        const cor = d > 0 ? 'text-emerald-600' : (d < 0 ? 'text-rose-600' : 'text-slate-500');
+        dif = `<span class="${cor}">${d > 0 ? '+' : ''}${formatCurrency(d)} <span class="text-[10px]">(${d > 0 ? '+' : ''}${pct.toFixed(2).replace('.', ',')}%)</span></span>`;
+      }
+      return `
+        <tr class="border-b border-slate-100 text-xs ${l.voce ? 'bg-sky-50 font-bold ring-1 ring-inset ring-sky-300' : ''}">
+          <td class="py-1.5 px-2"><span class="px-1.5 py-0.5 rounded text-[10px] font-bold ${l.posicao === 1 ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}">${l.posicao}º</span></td>
+          <td class="py-1.5 px-2 ${l.voce ? 'text-sky-700' : 'text-slate-700'}">${l.voce ? '<i class="fa-solid fa-user"></i> Você (Meu Lance)' : esc(l.fornecedor)}</td>
+          <td class="py-1.5 px-2 text-right font-mono ${l.voce ? 'text-sky-700' : 'text-slate-900'}">${formatCurrency(l.valor)}</td>
+          <td class="py-1.5 px-2 text-right font-mono">${dif}</td>
+        </tr>`;
+    }).join('');
+    const rascunho = rascunhoRanking[item.item_key] ?? (item.ranking || []).map(r => `${r.fornecedor}; ${r.valor.toFixed(2).replace('.', ',')}`).join('\n');
+    return `
+      <div class="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6" onclick="event.stopPropagation()">
+        <div class="lg:col-span-2 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+          <div class="flex items-center justify-between pb-2 border-b border-slate-100 mb-2">
+            <h4 class="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+              <i class="fa-solid fa-ranking-star text-amber-500"></i> Ranking da Disputa (Top 10)
+            </h4>
+            <span class="text-[11px] font-semibold ${minha ? 'text-sky-700' : 'text-slate-400'}">${minha ? `Sua colocação: ${minha.posicao}º` : 'Sem lance seu registrado'}</span>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left" data-ranking="${sKey}">
+              <thead>
+                <tr class="text-[10px] uppercase font-bold text-slate-400 border-b border-slate-100">
+                  <th class="py-1 px-2">Posição</th><th class="py-1 px-2">Fornecedor / ID</th>
+                  <th class="py-1 px-2 text-right">Valor ofertado</th><th class="py-1 px-2 text-right">Diferença p/ meu lance</th>
+                </tr>
+              </thead>
+              <tbody>${linhas || '<tr><td colspan="4" class="text-center py-4 text-xs text-slate-400">Informe o ranking exibido no portal para acompanhar as 10 primeiras posições.</td></tr>'}</tbody>
+            </table>
+          </div>
+        </div>
+        <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col gap-2">
+          <label for="ranking-${sKey}" class="text-[11px] font-bold text-slate-700">Ranking visto no portal (até 10 linhas)</label>
+          <textarea id="ranking-${sKey}" rows="6" oninput="rascunhoRanking['${item.item_key}'] = this.value" placeholder="Fornecedor 1; 10.250,00&#10;Fornecedor 2; 10.300,00" class="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300 outline-none focus:ring-2 focus:ring-amber-500">${esc(rascunho)}</textarea>
+          <span class="text-[10px] text-slate-400">Uma linha por concorrente: "fornecedor; valor" (ou só o valor). Não inclua o seu lance.</span>
+          <button type="button" onclick="salvarRanking('${item.item_key}')" class="py-1.5 rounded-lg text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 transition">
+            <i class="fa-solid fa-list-ol"></i> Atualizar ranking
+          </button>
+        </div>
+      </div>`;
+  }
+
+  async function salvarRanking(itemKey) {
+    const texto = rascunhoRanking[itemKey] ?? document.getElementById(`ranking-${safeKey(itemKey)}`).value;
+    const linhas = texto.split('\n').map(l => l.trim()).filter(Boolean);
+    const ranking = [];
+    for (const [i, linha] of linhas.entries()) {
+      const partes = linha.split(/[;\t|]/).map(p => p.trim()).filter(Boolean);
+      const valor = numeroBR(partes[partes.length - 1]);
+      if (!(valor > 0)) return showToast(`Linha ${i + 1} do ranking sem valor válido.`, 'error');
+      ranking.push({ fornecedor: partes.length > 1 ? partes.slice(0, -1).join(' ') : '', valor });
+    }
+    try {
+      const resp = await fetch(`/api/disputes/ranking/${encodeURIComponent(itemKey)}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+        body: JSON.stringify({ ranking }),
+      });
+      const corpo = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(typeof corpo.detail === 'string' ? corpo.detail : 'Falha ao salvar o ranking.');
+      delete rascunhoRanking[itemKey];
+      activeItems[itemKey] = corpo.item;
+      if (IS_ADMIN && mesa[itemKey]) mesa[itemKey].carregado = false;  // status dos lances pode mudar
+      renderDisputeAccordion();
+      showToast('Ranking atualizado.', 'success');
+    } catch (e) {
+      showToast(e.message, 'error');
+    }
+  }
+
+  const DEGRAUS_VALOR = ['0.01', '0.05', '0.10', '1.00'];
+  const DEGRAUS_PCT = ['0.1', '0.5', '1'];
+  const STATUS_LANCE = {
+    enviado: 'bg-slate-100 text-slate-700', lider: 'bg-emerald-100 text-emerald-800',
+    superado: 'bg-rose-100 text-rose-700', cancelado: 'bg-slate-100 text-slate-400 line-through',
+  };
+
+  function estadoMesa(item) {
+    if (!mesa[item.item_key]) {
+      mesa[item.item_key] = {
+        piso: item.valor_minimo_limite > 0 ? item.valor_minimo_limite.toFixed(2) : '',
+        tipo: 'valor', degrau: '0.01', estrategia: 'lider', valor: '', calculo: null,
+        lances: [], carregado: false, enviando: false,
+      };
+    }
+    return mesa[item.item_key];
+  }
+
+  function renderMesaDeLances(item, sKey) {
+    const m = estadoMesa(item);
+    if (!m.carregado) {
+      m.carregado = true;
+      carregarMeusLances(item.item_key);
+    }
+    const piso = numeroBR(m.piso), valor = numeroBR(m.valor);
+    const abaixoDoPiso = valor > 0 && piso > 0 && valor < piso;
+    const botaoDegrau = (tipo, d) => {
+      const ativo = m.tipo === tipo && m.degrau === d;
+      const rotulo = tipo === 'valor' ? `R$ ${d.replace('.', ',')}` : `${d.replace('.', ',')}%`;
+      return `<button type="button" onclick="definirDegrau('${item.item_key}', '${tipo}', '${d}')" class="px-2 py-1 rounded-md text-[11px] font-bold border transition ${ativo ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-100'}">${rotulo}</button>`;
+    };
+    const calculo = m.calculo ? `
+      <div class="text-[11px] rounded-lg border px-3 py-2 ${m.calculo.acao === 'inviavel' ? 'bg-rose-50 border-rose-200 text-rose-700' : 'bg-emerald-50 border-emerald-200 text-emerald-800'}">
+        ${m.calculo.posicao ? `<b>Alvo: ${m.calculo.posicao}º lugar.</b> ` : ''}${esc(m.calculo.motivo)}
+        ${m.calculo.margem_sobre_piso !== undefined && m.calculo.acao !== 'inviavel' ? `<div class="mt-0.5">Margem preservada sobre o piso: <b>${formatCurrency(m.calculo.margem_sobre_piso)}</b></div>` : ''}
+      </div>` : '';
+    const feed = m.lances.length ? m.lances.map(l => `
+      <tr class="border-b border-slate-100 text-xs">
+        <td class="py-1.5 px-2 font-mono text-slate-500 whitespace-nowrap">${new Date(l.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</td>
+        <td class="py-1.5 px-2 text-right font-mono font-bold text-slate-900">${formatCurrency(l.valor_lance)}</td>
+        <td class="py-1.5 px-2 text-right font-mono text-slate-500">${l.preco_minimo_limite !== null ? formatCurrency(l.preco_minimo_limite) : '—'}</td>
+        <td class="py-1.5 px-2 text-center">${l.colocacao_alvo}º</td>
+        <td class="py-1.5 px-2"><span class="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${STATUS_LANCE[l.status] || STATUS_LANCE.enviado}">${esc(l.status)}</span></td>
+      </tr>`).join('') : '<tr><td colspan="5" class="text-center py-4 text-xs text-slate-400">Nenhum lance registrado neste item.</td></tr>';
+
+    return `
+      <div class="mt-6 bg-slate-900 text-slate-100 p-4 sm:p-5 rounded-2xl border border-slate-700 shadow-lg" data-mesa-lances="${sKey}" onclick="event.stopPropagation()">
+        <div class="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-700 mb-4">
+          <h4 class="text-sm font-black uppercase tracking-wider flex items-center gap-2">
+            <i class="fa-solid fa-gavel text-amber-400"></i> Mesa de Lances do Operador
+            <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">ADMIN</span>
+          </h4>
+          <span class="text-[11px] text-slate-400">Dê o lance no portal e registre aqui: a plataforma não envia lances ao portal de compras.</span>
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          <div class="space-y-3">
+            <div>
+              <label class="block text-[11px] font-bold text-slate-300 mb-1" for="mesa-piso-${sKey}">Meu Preço Mínimo (Piso) R$</label>
+              <input id="mesa-piso-${sKey}" type="text" inputmode="decimal" value="${esc(m.piso)}" oninput="mesa['${item.item_key}'].piso = this.value; atualizarTrava('${item.item_key}', '${sKey}')" class="w-full px-3 py-2 text-sm font-mono rounded-lg bg-slate-950 border ${piso > 0 ? 'border-slate-600' : 'border-amber-500'} outline-none focus:ring-2 focus:ring-amber-500">
+              ${piso > 0 ? '' : '<span class="text-[10px] text-amber-300"><i class="fa-solid fa-triangle-exclamation"></i> Sem piso a trava não libera o envio.</span>'}
+            </div>
+            <div>
+              <span class="block text-[11px] font-bold text-slate-300 mb-1">Degrau de decremento</span>
+              <div class="flex flex-wrap gap-1.5">${DEGRAUS_VALOR.map(d => botaoDegrau('valor', d)).join('')}</div>
+              <div class="flex flex-wrap gap-1.5 mt-1.5">${DEGRAUS_PCT.map(d => botaoDegrau('percentual', d)).join('')}</div>
+              ${item.degrau_origem === 'edital' ? `<span class="text-[10px] text-slate-400">O edital exige no mínimo ${formatCurrency(item.degrau_minimo)} por lance.</span>` : ''}
+            </div>
+          </div>
+          <div class="space-y-3">
+            <span class="block text-[11px] font-bold text-slate-300">Estratégia de lance</span>
+            <label class="flex items-start gap-2 text-xs cursor-pointer p-2 rounded-lg border ${m.estrategia === 'lider' ? 'border-amber-400 bg-amber-500/10' : 'border-slate-700'}">
+              <input type="radio" name="estrategia-${sKey}" ${m.estrategia === 'lider' ? 'checked' : ''} onchange="definirEstrategia('${item.item_key}', 'lider')" class="mt-0.5 accent-amber-500">
+              <span><b>Disputar 1º Lugar</b><br><span class="text-slate-400 text-[11px]">Líder: cobre o 1º colocado pelo degrau mínimo.</span></span>
+            </label>
+            <label class="flex items-start gap-2 text-xs cursor-pointer p-2 rounded-lg border ${m.estrategia === 'melhor_viavel' ? 'border-amber-400 bg-amber-500/10' : 'border-slate-700'}">
+              <input type="radio" name="estrategia-${sKey}" ${m.estrategia === 'melhor_viavel' ? 'checked' : ''} onchange="definirEstrategia('${item.item_key}', 'melhor_viavel')" class="mt-0.5 accent-amber-500">
+              <span><b>Melhor Colocação Viável</b><br><span class="text-slate-400 text-[11px]">Se o 1º estiver abaixo do piso, busca a melhor posição do 2º ao 10º acima do piso.</span></span>
+            </label>
+            ${calculo}
+          </div>
+          <div class="space-y-3">
+            <label class="block text-[11px] font-bold text-slate-300" for="mesa-valor-${sKey}">Valor do lance R$</label>
+            <input id="mesa-valor-${sKey}" type="text" inputmode="decimal" value="${esc(m.valor)}" oninput="mesa['${item.item_key}'].valor = this.value; atualizarTrava('${item.item_key}', '${sKey}')" class="w-full px-3 py-2 text-lg font-black font-mono rounded-lg bg-slate-950 border border-slate-600 outline-none focus:ring-2 focus:ring-emerald-500">
+            <p id="mesa-trava-${sKey}" class="${abaixoDoPiso ? '' : 'hidden'} text-[11px] font-bold text-rose-300 bg-rose-500/10 border border-rose-500/40 rounded-lg px-2 py-1.5"><i class="fa-solid fa-lock"></i> Trava de segurança: valor abaixo do seu piso.</p>
+            <button type="button" onclick="cobrirComMenorPerda('${item.item_key}')" class="w-full py-2 rounded-lg text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 transition">
+              <i class="fa-solid fa-calculator"></i> Cobrir com Menor Perda
+            </button>
+            <button id="mesa-enviar-${sKey}" type="button" onclick="enviarLanceImediato('${item.item_key}')" ${abaixoDoPiso || !(piso > 0) || m.enviando ? 'disabled' : ''} class="w-full py-2.5 rounded-lg text-sm font-black bg-emerald-600 hover:bg-emerald-500 text-white transition disabled:opacity-40 disabled:cursor-not-allowed">
+              <i class="fa-solid fa-paper-plane"></i> Enviar Lance Imediato
+            </button>
+          </div>
+        </div>
+        <div class="mt-5 bg-slate-950/60 rounded-xl border border-slate-700 p-3">
+          <div class="flex items-center justify-between mb-2">
+            <h5 class="text-[11px] font-bold uppercase tracking-wider text-slate-300"><i class="fa-solid fa-list-check text-emerald-400"></i> Meus Lances no Certame</h5>
+            <button type="button" onclick="carregarMeusLances('${item.item_key}')" class="text-[11px] text-slate-400 hover:text-white"><i class="fa-solid fa-rotate"></i></button>
+          </div>
+          <div class="max-h-56 overflow-y-auto bg-white rounded-lg">
+            <table class="w-full text-left">
+              <thead><tr class="text-[10px] uppercase font-bold text-slate-400 border-b border-slate-100">
+                <th class="py-1 px-2">Data/hora</th><th class="py-1 px-2 text-right">Lance</th><th class="py-1 px-2 text-right">Piso</th>
+                <th class="py-1 px-2 text-center">Alvo</th><th class="py-1 px-2">Status</th>
+              </tr></thead>
+              <tbody>${feed}</tbody>
+            </table>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // Atualiza alerta e botão sem redesenhar o card (o operador continua digitando)
+  function atualizarTrava(itemKey, sKey) {
+    const m = mesa[itemKey];
+    const piso = numeroBR(m.piso), valor = numeroBR(m.valor);
+    const abaixo = valor > 0 && piso > 0 && valor < piso;
+    document.getElementById(`mesa-trava-${sKey}`)?.classList.toggle('hidden', !abaixo);
+    const botao = document.getElementById(`mesa-enviar-${sKey}`);
+    if (botao) botao.disabled = abaixo || !(piso > 0) || m.enviando;
+  }
+
+  function definirDegrau(itemKey, tipo, degrau) {
+    Object.assign(mesa[itemKey], { tipo, degrau, calculo: null });
+    renderDisputeAccordion();
+  }
+
+  function definirEstrategia(itemKey, estrategia) {
+    Object.assign(mesa[itemKey], { estrategia, calculo: null });
+    renderDisputeAccordion();
+  }
+
+  async function carregarMeusLances(itemKey) {
+    const item = activeItems[itemKey];
+    if (!item || !IS_ADMIN) return;
+    try {
+      const resp = await fetch(`/api/disputa/${encodeURIComponent(item.id_pregao)}/meus-lances?item_id=${encodeURIComponent(item.numero_item)}`, { credentials: 'same-origin' });
+      if (!resp.ok) return;
+      mesa[itemKey].lances = (await resp.json()).lances || [];
+      renderDisputeAccordion();
+    } catch (e) { /* feed é atualizado na próxima ação */ }
+  }
+
+  async function cobrirComMenorPerda(itemKey) {
+    const item = activeItems[itemKey], m = mesa[itemKey];
+    const piso = numeroBR(m.piso);
+    if (!(piso > 0)) return showToast('Informe o seu preço mínimo (piso).', 'error');
+    try {
+      const resp = await fetch(urlMesa(item, 'calcular'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+        body: JSON.stringify({ preco_minimo_limite: piso, estrategia: m.estrategia, tipo_degrau: m.tipo, degrau: m.degrau }),
+      });
+      const corpo = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(typeof corpo.detail === 'string' ? corpo.detail : 'Falha no cálculo.');
+      m.calculo = corpo;
+      if (corpo.acao === 'lance') m.valor = corpo.valor.toFixed(2).replace('.', ',');
+      renderDisputeAccordion();
+    } catch (e) {
+      showToast(e.message, 'error');
+    }
+  }
+
+  async function enviarLanceImediato(itemKey) {
+    const item = activeItems[itemKey], m = mesa[itemKey];
+    const piso = numeroBR(m.piso), valor = numeroBR(m.valor);
+    if (!(piso > 0)) return showToast('Informe o seu preço mínimo (piso).', 'error');
+    if (!(valor > 0)) return showToast('Informe o valor do lance.', 'error');
+    if (valor < piso) return showToast('Trava de segurança: lance abaixo do piso.', 'error');
+    m.enviando = true;
+    try {
+      const resp = await fetch(urlMesa(item, 'lance'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+        body: JSON.stringify({
+          valor_lance: valor, preco_minimo_limite: piso,
+          colocacao_alvo: (m.calculo && m.calculo.posicao) || 1,
+          observacao: m.calculo ? `${m.estrategia === 'lider' ? 'Disputar 1º lugar' : 'Melhor colocação viável'} · degrau ${m.degrau}${m.tipo === 'percentual' ? '%' : ' R$'}` : null,
+        }),
+      });
+      const corpo = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(typeof corpo.detail === 'string' ? corpo.detail : 'Falha ao registrar o lance.');
+      m.lances.unshift(corpo.lance);
+      m.calculo = null;
+      m.valor = '';
+      showToast(`Lance de ${formatCurrency(corpo.lance.valor_lance)} registrado${corpo.posicao ? ` (${corpo.posicao}º lugar)` : ''}.`, 'success');
+    } catch (e) {
+      showToast(e.message, 'error');
+    } finally {
+      m.enviando = false;
+      renderDisputeAccordion();
+    }
   }
 
   // =========================================================================
@@ -722,7 +1037,7 @@
   function handleStreamEvent(event) {
     if (!event || !event.type) return;
 
-    if (event.type === 'ITEM_TRACKED' || event.type === 'BID_UPDATE' || event.type === 'IMMINENCE_ALERT' || event.type === 'AUTO_BID_PLACED' || event.type === 'ITEM_CONFIGURED' || event.type === 'MANUAL_BID_PLACED') {
+    if (event.type === 'ITEM_TRACKED' || event.type === 'BID_UPDATE' || event.type === 'IMMINENCE_ALERT' || event.type === 'AUTO_BID_PLACED' || event.type === 'ITEM_CONFIGURED' || event.type === 'MANUAL_BID_PLACED' || event.type === 'RANKING_UPDATE') {
       const item = event.item;
       if (item) {
         activeItems[item.item_key] = item;

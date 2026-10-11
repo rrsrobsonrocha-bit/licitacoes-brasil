@@ -552,7 +552,9 @@ def run_db_migrations():
     if "tenders" not in _tabelas_existentes():
         return
 
-    from server.models import DocumentoEmpresa, DossieFornecedor, HistoricoDisputa, PasswordResetToken, SyncProgresso
+    from server.models import (
+        AdminBid, DocumentoEmpresa, DossieFornecedor, HistoricoDisputa, PasswordResetToken, SyncProgresso,
+    )
 
     # 1. Colunas novas em tabelas existentes
     _adicionar_colunas(COLUNAS_SAVED_SEARCHES)
@@ -584,6 +586,7 @@ def run_db_migrations():
     _criar_tabela_do_modelo(DocumentoEmpresa)
     _criar_tabela_do_modelo(SyncProgresso)
     _criar_tabela_do_modelo(DossieFornecedor)
+    _criar_tabela_do_modelo(AdminBid)  # NUMERIC(14,2), TIMESTAMP WITH TIME ZONE e VARCHAR no PostgreSQL
     if "users" in _tabelas_existentes():
         _criar_tabela_do_modelo(PasswordResetToken)
 

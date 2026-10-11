@@ -31,7 +31,12 @@ FastAPI + Jinja2 + SQLAlchemy (SQLite em desenvolvimento, PostgreSQL em produç�
 - `server/services/dossie.py` + `GET /api/fornecedores/dossie/{cnpj}`: Dossiê 360° (Receita/QSA, contratos do
   PNCP filtrados por `fornecedor_ni`, sanções, selo de aptidão), cache de 24 h em `dossies_fornecedor`.
 - `server/routes/webhooks.py`: webhook da Hotmart (modo de espera: registra eventos, não altera contas).
-- `server/services/dispute_monitor.py`: Sala de Disputa (lotes e robô de lances, por usuário).
+- `server/services/dispute_monitor.py`: Sala de Disputa (lotes e robô de lances, por usuário), com ranking Top 10
+  informado pelo operador a partir do portal (`POST /api/disputes/ranking/{item}`).
+- `server/routes/disputa.py` + `server/services/estrategia_lances.py`: Mesa de Lances do Operador, exclusiva de
+  ADMIN (403 para as demais contas). Cálculo de menor perda (cobre o alvo pelo degrau, nunca joga no piso;
+  "melhor colocação viável" do 1º ao 10º) e registro em `admin_bids` (piso obrigatório; abaixo do piso: 422).
+  A plataforma não envia lances ao portal: o operador dá o lance no portal e o registra.
 - `server/templates/`: páginas (busca, painel, funil, agenda, disputa, jurídico).
 
 ## Regras do produto
