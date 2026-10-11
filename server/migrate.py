@@ -62,6 +62,14 @@ COLUNAS_ITENS_DOCUMENTOS: List[Tuple[str, str, str]] = [
     ("tender_documents", "origem", "VARCHAR(20)"),
 ]
 
+# Assinatura: contas existentes ficam no plano gratuito, ativas e sem data de expiração
+COLUNAS_USERS: List[Tuple[str, str, str]] = [
+    ("users", "plan_type", "VARCHAR(20) DEFAULT 'GRATUITO' NOT NULL"),
+    ("users", "subscription_status", "VARCHAR(20) DEFAULT 'ACTIVE' NOT NULL"),
+    ("users", "access_expires_at", "TIMESTAMP"),
+    ("users", "hotmart_subscriber_code", "VARCHAR(100)"),
+]
+
 COLUNAS_DEALS: List[Tuple[str, str, str]] = [
     ("deals", "selected_items", "JSON"),
     ("deals", "user_id", "VARCHAR(36)"),
@@ -508,6 +516,7 @@ def run_db_migrations():
     _adicionar_colunas(COLUNAS_TENDERS)
     _adicionar_colunas(COLUNAS_ITENS_DOCUMENTOS)
     _adicionar_colunas(COLUNAS_DEALS)
+    _adicionar_colunas(COLUNAS_USERS)
 
     # 1.1 Dados de demonstração antigos e registros órfãos (ordem importa: demos saem antes da atribuição)
     if "deals" in _tabelas_existentes():

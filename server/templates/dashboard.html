@@ -137,6 +137,43 @@
 
     </div>
 
+    {% if user and user.role == 'ADMIN' %}
+    <!-- GESTÃO DE CLIENTES & ASSINATURAS (somente administradores) -->
+    <section id="admin-assinaturas" data-admin-id="{{ user.id }}" class="bg-slate-900/80 border border-violet-800/50 rounded-2xl p-6 shadow-lg">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+        <div>
+          <h2 class="text-sm font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2">
+            <i class="fa-solid fa-user-shield text-violet-400"></i> Gestão de Clientes &amp; Assinaturas
+          </h2>
+          <p class="text-xs text-slate-400 mt-0.5">Planos, situação e prazo de acesso de cada conta. Visível apenas para administradores.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <span id="admin-assinaturas-msg" class="text-[11px] text-slate-400" role="status" aria-live="polite"></span>
+          <button type="button" onclick="carregarClientes()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-medium px-3 py-1.5 rounded-lg text-xs transition flex items-center gap-1.5">
+            <i class="fa-solid fa-arrows-rotate text-violet-400"></i> Atualizar
+          </button>
+        </div>
+      </div>
+      <div class="overflow-x-auto -mx-2">
+        <table class="min-w-full text-xs">
+          <thead>
+            <tr class="text-left text-[10px] uppercase tracking-wider text-slate-400 border-b border-slate-800">
+              <th class="px-2 py-2 font-semibold">Nome</th>
+              <th class="px-2 py-2 font-semibold">E-mail</th>
+              <th class="px-2 py-2 font-semibold">Plano atual</th>
+              <th class="px-2 py-2 font-semibold">Status</th>
+              <th class="px-2 py-2 font-semibold">Dias restantes</th>
+              <th class="px-2 py-2 font-semibold text-right">Ações</th>
+            </tr>
+          </thead>
+          <tbody id="admin-assinaturas-linhas">
+            <tr><td colspan="6" class="px-2 py-6 text-center text-slate-500">Carregando clientes…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+    {% endif %}
+
     <!-- 2. BARRA DE STATUS DO FUNIL (ETAPAS KANBAN) -->
     <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-lg">
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
@@ -644,5 +681,158 @@
     loadDashboardData();
     atualizarStatusSync();
   });
+</script>
+<script>
+  // Gestão de clientes & assinaturas (a seção só existe na página quando a conta é ADMIN)
+  (function () {
+    const secao = document.getElementById('admin-assinaturas');
+    if (!secao) return;
+    const adminId = secao.dataset.adminId;
+    const corpo = document.getElementById('admin-assinaturas-linhas');
+    const msg = document.getElementById('admin-assinaturas-msg');
+
+    const ROTULO_STATUS = {
+      ACTIVE: ['Ativo', 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'],
+      TRIAL: ['Teste', 'bg-sky-500/10 text-sky-300 border-sky-500/30'],
+      SUSPENDED: ['Suspenso', 'bg-rose-500/10 text-rose-300 border-rose-500/30'],
+      CANCELED: ['Cancelado', 'bg-slate-700/40 text-slate-300 border-slate-600'],
+    };
+    const ROTULO_PLANO = { GRATUITO: 'Gratuito', MENSAL: 'Mensal', ANUAL: 'Anual' };
+
+    function cabecalhos(extra) {
+      const h = Object.assign({}, extra || {});
+      if (typeof AppSession !== 'undefined' && AppSession.getToken()) h['Authorization'] = `Bearer ${AppSession.getToken()}`;
+      return h;
+    }
+
+    function celula(texto, classes) {
+      const td = document.createElement('td');
+      td.className = 'px-2 py-2.5 align-middle ' + (classes || '');
+      if (texto !== undefined && texto !== null) td.textContent = texto;
+      return td;
+    }
+
+    function botao(rotulo, classes, habilitado, acao) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = rotulo;
+      b.disabled = !habilitado;
+      b.className = 'px-2 py-1 rounded-md border text-[11px] font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed ' + classes;
+      b.addEventListener('click', acao);
+      return b;
+    }
+
+    async function executar(url, opcoes, sucesso) {
+      msg.textContent = 'Salvando…';
+      try {
+        const resp = await fetch(url, Object.assign({ method: 'POST' }, opcoes, { headers: cabecalhos((opcoes || {}).headers) }));
+        const dados = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+          msg.textContent = dados.detail || 'Não foi possível concluir a ação.';
+          return;
+        }
+        msg.textContent = sucesso;
+        carregarClientes(true);
+      } catch (e) {
+        msg.textContent = 'Falha de conexão. Tente novamente.';
+      }
+    }
+
+    function linha(u) {
+      const tr = document.createElement('tr');
+      tr.className = 'border-b border-slate-800/70 hover:bg-slate-800/30';
+      tr.dataset.userId = u.id;
+
+      const nome = celula(u.name, 'text-slate-100 font-semibold');
+      if (u.role === 'ADMIN') {
+        const tag = document.createElement('span');
+        tag.className = 'ml-1.5 text-[9px] uppercase tracking-wide text-violet-300 border border-violet-500/40 rounded px-1 py-0.5';
+        tag.textContent = 'Admin';
+        nome.appendChild(tag);
+      }
+      tr.appendChild(nome);
+      tr.appendChild(celula(u.email, 'text-slate-300 font-mono'));
+
+      // Plano atual: troca manual direta (Gratuito / Mensal / Anual)
+      const tdPlano = celula(null);
+      const sel = document.createElement('select');
+      sel.className = 'plano-select bg-slate-900 border border-slate-700 text-slate-100 rounded-md text-xs px-1.5 py-1';
+      sel.setAttribute('aria-label', `Plano de ${u.name}`);
+      ['GRATUITO', 'MENSAL', 'ANUAL'].forEach((p) => {
+        const op = document.createElement('option');
+        op.value = p;
+        op.textContent = ROTULO_PLANO[p];
+        op.selected = u.plan_type === p;
+        sel.appendChild(op);
+      });
+      sel.addEventListener('change', () => {
+        const novo = sel.value;
+        const aviso = novo === 'GRATUITO'
+          ? `Mudar ${u.name} para o plano Gratuito (acesso sem data de expiração)?`
+          : `Mudar ${u.name} para o plano ${ROTULO_PLANO[novo]} (${novo === 'MENSAL' ? '30' : '365'} dias de acesso)?`;
+        if (!confirm(aviso)) { sel.value = u.plan_type; return; }
+        executar(`/api/admin/users/${encodeURIComponent(u.id)}/plano`,
+          { body: JSON.stringify({ plan_type: novo }), headers: { 'Content-Type': 'application/json' } },
+          `Plano de ${u.name} alterado para ${ROTULO_PLANO[novo]}.`);
+      });
+      tdPlano.appendChild(sel);
+      tr.appendChild(tdPlano);
+
+      // Status da assinatura (e o motivo, quando o acesso está bloqueado)
+      // Ativo/Teste com o prazo vencido aparece como "Expirado" (o acesso já está bloqueado)
+      const expirado = Boolean(u.motivo_bloqueio) && (u.subscription_status === 'ACTIVE' || u.subscription_status === 'TRIAL');
+      const [rotulo, cor] = expirado
+        ? ['Expirado', 'bg-amber-500/10 text-amber-300 border-amber-500/30']
+        : (ROTULO_STATUS[u.subscription_status] || [u.subscription_status, 'bg-slate-700/40 text-slate-300 border-slate-600']);
+      const tdStatus = celula(null);
+      const badge = document.createElement('span');
+      badge.className = 'inline-block px-2 py-0.5 rounded-full border text-[10px] font-bold ' + cor;
+      badge.textContent = rotulo;
+      if (u.motivo_bloqueio) badge.title = u.motivo_bloqueio;
+      tdStatus.appendChild(badge);
+      tr.appendChild(tdStatus);
+
+      const dias = u.trial_days_left === null ? 'Sem prazo' : `${u.trial_days_left} dia${u.trial_days_left === 1 ? '' : 's'}`;
+      tr.appendChild(celula(dias, u.trial_days_left !== null && u.trial_days_left <= 3 ? 'text-amber-300 font-mono' : 'text-slate-300 font-mono'));
+
+      const acoes = celula(null, 'text-right whitespace-nowrap space-x-1');
+      const proprio = u.id === adminId;
+      acoes.appendChild(botao('Suspender', 'border-rose-500/40 text-rose-300 hover:bg-rose-500/10',
+        !proprio && u.subscription_status !== 'SUSPENDED',
+        () => confirm(`Suspender o acesso de ${u.name}? A sessão será encerrada.`) &&
+          executar(`/api/admin/users/${encodeURIComponent(u.id)}/suspender`, {}, `${u.name} suspenso.`)));
+      acoes.appendChild(botao('Reativar', 'border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10',
+        u.subscription_status === 'SUSPENDED' || u.subscription_status === 'CANCELED',
+        () => executar(`/api/admin/users/${encodeURIComponent(u.id)}/reativar`, {}, `${u.name} reativado.`)));
+      const mais3 = botao('+3 Dias', 'border-sky-500/40 text-sky-300 hover:bg-sky-500/10',
+        u.trial_days_left !== null,
+        () => executar(`/api/admin/users/${encodeURIComponent(u.id)}/estender?dias=3`, {}, `+3 dias para ${u.name}.`));
+      if (u.trial_days_left === null) mais3.title = 'Acesso sem data de expiração';
+      acoes.appendChild(mais3);
+      tr.appendChild(acoes);
+      return tr;
+    }
+
+    window.carregarClientes = async function (manterMensagem) {
+      if (!manterMensagem) msg.textContent = '';
+      try {
+        const resp = await fetch('/api/admin/users', { headers: cabecalhos() });
+        if (!resp.ok) {
+          corpo.replaceChildren();
+          const tr = document.createElement('tr');
+          tr.appendChild(celula('Não foi possível carregar os clientes.', 'text-center text-rose-300 py-6'));
+          tr.firstChild.colSpan = 6;
+          corpo.appendChild(tr);
+          return;
+        }
+        const dados = await resp.json();
+        corpo.replaceChildren(...dados.usuarios.map(linha));
+      } catch (e) {
+        msg.textContent = 'Falha de conexão ao carregar os clientes.';
+      }
+    };
+
+    carregarClientes();
+  })();
 </script>
 {% endblock %}

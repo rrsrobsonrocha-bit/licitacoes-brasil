@@ -32,6 +32,10 @@ class UserProfileResponse(BaseModel):
     status: str
     created_at: datetime
     last_login_at: Optional[datetime] = None
+    plan_type: Optional[str] = None
+    subscription_status: Optional[str] = None
+    access_expires_at: Optional[datetime] = None
+    trial_days_left: Optional[int] = None
 
 class TokenResponse(BaseModel):
     access_token: str

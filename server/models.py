@@ -1,3 +1,4 @@
+import math
 import uuid
 from datetime import datetime, date, timedelta, timezone
 from typing import List, Optional
@@ -24,11 +25,45 @@ class User(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     last_login_at = Column(DateTime, nullable=True)
 
+    # Assinatura (gestão manual pelo admin; base para a integração com a Hotmart)
+    plan_type = Column(String(20), default="GRATUITO", nullable=False)  # GRATUITO, MENSAL, ANUAL
+    subscription_status = Column(String(20), default="ACTIVE", nullable=False)  # ACTIVE, TRIAL, SUSPENDED, CANCELED
+    access_expires_at = Column(DateTime, nullable=True)  # sem data: acesso sem prazo
+    hotmart_subscriber_code = Column(String(100), nullable=True)
+
     favorites = relationship("Favorite", back_populates="user", cascade="all, delete-orphan")
     notes = relationship("UserNote", back_populates="user", cascade="all, delete-orphan")
     saved_searches = relationship("SavedSearch", back_populates="user", cascade="all, delete-orphan")
     alerts = relationship("Alert", back_populates="user", cascade="all, delete-orphan")
     search_history = relationship("SearchHistory", back_populates="user", cascade="all, delete-orphan")
+
+    @property
+    def trial_days_left(self) -> Optional[int]:
+        """Dias (arredondados para cima) até access_expires_at; None quando o acesso não tem prazo."""
+        if not self.access_expires_at:
+            return None
+        segundos = (self.access_expires_at - datetime.utcnow()).total_seconds()
+        return max(0, math.ceil(segundos / 86400))
+
+    def motivo_bloqueio(self) -> Optional[str]:
+        """
+        Regra única de acesso da assinatura: devolve o motivo do bloqueio ou None se liberado.
+        Administradores nunca são bloqueados (evita perder o acesso ao próprio painel).
+        """
+        if self.role == "ADMIN":
+            return None
+        situacao = self.subscription_status or "ACTIVE"
+        if situacao == "SUSPENDED":
+            return "Acesso suspenso. Entre em contato com o suporte da Licitações Brasil."
+        if situacao == "CANCELED":
+            return "Assinatura cancelada. Renove o seu plano para voltar a acessar a plataforma."
+        if self.access_expires_at and self.access_expires_at <= datetime.utcnow():
+            return "O seu período de acesso terminou. Renove o seu plano para continuar."
+        return None
+
+
+PLANOS = ("GRATUITO", "MENSAL", "ANUAL")
+SITUACOES_ASSINATURA = ("ACTIVE", "TRIAL", "SUSPENDED", "CANCELED")
 
 
 class Source(Base):

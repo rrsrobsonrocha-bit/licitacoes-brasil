@@ -14,6 +14,7 @@ FastAPI + Jinja2 + SQLAlchemy (SQLite em desenvolvimento, PostgreSQL em produç�
 - `server/models.py`, `server/migrate.py`: modelos e migrações idempotentes, executadas no boot.
 - `server/integrations/opportunity_collector.py`, `server/services/portal_collector.py`: coleta na API oficial do PNCP.
 - `server/services/auto_sync.py`: auto-warmup dos últimos 15 dias e atualização periódica do catálogo (sem clique do usuário).
+- `server/routes/webhooks.py`: webhook da Hotmart (modo de espera: registra eventos, não altera contas).
 - `server/services/dispute_monitor.py`: Sala de Disputa (lotes e robô de lances, por usuário).
 - `server/templates/`: páginas (busca, painel, funil, agenda, disputa, jurídico).
 
@@ -30,6 +31,8 @@ FastAPI + Jinja2 + SQLAlchemy (SQLite em desenvolvimento, PostgreSQL em produç�
 - Contas iniciais apenas via ambiente: `ADMIN_EMAIL` / `ADMIN_PASSWORD` (ADMIN) e `USUARIO_INICIAL_*` (USER),
   nunca com senha no código. Contas demo antigas são apagadas no boot; registros legados sem dono
   vão para `ORPHAN_OWNER_EMAIL` (ou `ADMIN_EMAIL`, ou a conta real principal).
+- **Assinaturas.** `User.motivo_bloqueio()` é a regra única de acesso (suspensa, cancelada ou prazo
+  vencido bloqueia; ADMIN nunca). Gestão manual em `/api/admin/users/*`, só para ADMIN.
 
 ## Desenvolvimento
 

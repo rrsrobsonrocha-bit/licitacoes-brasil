@@ -31,7 +31,7 @@ from server.models import (
     TenderChange, DocumentExtraction, AIAnalysis, SearchHistory,
     WebhookDispatchLog, Deal, DEAL_STAGES, DEAL_STAGE_LABELS,
     LegalDocumentTemplate, SupplierProspect, generate_uuid, PasswordResetToken,
-    DocumentoEmpresa, DOCUMENTO_CATEGORIAS, DOCUMENTO_DIAS_ALERTA, hoje_sao_paulo
+    DocumentoEmpresa, DOCUMENTO_CATEGORIAS, DOCUMENTO_DIAS_ALERTA, hoje_sao_paulo, PLANOS
 )
 from server.schemas import (
     UserRegisterRequest, UserLoginRequest, PasswordChangeRequest,
@@ -205,6 +205,10 @@ app = FastAPI(
     redoc_url="/api/redoc"
 )
 
+# Webhooks de integrações externas (Hotmart, em modo de espera)
+from server.routes.webhooks import router as webhooks_router
+app.include_router(webhooks_router)
+
 # CORS
 app.add_middleware(
     CORSMiddleware,
@@ -290,8 +294,8 @@ def _gravar_cookie_sessao(response: Response, request: Request, token: str, reme
     )
 
 
-# Dependency: Obter Usuário Atual via JWT (cabeçalho Authorization ou cookie de sessão)
-def get_current_user(request: Request, db: Session = Depends(get_db)) -> Optional[User]:
+def _usuario_da_sessao(request: Request, db: Session) -> Optional[User]:
+    """Conta dona do JWT (cabeçalho Authorization ou cookie de sessão), sem checar a assinatura."""
     token = _token_da_requisicao(request)
     if not token:
         return None
@@ -304,12 +308,24 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> Optiona
         return None
     return user
 
+
+# Dependency: Obter Usuário Atual via JWT (cabeçalho Authorization ou cookie de sessão)
+def get_current_user(request: Request, db: Session = Depends(get_db)) -> Optional[User]:
+    user = _usuario_da_sessao(request, db)
+    # Assinatura suspensa, cancelada ou expirada: a sessão deixa de valer (a conta volta a ser visitante)
+    if user and user.motivo_bloqueio():
+        return None
+    return user
+
 def require_auth(request: Request, db: Session = Depends(get_db)) -> User:
-    user = get_current_user(request, db)
+    user = _usuario_da_sessao(request, db)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Autenticação requerida.")
     if user.status != "ACTIVE":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Conta inativa ou suspensa.")
+    motivo = user.motivo_bloqueio()
+    if motivo:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=motivo)
     return user
 
 def require_admin(user: User = Depends(require_auth)) -> User:
@@ -1258,8 +1274,23 @@ def _perfil_usuario(user: User) -> UserProfileResponse:
         role=user.role,
         status=user.status,
         created_at=user.created_at,
-        last_login_at=user.last_login_at
+        last_login_at=user.last_login_at,
+        plan_type=user.plan_type,
+        subscription_status=user.subscription_status,
+        access_expires_at=user.access_expires_at,
+        trial_days_left=user.trial_days_left,
     )
+
+
+def _assinatura_inicial() -> Dict[str, Any]:
+    """Conta nova: período de teste de TRIAL_DIAS dias, ou plano gratuito sem prazo quando TRIAL_DIAS=0."""
+    if settings.TRIAL_DIAS > 0:
+        return {
+            "plan_type": "GRATUITO",
+            "subscription_status": "TRIAL",
+            "access_expires_at": datetime.utcnow() + timedelta(days=settings.TRIAL_DIAS),
+        }
+    return {"plan_type": "GRATUITO", "subscription_status": "ACTIVE", "access_expires_at": None}
 
 
 def _emitir_sessao(user: User, remember_me: bool = False) -> TokenResponse:
@@ -1305,7 +1336,8 @@ def api_register(payload: UserRegisterRequest, request: Request, response: Respo
         email=payload.email.lower().strip(),
         password_hash=hash_password(payload.password),
         role="USER",
-        status="ACTIVE"
+        status="ACTIVE",
+        **_assinatura_inicial()
     )
     db.add(user)
     db.commit()
@@ -1335,6 +1367,9 @@ def api_login(payload: UserLoginRequest, request: Request, response: Response, d
 
     if user.status != "ACTIVE":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Conta inativa.")
+    motivo = user.motivo_bloqueio()
+    if motivo:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=motivo)
 
     user.last_login_at = datetime.utcnow()
     db.commit()
@@ -3222,6 +3257,120 @@ def api_user_dashboard(request: Request, db: Session = Depends(get_db)):
     return get_dashboard_summary_data(db, user)
 
 # ----------------- Admin API -----------------
+
+# ----------------- Gestão de clientes e assinaturas (somente ADMIN) -----------------
+
+def _assinatura_admin(user: User) -> Dict[str, Any]:
+    motivo = user.motivo_bloqueio()
+    return {
+        "id": user.id,
+        "name": user.name,
+        "email": user.email,
+        "role": user.role,
+        "status": user.status,
+        "plan_type": user.plan_type,
+        "subscription_status": user.subscription_status,
+        "access_expires_at": user.access_expires_at.isoformat() if user.access_expires_at else None,
+        "trial_days_left": user.trial_days_left,
+        "acesso_liberado": motivo is None and user.status == "ACTIVE",
+        "motivo_bloqueio": motivo,
+        "hotmart_subscriber_code": user.hotmart_subscriber_code,
+        "created_at": user.created_at.isoformat() if user.created_at else None,
+        "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
+    }
+
+
+def _cliente_ou_404(db: Session, user_id: str) -> User:
+    cliente = db.query(User).filter(User.id == user_id).first()
+    if not cliente:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado.")
+    return cliente
+
+
+@app.get("/api/admin/users")
+def api_admin_listar_clientes(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    clientes = db.query(User).order_by(User.created_at.asc()).all()
+    return {"total": len(clientes), "planos": list(PLANOS), "usuarios": [_assinatura_admin(u) for u in clientes]}
+
+
+@app.post("/api/admin/users/{user_id}/suspender")
+def api_admin_suspender(user_id: str, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    """Suspende o acesso: a sessão do cliente deixa de valer e o login é recusado."""
+    cliente = _cliente_ou_404(db, user_id)
+    if cliente.id == admin.id:
+        raise HTTPException(status_code=400, detail="Você não pode suspender a sua própria conta.")
+    cliente.subscription_status = "SUSPENDED"
+    db.commit()
+    logger.warning("Admin %s suspendeu o acesso de %s.", admin.email, cliente.email)
+    return _assinatura_admin(cliente)
+
+
+@app.post("/api/admin/users/{user_id}/reativar")
+def api_admin_reativar(user_id: str, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    """Reativa a assinatura. Um acesso com prazo vencido continua bloqueado até ser estendido (+3 dias)."""
+    cliente = _cliente_ou_404(db, user_id)
+    cliente.subscription_status = "ACTIVE"
+    db.commit()
+    logger.warning("Admin %s reativou o acesso de %s.", admin.email, cliente.email)
+    return _assinatura_admin(cliente)
+
+
+@app.post("/api/admin/users/{user_id}/estender")
+def api_admin_estender(
+    user_id: str,
+    dias: int = Query(3, ge=1, le=365),
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """
+    Extensão de cortesia (padrão +3 dias) sobre access_expires_at. Se o prazo já venceu, conta a
+    partir de agora. Contas sem data de expiração já têm acesso sem prazo e não são alteradas.
+    """
+    cliente = _cliente_ou_404(db, user_id)
+    if not cliente.access_expires_at:
+        raise HTTPException(status_code=409, detail="Esta conta tem acesso sem data de expiração; não há prazo a estender.")
+    base = max(cliente.access_expires_at, datetime.utcnow())
+    cliente.access_expires_at = base + timedelta(days=dias)
+    db.commit()
+    logger.warning("Admin %s estendeu em %s dias o acesso de %s (até %s).",
+                   admin.email, dias, cliente.email, cliente.access_expires_at.isoformat())
+    return _assinatura_admin(cliente)
+
+
+class AlterarPlanoRequest(BaseModel):
+    plan_type: str
+
+
+DURACAO_PLANOS = {"MENSAL": timedelta(days=30), "ANUAL": timedelta(days=365)}
+
+
+@app.post("/api/admin/users/{user_id}/plano")
+def api_admin_alterar_plano(
+    user_id: str,
+    payload: AlterarPlanoRequest,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """
+    Troca manual de plano. Mensal/Anual: assinatura ativa por 30/365 dias a partir de agora (ou do
+    fim do prazo atual, se ainda vigente). Gratuito: plano gratuito ativo e sem data de expiração.
+    """
+    plano = (payload.plan_type or "").strip().upper()
+    if plano not in PLANOS:
+        raise HTTPException(status_code=422, detail=f"Plano inválido. Use: {', '.join(PLANOS)}.")
+    cliente = _cliente_ou_404(db, user_id)
+    cliente.plan_type = plano
+    cliente.subscription_status = "ACTIVE"
+    if plano in DURACAO_PLANOS:
+        agora = datetime.utcnow()
+        base = cliente.access_expires_at if cliente.access_expires_at and cliente.access_expires_at > agora else agora
+        cliente.access_expires_at = base + DURACAO_PLANOS[plano]
+    else:
+        cliente.access_expires_at = None
+    db.commit()
+    logger.warning("Admin %s alterou o plano de %s para %s.", admin.email, cliente.email, plano)
+    return _assinatura_admin(cliente)
+
 
 @app.get("/api/admin/metrics")
 def api_admin_metrics(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
