@@ -395,6 +395,9 @@ class Deal(Base):
     # Itens do certame que a empresa decidiu disputar (lista de dicts com item_number, description, ...).
     # None = nenhuma seleção feita (o negócio vale para o certame inteiro).
     selected_items = Column(JSON, nullable=True)
+    # Valor do negócio: soma dos itens selecionados (modo "itens") ou valor estimado do edital ("global")
+    valor_negocio = Column(Float, nullable=True)
+    modo = Column(String(10), nullable=True)  # "itens" ou "global"
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

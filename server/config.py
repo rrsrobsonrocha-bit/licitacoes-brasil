@@ -133,11 +133,15 @@ class Settings(BaseModel):
     AUTO_SYNC_PAGINAS_POR_DIA: int = int(os.getenv("AUTO_SYNC_PAGINAS_POR_DIA", "300"))
     # Teto de itens lidos na rotina diurna (editais novos); a fila completa roda à noite
     AUTO_SYNC_ITENS_DIURNO_MAX: int = int(os.getenv("AUTO_SYNC_ITENS_DIURNO_MAX", "500"))
+    # Itens pré-carregados por rotina diurna: sessão em 72 h, favoritos, UF prioritária e dispensas
+    AUTO_SYNC_ESTRATEGICOS_MAX: int = int(os.getenv("AUTO_SYNC_ESTRATEGICOS_MAX", "150"))
     # Ritmo da leitura de itens (API de integração do PNCP, separada da API de consulta); 0 = sem espera
     PNCP_ITENS_RATE_LIMIT_PER_MINUTE: int = int(os.getenv("PNCP_ITENS_RATE_LIMIT_PER_MINUTE", "12"))
 
     # PNCP — API de integração (itens e arquivos das compras)
     PNCP_INTEGRACAO_BASE_URL: str = os.getenv("PNCP_INTEGRACAO_BASE_URL", "https://pncp.gov.br/api/pncp/v1").rstrip("/")
+    # Fallback de itens quando o PNCP falha (API de Dados Abertos do Compras.gov.br)
+    COMPRAS_DADOS_ABERTOS_URL: str = os.getenv("COMPRAS_DADOS_ABERTOS_URL", "https://dadosabertos.compras.gov.br").rstrip("/")
     PNCP_DOWNLOAD_MAX_MB: int = int(os.getenv("PNCP_DOWNLOAD_MAX_MB", "100"))
 
     # Security

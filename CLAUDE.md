@@ -26,6 +26,11 @@ FastAPI + Jinja2 + SQLAlchemy (SQLite em desenvolvimento, PostgreSQL em produç�
   `?sincronizar=false` (dados gravados, imediato) e depois itens/anexos; falha do PNCP vira `pncp_indisponivel`
   e "Itens ainda não sincronizados" (nunca derruba o drawer). Nas telas, o PNCP usa timeout curto, disjuntor de
   120 s após timeout e não segura conexão do banco durante a espera (`pncp_compras`, `interativo=True`).
+- `server/services/sync_items.py`: itens em camadas (`get_or_sync_tender_items`): banco local → PNCP (6 s) →
+  Compras.gov.br Dados Abertos (`2.1_consultarItensContratacoes_PNCP_14133_Id` por numeroControlePNCP; cobre compras
+  do SIASG), gravando em lote (`TenderItem.origem` PNCP/COMPRAS). A rotina diurna pré-carrega itens de certames
+  com sessão em 72 h, favoritos, AL e dispensas. O "+ Negócio" abre a gaveta de triagem (`#deal-items-modal`):
+  itens selecionados (`item_ids`, valor = soma) ou modo global (`modo: "global"`, valor do edital).
 - `server/services/minutas.py` + `/api/minutas`: declarações e proposta readequada (Lei 14.133/2021) em DOCX.
 - `server/services/certidoes.py` + `POST /api/documents/auto-import/{cnpj}`: pacote de habilitação por CNPJ no
   Cofre. Só entra válido o que foi consultado de fato (situação cadastral via BrasilAPI; CEIS/CNEP com

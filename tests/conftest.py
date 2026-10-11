@@ -23,6 +23,7 @@ os.environ["AUTO_SYNC_ENABLED"] = "false"
 # Sem rede na suíte: sem espera entre consultas nem novas tentativas ao PNCP
 os.environ["PNCP_RATE_LIMIT_PER_MINUTE"] = "0"
 os.environ["PNCP_ITENS_RATE_LIMIT_PER_MINUTE"] = "0"
+os.environ["AUTO_SYNC_PAUSA_LOTE_SEGUNDOS"] = "0"
 os.environ["PNCP_MAX_RETRIES"] = "0"
 # Toda a suíte usa o mesmo "IP" do TestClient: o limite por IP da API (testado à parte em
 # test_security.py) não pode barrar os testes conforme a suíte cresce
@@ -192,6 +193,8 @@ def pncp_integracao_limpa():
     """Cada teste começa com o disjuntor do PNCP religado e sem cache de falhas de outro teste."""
     from server.services import pncp_compras
     pncp_compras._pncp_fora_ate = 0.0
+    pncp_compras._compras_fora_ate = 0.0
     pncp_compras._falhas_recentes.clear()
     yield
     pncp_compras._pncp_fora_ate = 0.0
+    pncp_compras._compras_fora_ate = 0.0

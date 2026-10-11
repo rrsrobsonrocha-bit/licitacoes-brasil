@@ -289,6 +289,9 @@ def _rotina_diurna() -> Dict[str, Any]:
     estado["ultima_diurna"] = agora_sao_paulo_naive()  # manual ou agendada: reinicia a contagem das 2 h
     resumo = _coletar_dias(_ultimos_dias(2), notificar_alertas=True, tipo="diurna")
     resumo["itens"] = enriquecer_itens(criados_desde=inicio, limite=settings.AUTO_SYNC_ITENS_DIURNO_MAX)
+    # Pré-carregamento: itens dos certames que o operador deve abrir (sessão em 72 h, favoritos, AL, dispensas)
+    from server.services.sync_items import pre_carregar_itens_estrategicos
+    resumo["itens_estrategicos"] = pre_carregar_itens_estrategicos()
     return resumo
 
 

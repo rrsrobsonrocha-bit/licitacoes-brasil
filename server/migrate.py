@@ -84,6 +84,8 @@ COLUNAS_USERS: List[Tuple[str, str, str]] = [
 COLUNAS_DEALS: List[Tuple[str, str, str]] = [
     ("deals", "selected_items", "JSON"),
     ("deals", "user_id", "VARCHAR(36)"),
+    ("deals", "valor_negocio", "FLOAT"),
+    ("deals", "modo", "VARCHAR(10)"),
 ]
 
 # Anotação gravada pelo antigo seed de demonstração do funil (removido): identifica os negócios fictícios.

@@ -66,8 +66,10 @@ def test_drawer_com_identificador_longo_e_pncp_fora_do_ar_entrega_dados_basicos(
         assert dados["pncp_indisponivel"] is True
         assert dados["itens"]["lista"] == [] and dados["itens"]["status"] == "indisponivel"
         assert dados["arquivos"]["lista"] == [] and dados["arquivos"]["status"] == "indisponivel"
-    # Após o primeiro timeout o disjuntor evita novas esperas: só a 1ª abertura consultou o PNCP
-    assert len(chamadas) == 1
+    # 1ª abertura: PNCP e, como ele falhou, o fallback do Compras.gov.br (também fora do ar).
+    # Depois os disjuntores evitam novas esperas nas aberturas seguintes.
+    assert len(chamadas) == 2
+    assert "pncp.gov.br/api/pncp" in chamadas[0] and "dadosabertos.compras.gov.br" in chamadas[1]
 
 
 def test_drawer_sem_sincronizar_responde_sem_consultar_o_pncp(certame_longo):
@@ -89,7 +91,9 @@ def test_atualizar_do_pncp_ignora_o_disjuntor(certame_longo):
     pncp_compras._transport_override = httpx.MockTransport(responder)
 
     pausado = client.get(f"/api/tenders/{certame_longo['id']}/drawer").json()
-    assert chamadas == [] and pausado["pncp_indisponivel"] is True
+    # PNCP pausado: não é chamado; os itens tentam só o fallback do Compras.gov.br
+    assert not any("pncp.gov.br/api/pncp" in c for c in chamadas) and pausado["pncp_indisponivel"] is True
+    chamadas.clear()
     assert "não está respondendo" in pausado["itens"]["mensagem"]
 
     forcado = client.get(f"/api/tenders/{certame_longo['id']}/drawer", params={"atualizar": "true"}).json()

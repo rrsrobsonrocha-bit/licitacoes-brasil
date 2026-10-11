@@ -556,7 +556,8 @@
 
                 <button 
                   type="button"
-                  onclick="event.stopPropagation(); addOpportunityToPipeline('{{ item.id }}', '{{ item.notice_number or item.external_id }}')" 
+                  data-negocio-btn="{{ item.id }}"
+                  onclick="event.stopPropagation(); abrirTriagemFunil('{{ item.id }}', {{ (item.notice_number or item.external_id)|tojson|forceescape }}, {{ (item.title or '')[:160]|tojson|forceescape }})"
                   class="bg-sky-600 hover:bg-sky-500 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition shadow-sm flex items-center gap-1.5 cursor-pointer"
                   title="Enviar oportunidade para o funil de negócios"
                 >

@@ -42,7 +42,7 @@ CABECALHOS = {
 }
 TIMEOUT_JSON = httpx.Timeout(20.0, connect=10.0)
 # Telas (drawer de detalhes): o usuário está esperando; o PNCP fora do ar não pode travar a página
-TIMEOUT_INTERATIVO = httpx.Timeout(8.0, connect=4.0)
+TIMEOUT_INTERATIVO = httpx.Timeout(6.0, connect=4.0)
 # Após timeout/queda de conexão, as telas deixam de consultar o PNCP por este tempo (todas as compras)
 PAUSA_PNCP_FORA_SEGUNDOS = 120
 TIMEOUT_DOWNLOAD = httpx.Timeout(120.0, connect=15.0)
@@ -58,6 +58,11 @@ _falhas_recentes: Dict[str, Tuple[float, str]] = {}
 # Disjuntor: instante (time.time) até o qual a API de integração do PNCP é tratada como fora do ar
 _pncp_fora_ate: float = 0.0
 MENSAGEM_PNCP_FORA = "O PNCP não está respondendo no momento"
+# Fallback de itens: API de Dados Abertos do Compras.gov.br (espelho das compras do SIASG publicadas no PNCP)
+COMPRAS_ITENS_PATH = "modulo-contratacoes/2.1_consultarItensContratacoes_PNCP_14133_Id"
+TIMEOUT_COMPRAS = httpx.Timeout(6.0, connect=4.0)
+_compras_fora_ate: float = 0.0
+ORIGENS_OFICIAIS = ("PNCP", "COMPRAS")
 
 
 class PNCPErro(Exception):
@@ -379,15 +384,103 @@ def _itens_do_banco(db: Session, tender_id: str) -> List[TenderItem]:
     return db.query(TenderItem).filter(TenderItem.tender_id == tender_id).order_by(TenderItem.item_number.asc()).all()
 
 
-async def sincronizar_itens(db: Session, tender: Tender, forcar: bool = False, interativo: bool = False) -> Dict[str, Any]:
+def numero_controle_pncp(tender: Tender, ident: Optional[IdentificadorCompra]) -> Optional[str]:
+    """numeroControlePNCP da compra (CNPJ-1-SEQUENCIAL/ANO), do external_id ou montado do identificador."""
+    externo = (tender.external_id or "").strip()
+    if re.fullmatch(r"\d{14}-\d-\d{6}/\d{4}", externo):
+        return externo
+    if ident:
+        return f"{ident.cnpj}-1-{int(ident.sequencial):06d}/{ident.ano}"
+    return None
+
+
+def compras_fora_do_ar() -> bool:
+    return time.time() < _compras_fora_ate
+
+
+async def buscar_itens_compras_gov(numero_controle: str) -> Optional[List[Dict[str, Any]]]:
     """
-    Atualiza os itens do certame a partir do PNCP.
-    Sem ``forcar``, reutiliza itens já sincronizados (origem PNCP) e o cache de falhas recentes.
-    Em falha, devolve os itens locais com ``status`` = "indisponivel" ou "nao_encontrado".
-    ``interativo`` (telas): timeout curto e, com o PNCP fora do ar há pouco, nem tenta a consulta.
+    Itens da compra na API de Dados Abertos do Compras.gov.br (consulta por numeroControlePNCP).
+    Cobre as compras do SIASG (federais e órgãos que usam o Compras.gov.br). None = sem resposta
+    ou compra fora da base; lista = itens normalizados como os do PNCP.
+    """
+    global _compras_fora_ate
+    url = f"{settings.COMPRAS_DADOS_ABERTOS_URL}/{COMPRAS_ITENS_PATH}"
+    try:
+        async with _cliente(TIMEOUT_COMPRAS) as cliente:
+            resp = await cliente.get(url, params={"tipo": "numeroControlePNCPCompra", "codigo": numero_controle})
+    except httpx.HTTPError as exc:
+        if isinstance(exc, (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError)):
+            _compras_fora_ate = time.time() + PAUSA_PNCP_FORA_SEGUNDOS
+        logger.info("Compras.gov.br indisponível para %s: %s", numero_controle, exc.__class__.__name__)
+        return None
+    if resp.status_code != 200:
+        return None
+    _compras_fora_ate = 0.0
+    try:
+        dados = resp.json()
+    except ValueError:
+        return None
+    brutos = dados.get("resultado") if isinstance(dados, dict) else None
+    if not isinstance(brutos, list) or not brutos:
+        return None
+    itens: Dict[int, Dict[str, Any]] = {}
+    for raw in brutos:
+        if not isinstance(raw, dict):
+            continue
+        descricao = " — ".join(t for t in (_texto(raw.get("descricaoResumida")), _texto(raw.get("descricaodetalhada"))) if t)
+        convertido = {
+            **raw,
+            "numeroItem": raw.get("numeroItemPncp") or raw.get("numeroItemCompra"),
+            "descricao": descricao or None,
+            "catalogoCodigoItem": raw.get("codItemCatalogo"),
+        }
+        item = parse_item_pncp(convertido)
+        if item:
+            itens[item["item_number"]] = item
+    return [itens[n] for n in sorted(itens)] or None
+
+
+def _gravar_itens(db: Session, tender: Tender, itens: List[Dict[str, Any]], origem: str) -> None:
+    """Grava em lote os itens oficiais (PNCP ou Compras.gov.br): fonte oficial substitui os locais."""
+    agora = datetime.utcnow()
+    existentes = _itens_do_banco(db, tender.id)
+    por_numero = {i.item_number: i for i in existentes}
+    numeros = set()
+    novos: List[TenderItem] = []
+    for dados in itens:
+        numeros.add(dados["item_number"])
+        item = por_numero.get(dados["item_number"])
+        if item is None:
+            item = TenderItem(tender_id=tender.id, item_number=dados["item_number"], description=dados["description"])
+            novos.append(item)
+        for campo, valor in dados.items():
+            setattr(item, campo, valor)
+        item.origem = origem
+        item.synced_at = agora
+    db.add_all(novos)
+    for numero, item in por_numero.items():
+        if numero not in numeros:
+            db.delete(item)
+    tender.last_synced_at = agora
+    db.flush()
+    atualizar_resumo_beneficios(tender, _itens_do_banco(db, tender.id))
+    db.commit()
+
+
+async def sincronizar_itens(db: Session, tender: Tender, forcar: bool = False, interativo: bool = False,
+                            fallback_compras: bool = True) -> Dict[str, Any]:
+    """
+    Itens do certame em camadas:
+    1. Banco local: itens oficiais já gravados (PNCP ou Compras.gov.br) voltam na hora, sem rede.
+    2. PNCP (API de integração).
+    3. Se o PNCP falhar (timeout, rede, 5xx): Compras.gov.br Dados Abertos, pelo numeroControlePNCP.
+    O que vier de uma fonte oficial é gravado em lote. Em falha das duas, devolve os itens locais
+    com ``status`` = "indisponivel" (ou "nao_encontrado" se o PNCP disser que a compra não existe).
+    ``interativo`` (telas): timeouts curtos e, com a fonte fora do ar há pouco, nem tenta a consulta.
     """
     existentes = _itens_do_banco(db, tender.id)
-    ja_sincronizado = any(i.origem == "PNCP" for i in existentes)
+    origem_atual = next((i.origem for i in existentes if i.origem in ORIGENS_OFICIAIS), None)
     ident = identificar_compra(tender)
 
     def resposta(status: str, mensagem: Optional[str] = None, origem: str = "LOCAL") -> Dict[str, Any]:
@@ -404,56 +497,49 @@ async def sincronizar_itens(db: Session, tender: Tender, forcar: bool = False, i
 
     if not ident:
         return resposta("sem_identificador", "Certame sem identificador do PNCP; exibindo itens da base local.")
-    if ja_sincronizado and not forcar:
+    if origem_atual and not forcar:
         if tender.itens_exclusivos_me_epp is None:
             atualizar_resumo_beneficios(tender, existentes)
             db.commit()
-        return resposta("cache", None, "PNCP")
+        return resposta("cache", None, origem_atual)
     if not forcar and falha_recente(f"itens:{tender.id}"):
         return resposta("indisponivel", falha_recente(f"itens:{tender.id}"))
-    if interativo and not forcar and pncp_fora_do_ar():
-        return resposta("indisponivel", f"{MENSAGEM_PNCP_FORA}; exibindo itens da base local.")
 
     tender_id = tender.id
-    db.commit()  # devolve a conexão ao pool enquanto espera o PNCP (sem segurar o banco na rede)
-    try:
-        itens_pncp = await buscar_itens_pncp(ident, TIMEOUT_INTERATIVO if interativo else None)
-    except CompraNaoEncontrada:
-        msg = "Compra não localizada no PNCP; exibindo itens da base local."
-        _registrar_falha(f"itens:{tender_id}", msg)
-        return resposta("nao_encontrado", msg)
-    except PNCPErro as exc:
-        msg = f"Não foi possível consultar o PNCP agora ({exc}). Exibindo itens da base local."
-        if not interativo:  # na tela, o botão "Atualizar do PNCP" pode tentar de novo logo
+    numero_controle = numero_controle_pncp(tender, ident)
+    db.commit()  # devolve a conexão ao pool enquanto espera a rede (sem segurar o banco)
+
+    falha_pncp: Optional[str] = None
+    if interativo and not forcar and pncp_fora_do_ar():
+        falha_pncp = MENSAGEM_PNCP_FORA
+    else:
+        try:
+            itens_pncp = await buscar_itens_pncp(ident, TIMEOUT_INTERATIVO if interativo else None)
+        except CompraNaoEncontrada:
+            msg = "Compra não localizada no PNCP; exibindo itens da base local."
             _registrar_falha(f"itens:{tender_id}", msg)
-        return resposta("indisponivel", msg)
+            return resposta("nao_encontrado", msg)
+        except PNCPErro as exc:
+            falha_pncp = f"Não foi possível consultar o PNCP agora ({exc})"
+        else:
+            if not itens_pncp:
+                return resposta("vazio", "O PNCP ainda não publicou itens para esta compra.", "PNCP")
+            _gravar_itens(db, tender, itens_pncp, "PNCP")
+            _falhas_recentes.pop(f"itens:{tender_id}", None)
+            return resposta("sincronizado", None, "PNCP")
 
-    if not itens_pncp:
-        return resposta("vazio", "O PNCP ainda não publicou itens para esta compra.", "PNCP")
+    # Camada 3: Compras.gov.br (só quando o PNCP falhou)
+    if fallback_compras and numero_controle and (forcar or not (interativo and compras_fora_do_ar())):
+        itens_compras = await buscar_itens_compras_gov(numero_controle)
+        if itens_compras:
+            _gravar_itens(db, tender, itens_compras, "COMPRAS")
+            _falhas_recentes.pop(f"itens:{tender_id}", None)
+            return resposta("sincronizado", f"{falha_pncp}. Itens obtidos no Compras.gov.br.", "COMPRAS")
 
-    agora = datetime.utcnow()
-    por_numero = {i.item_number: i for i in existentes}
-    numeros_pncp = set()
-    for dados in itens_pncp:
-        numeros_pncp.add(dados["item_number"])
-        item = por_numero.get(dados["item_number"])
-        if item is None:
-            item = TenderItem(tender_id=tender.id, item_number=dados["item_number"], description=dados["description"])
-            db.add(item)
-        for campo, valor in dados.items():
-            setattr(item, campo, valor)
-        item.origem = "PNCP"
-        item.synced_at = agora
-    # O PNCP é a fonte oficial: remove itens locais que não existem mais na compra
-    for numero, item in por_numero.items():
-        if numero not in numeros_pncp:
-            db.delete(item)
-    tender.last_synced_at = agora
-    db.flush()
-    atualizar_resumo_beneficios(tender, _itens_do_banco(db, tender.id))
-    db.commit()
-    _falhas_recentes.pop(f"itens:{tender.id}", None)
-    return resposta("sincronizado", None, "PNCP")
+    msg = f"{falha_pncp}. Exibindo itens da base local."
+    if not interativo:  # na tela, o botão "Atualizar do PNCP" pode tentar de novo logo
+        _registrar_falha(f"itens:{tender_id}", msg)
+    return resposta("indisponivel", msg)
 
 
 # ------------------------------------------------------------------------------

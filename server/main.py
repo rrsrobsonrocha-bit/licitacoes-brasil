@@ -2097,6 +2097,8 @@ def serialize_deal(deal: Deal, tender: Optional[Tender] = None) -> Dict[str, Any
         "notes": deal.notes or "",
         "selected_items": selected_items,
         "selected_items_count": len(selected_items) if selected_items else 0,
+        "valor_negocio": deal.valor_negocio,
+        "modo": deal.modo or ("itens" if selected_items else "global"),
         "created_at": deal.created_at.isoformat() if deal.created_at else None,
         "updated_at": deal.updated_at.isoformat() if deal.updated_at else None,
         "tender": tender_data
@@ -2120,15 +2122,20 @@ def normalizar_itens_selecionados(db: Session, tender: Tender, brutos: Any) -> O
         i.item_number: pncp_compras.serializar_item(i)
         for i in db.query(TenderItem).filter(TenderItem.tender_id == tender.id).all()
     }
+    por_id = {item["id"]: numero for numero, item in do_banco.items()}
     selecionados: Dict[int, Dict[str, Any]] = {}
     for bruto in brutos[:MAX_ITENS_SELECIONADOS]:
         origem = bruto if isinstance(bruto, dict) else {"item_number": bruto}
+        if origem.get("item_number") is None and origem.get("tender_item_id") in por_id:
+            origem = {**origem, "item_number": por_id[origem["tender_item_id"]]}
         try:
             numero = int(origem.get("item_number"))
         except (TypeError, ValueError):
             continue
         base = do_banco.get(numero, {})
         item: Dict[str, Any] = {"item_number": numero}
+        if base.get("id"):
+            item["tender_item_id"] = base["id"]  # vínculo com o registro de tender_items
         for campo in _CAMPOS_ITEM_SELECIONADO:
             valor = base.get(campo)
             if valor in (None, "", "Não informado"):
@@ -2173,9 +2180,22 @@ async def api_create_deal(
     if not tender:
         raise HTTPException(status_code=404, detail="Licitação não encontrada.")
 
-    # "selected_items" ausente no payload preserva a seleção atual; presente, substitui.
-    tem_selecao = isinstance(payload, dict) and "selected_items" in payload
-    itens_selecionados = normalizar_itens_selecionados(db, tender, payload.get("selected_items")) if tem_selecao else None
+    # "selected_items" (números/dicts) ou "item_ids" (ids de tender_items) substituem a seleção;
+    # ausentes, a seleção atual é preservada. modo="global": o edital inteiro (contingência sem itens).
+    modo_global = payload.get("modo") == "global"
+    brutos = payload.get("selected_items")
+    if isinstance(payload.get("item_ids"), list):
+        brutos = [{"tender_item_id": str(i)} for i in payload["item_ids"]]
+        if payload["item_ids"] and not normalizar_itens_selecionados(db, tender, brutos):
+            raise HTTPException(status_code=422, detail="Nenhum dos itens selecionados pertence a este certame.")
+    tem_selecao = modo_global or "selected_items" in payload or isinstance(payload.get("item_ids"), list)
+    itens_selecionados = None if modo_global else (normalizar_itens_selecionados(db, tender, brutos) if tem_selecao else None)
+
+    def valor_do_negocio(itens: Optional[List[Dict[str, Any]]]) -> Optional[float]:
+        if itens:
+            valores = [float(i["estimated_total_value"]) for i in itens if isinstance(i.get("estimated_total_value"), (int, float))]
+            return round(sum(valores), 2) if valores else None
+        return tender.estimated_total_value
 
     deal = _deals_do_usuario(db, user).filter(Deal.tender_id == tender.id).first()
     if deal:
@@ -2186,6 +2206,8 @@ async def api_create_deal(
             deal.notes = target_notes
         if tem_selecao:
             deal.selected_items = itens_selecionados
+            deal.modo = "itens" if itens_selecionados else "global"
+            deal.valor_negocio = valor_do_negocio(itens_selecionados)
         deal.updated_at = datetime.utcnow()
         db.commit()
         db.refresh(deal)
@@ -2197,6 +2219,8 @@ async def api_create_deal(
         stage=target_stage,
         notes=target_notes,
         selected_items=itens_selecionados,
+        modo="itens" if itens_selecionados else "global",
+        valor_negocio=valor_do_negocio(itens_selecionados),
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow()
     )
