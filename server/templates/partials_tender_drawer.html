@@ -256,7 +256,10 @@
   let drawerRequestSeq = 0;
   let drawerFocoAnterior = null;
   let drawerResumoIaGerado = false;
-  const DRAWER_TIMEOUT_MS = 45000;
+  // 1ª chamada: só dados já gravados (imediata). 2ª: itens e anexos do PNCP (timeout curto no servidor).
+  const DRAWER_TIMEOUT_MS = 15000;
+  const DRAWER_PNCP_TIMEOUT_MS = 30000;
+  const STATUS_NAO_SINCRONIZADO = ['indisponivel', 'erro', 'falha_rede'];
 
   function escapeHtml(text) {
     if (text === null || text === undefined || text === '') return '';
@@ -428,21 +431,60 @@
     const timer = setTimeout(() => controller.abort(), DRAWER_TIMEOUT_MS);
     let dados;
     try {
-      const resp = await fetch(`/api/tenders/${encodeURIComponent(tenderId)}/drawer`, { signal: controller.signal });
+      // Cabeçalho, objeto, valores e prazos já gravados: não dependem do PNCP
+      const resp = await fetch(`/api/tenders/${encodeURIComponent(tenderId)}/drawer?sincronizar=false`, { signal: controller.signal });
       if (!resp.ok) throw new Error(resp.status === 404 ? 'Licitação não encontrada.' : `HTTP ${resp.status}`);
       dados = await resp.json();
     } catch (err) {
       if (requestSeq !== drawerRequestSeq) return;
-      const msg = err.name === 'AbortError' ? 'O PNCP demorou a responder.' : 'Não foi possível carregar os detalhes do certame.';
+      const msg = err.message === 'Licitação não encontrada.' ? err.message : 'Não foi possível carregar os detalhes do certame.';
       definirTexto('drawer-orgao-nome', msg);
-      document.getElementById('drawer-itens-tbody').innerHTML = linhaMensagemItens(msg, 'erro');
-      document.getElementById('drawer-arquivos-lista').innerHTML = itemMensagemArquivos(msg, 'erro');
+      renderItensDrawer({ lista: [], status: 'falha_rede' });
+      renderArquivosDrawer({ lista: [], status: 'falha_rede' });
       return;
     } finally {
       clearTimeout(timer);
     }
     if (requestSeq !== drawerRequestSeq) return;  // outro edital foi aberto nesse meio-tempo
     preencherDrawer(dados);
+    carregarPncpDoDrawer(tenderId, requestSeq, false);
+  }
+
+  // Itens e anexos oficiais (PNCP). Falha aqui afeta só as seções de itens/anexos, nunca o cabeçalho.
+  function carregarPncpDoDrawer(tenderId, requestSeq, atualizar) {
+    drawerItemsPromise = (async () => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), DRAWER_PNCP_TIMEOUT_MS);
+      try {
+        const resp = await fetch(`/api/tenders/${encodeURIComponent(tenderId)}/drawer${atualizar ? '?atualizar=true' : ''}`, { signal: controller.signal });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const dados = await resp.json();
+        if (requestSeq !== drawerRequestSeq) return currentDrawerItems;
+        renderItensDrawer(dados.itens || {});
+        renderArquivosDrawer(dados.arquivos || {});
+        return currentDrawerItems;
+      } catch (err) {
+        if (requestSeq === drawerRequestSeq) {
+          renderItensDrawer({ lista: currentDrawerItems, status: 'falha_rede' });
+          renderArquivosDrawer({ lista: currentDrawerArquivos, status: 'falha_rede' });
+        }
+        return currentDrawerItems;
+      } finally {
+        clearTimeout(timer);
+      }
+    })();
+    return drawerItemsPromise;
+  }
+
+  function atualizarDrawerDoPncp() {
+    if (!currentDrawerTender) return;
+    document.getElementById('drawer-itens-tbody').innerHTML = linhaMensagemItens('Consultando itens no PNCP...', 'carregando');
+    document.getElementById('drawer-arquivos-lista').innerHTML = itemMensagemArquivos('Consultando anexos no PNCP...', 'carregando');
+    return carregarPncpDoDrawer(currentDrawerTender.id, drawerRequestSeq, true);
+  }
+
+  function botaoAtualizarPncp() {
+    return '<button type="button" onclick="atualizarDrawerDoPncp()" class="ml-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-sky-600 hover:bg-sky-500 text-white transition"><i class="fa-solid fa-rotate" aria-hidden="true"></i> Atualizar do PNCP</button>';
   }
 
   function preencherDrawer(dados) {
@@ -605,10 +647,20 @@
     if (amplos) chips.push(`<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-700/40 text-slate-300 border border-slate-600/60">${amplos} ampla concorrência</span>`);
     document.getElementById('drawer-itens-beneficio').innerHTML = chips.join('');
 
-    const temAviso = itens.mensagem && ['indisponivel', 'nao_encontrado', 'sem_identificador'].includes(itens.status);
+    const temAviso = itens.mensagem && ['indisponivel', 'nao_encontrado', 'sem_identificador', 'erro'].includes(itens.status);
     aviso.textContent = temAviso && lista.length ? itens.mensagem : '';
     aviso.classList.toggle('hidden', !(temAviso && lista.length));
 
+    if (!lista.length && itens.status === 'pendente') {
+      tbody.innerHTML = linhaMensagemItens('Consultando itens no PNCP...', 'carregando');
+      definirTexto('drawer-itens-total', '');
+      return;
+    }
+    if (!lista.length && STATUS_NAO_SINCRONIZADO.includes(itens.status)) {
+      tbody.innerHTML = `<tr><td colspan="6" class="py-5 px-3 text-center text-amber-300" aria-live="polite"><i class="fa-solid fa-circle-info mr-1.5" aria-hidden="true"></i>Itens ainda não sincronizados.${botaoAtualizarPncp()}</td></tr>`;
+      definirTexto('drawer-itens-total', '');
+      return;
+    }
     if (!lista.length) {
       tbody.innerHTML = linhaMensagemItens(itens.mensagem || 'Nenhum item individual publicado para este certame.', temAviso ? 'aviso' : 'info');
       definirTexto('drawer-itens-total', '');
@@ -635,9 +687,7 @@
         if (seq === drawerRequestSeq) renderItensDrawer(dados);
         return dados.itens || [];
       } catch (e) {
-        if (seq === drawerRequestSeq) {
-          document.getElementById('drawer-itens-tbody').innerHTML = linhaMensagemItens('Falha de rede ao consultar os itens no PNCP.', 'erro');
-        }
+        if (seq === drawerRequestSeq) renderItensDrawer({ lista: currentDrawerItems, status: 'falha_rede' });
         return currentDrawerItems;
       } finally {
         btn.disabled = false;
@@ -669,15 +719,26 @@
     return `${Math.max(1, Math.round(n / 1024))} KB`;
   }
 
+  let currentDrawerArquivos = [];
+
   function renderArquivosDrawer(arquivos) {
     const lista = Array.isArray(arquivos.lista) ? arquivos.lista : [];
+    currentDrawerArquivos = lista;
     const ul = document.getElementById('drawer-arquivos-lista');
     definirTexto('drawer-arquivos-contagem', lista.length ? `${lista.length} ${lista.length === 1 ? 'arquivo' : 'arquivos'}` : '');
     const zip = document.getElementById('drawer-arquivos-zip');
     zip.classList.toggle('hidden', !arquivos.zip_url);
     if (arquivos.zip_url) zip.href = arquivos.zip_url;
+    if (!lista.length && arquivos.status === 'pendente') {
+      ul.innerHTML = itemMensagemArquivos('Consultando anexos no PNCP...', 'carregando');
+      return;
+    }
+    if (!lista.length && STATUS_NAO_SINCRONIZADO.includes(arquivos.status)) {
+      ul.innerHTML = `<li class="py-5 px-3 text-center text-xs text-amber-300" aria-live="polite"><i class="fa-solid fa-circle-info mr-1.5" aria-hidden="true"></i>Anexos ainda não sincronizados.${botaoAtualizarPncp()}</li>`;
+      return;
+    }
     if (!lista.length) {
-      ul.innerHTML = itemMensagemArquivos(arquivos.mensagem || 'O órgão ainda não publicou arquivos para esta compra.', arquivos.status === 'indisponivel' ? 'erro' : 'info');
+      ul.innerHTML = itemMensagemArquivos(arquivos.mensagem || 'O órgão ainda não publicou arquivos para esta compra.', 'info');
       return;
     }
     ul.innerHTML = lista.map(arq => {

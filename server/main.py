@@ -1169,6 +1169,8 @@ async def api_track_dispute_item(
     db: Session = Depends(get_db)
 ):
     """Registra ou atualiza um certame/lote na Sala de Disputa do usuário autenticado."""
+    if user.role != "ADMIN":
+        payload = {**payload, "auto_lance_ativo": False}  # robô de lances: exclusivo de ADMIN
     try:
         # Sem degrau informado pelo usuário, usa o do edital (PNCP/Compras.gov); 0,01 só como fallback
         if normalizar_degrau(payload.get("degrau_minimo")) is None:
@@ -1221,7 +1223,12 @@ def api_disputes_remover_item(item_id: str, user: User = Depends(require_auth)):
 
 @app.post("/api/disputes/configure/{item_id:path}")
 async def api_disputes_configure_item(item_id: str, payload: Dict[str, Any] = Body(...), user: User = Depends(require_auth)):
-    """Persiste parâmetros individuais (degrau_minimo, valor_minimo_limite, posicao_alvo, auto_lance_ativo)."""
+    """
+    Persiste parâmetros individuais (degrau_minimo, valor_minimo_limite, posicao_alvo, auto_lance_ativo).
+    Ligar o robô de lances (auto_lance_ativo) é exclusivo de ADMIN.
+    """
+    if payload.get("auto_lance_ativo") and user.role != "ADMIN":
+        raise HTTPException(status_code=403, detail="O robô de lances é exclusivo de administradores.")
     degrau = payload.get("degrau_minimo")
     piso = payload.get("valor_minimo_limite")
     pos = payload.get("posicao_alvo")
@@ -1244,8 +1251,8 @@ async def api_disputes_configure_item(item_id: str, payload: Dict[str, Any] = Bo
 
 
 @app.post("/api/disputes/toggle-global")
-async def api_disputes_toggle_global(payload: Dict[str, Any] = Body(...), user: User = Depends(require_auth)):
-    """Liga/desliga o interruptor mestre de automação de lances dos lotes do usuário."""
+async def api_disputes_toggle_global(payload: Dict[str, Any] = Body(...), user: User = Depends(require_admin)):
+    """Liga/desliga o interruptor mestre de automação de lances dos lotes (exclusivo de ADMIN)."""
     status_val = bool(payload.get("status", False))
     items = dispute_monitor.toggle_all_autobid(status_val, owner_id=user.id)
     return {
@@ -1260,9 +1267,9 @@ async def api_disputes_toggle_global(payload: Dict[str, Any] = Body(...), user: 
 async def api_disputes_bid_action(
     item_id: str,
     payload: Dict[str, Any] = Body(default={}),
-    user: User = Depends(require_auth)
+    user: User = Depends(require_admin)
 ):
-    """Cobre lance manual ou dispara execução imediata do robô para o lote."""
+    """Cobre lance manual ou dispara execução imediata do robô para o lote (exclusivo de ADMIN)."""
     valor = payload.get("valor")
     item = dispute_monitor._find_item(item_id, owner_id=user.id)
     if not item:
@@ -2698,17 +2705,62 @@ def _data_hora_br(valor: Optional[datetime]) -> Optional[str]:
     return valor.strftime("%d/%m/%Y às %H:%M") if valor else None
 
 
+def _lista_local_segura(carregar, serializar) -> List[Dict[str, Any]]:
+    try:
+        return [serializar(x) for x in carregar()]
+    except Exception:
+        return []
+
+
+async def _sincronizar_para_tela(db: Session, tender: Tender, tipo: str, sincronizar: bool, atualizar: bool) -> Dict[str, Any]:
+    """
+    Itens ou arquivos do certame para o drawer, sem nunca derrubar a tela: PNCP fora do ar, timeout
+    ou erro de banco viram ``status`` + lista local (possivelmente vazia).
+    """
+    tender_id = tender.id
+    if tipo == "itens":
+        funcao = pncp_compras.sincronizar_itens
+        local = lambda: _lista_local_segura(lambda: pncp_compras._itens_do_banco(db, tender_id), pncp_compras.serializar_item)
+    else:
+        funcao = pncp_compras.sincronizar_arquivos
+        local = lambda: _lista_local_segura(lambda: pncp_compras._docs_do_banco(db, tender_id), pncp_compras.serializar_documento)
+    if not sincronizar:
+        lista = local()
+        return {"status": "pendente", "mensagem": None, "total": len(lista), "lista": lista}
+    try:
+        resultado = await funcao(db, tender, forcar=atualizar, interativo=True)
+        lista = resultado["itens"] if tipo == "itens" else resultado["arquivos"]
+        return {**resultado, "lista": lista}
+    except Exception as exc:  # qualquer falha inesperada: a tela segue com os dados que já temos
+        logger.warning("Drawer: falha ao obter %s do certame %s: %r", tipo, tender_id, exc)
+        db.rollback()
+        lista = local()
+        return {"status": "erro", "mensagem": "Não foi possível obter os dados do PNCP agora.",
+                "total": len(lista), "lista": lista}
+
+
 @app.get("/api/tenders/{tender_id}/drawer")
-async def api_tender_drawer(tender_id: str, request: Request, db: Session = Depends(get_db)):
+async def api_tender_drawer(
+    tender_id: str,
+    request: Request,
+    sincronizar: bool = Query(True, description="false: só os dados já gravados (resposta imediata, sem PNCP)"),
+    atualizar: bool = Query(False, description="Força nova consulta de itens e anexos ao PNCP"),
+    db: Session = Depends(get_db),
+):
     """
     Tudo o que o drawer lateral de detalhes exibe numa única chamada: cabeçalho do certame, ações
     (PNCP, portal de disputa), itens oficiais com benefício ME/EPP e arquivos com download interno.
-    Itens e arquivos vêm do PNCP (com cache); em falha, a resposta traz o status e a mensagem do PNCP.
+    Itens e arquivos vêm do PNCP (com cache e timeout curto); se o PNCP falhar, os dados cadastrais
+    continuam vindo, com listas locais (talvez vazias) e ``pncp_indisponivel`` = true.
     """
     tender = _tender_ou_404(db, tender_id)
-    itens = await pncp_compras.sincronizar_itens(db, tender)
-    arquivos = await pncp_compras.sincronizar_arquivos(db, tender)
-    db.refresh(tender)
+    itens = await _sincronizar_para_tela(db, tender, "itens", sincronizar, atualizar)
+    arquivos = await _sincronizar_para_tela(db, tender, "arquivos", sincronizar, atualizar)
+    try:
+        db.refresh(tender)
+    except Exception:
+        db.rollback()
+        tender = _tender_ou_404(db, tender_id)
 
     ident = pncp_compras.identificar_compra(tender)
     numero = tender.notice_number if tender.notice_number and tender.notice_number != "Não informado" else None
@@ -2720,9 +2772,13 @@ async def api_tender_drawer(tender_id: str, request: Request, db: Session = Depe
     esfera = normalizar_esfera(tender.administrative_sphere)
 
     user = get_current_user(request, db)
-    em_negocios = _deals_do_usuario(db, user).filter(Deal.tender_id == tender.id).first() is not None
-    favorito = bool(user) and db.query(Favorite).filter(
-        Favorite.user_id == user.id, Favorite.tender_id == tender.id).first() is not None
+    try:
+        em_negocios = _deals_do_usuario(db, user).filter(Deal.tender_id == tender.id).first() is not None
+        favorito = bool(user) and db.query(Favorite).filter(
+            Favorite.user_id == user.id, Favorite.tender_id == tender.id).first() is not None
+    except Exception:
+        db.rollback()
+        em_negocios = favorito = False
 
     return {
         "tender": {
@@ -2759,16 +2815,20 @@ async def api_tender_drawer(tender_id: str, request: Request, db: Session = Depe
             "status": itens["status"],
             "mensagem": itens["mensagem"],
             "total": itens["total"],
-            "valor_total_estimado": itens["valor_total_estimado"],
-            "lista": itens["itens"],
+            "valor_total_estimado": itens.get("valor_total_estimado")
+                if itens.get("valor_total_estimado") is not None
+                else round(sum((i.get("estimated_total_value") or 0) for i in itens["lista"]), 2),
+            "lista": itens["lista"],
         },
         "arquivos": {
             "status": arquivos["status"],
             "mensagem": arquivos["mensagem"],
             "total": arquivos["total"],
-            "zip_url": arquivos["zip_url"],
-            "lista": arquivos["arquivos"],
+            "zip_url": arquivos.get("zip_url"),
+            "lista": arquivos["lista"],
         },
+        "sincronizado": sincronizar,
+        "pncp_indisponivel": any(x["status"] in ("indisponivel", "erro") for x in (itens, arquivos)),
         "minutas_url": "/juridico#minutas",
     }
 
@@ -2781,7 +2841,7 @@ async def api_tender_itens(
 ):
     """Itens individuais do certame (descrição, quantidade, unidade, valores, critério, benefício ME/EPP)."""
     tender = _tender_ou_404(db, tender_id)
-    return await pncp_compras.sincronizar_itens(db, tender, forcar=atualizar)
+    return await pncp_compras.sincronizar_itens(db, tender, forcar=atualizar, interativo=True)
 
 
 @app.get("/api/tenders/{tender_id}/arquivos")
@@ -2792,7 +2852,7 @@ async def api_tender_arquivos(
 ):
     """Lista os anexos oficiais (edital, termo de referência, minutas) com rotas internas de download."""
     tender = _tender_ou_404(db, tender_id)
-    return await pncp_compras.sincronizar_arquivos(db, tender, forcar=atualizar)
+    return await pncp_compras.sincronizar_arquivos(db, tender, forcar=atualizar, interativo=True)
 
 
 @app.get("/api/tenders/{tender_id}/arquivos/zip")

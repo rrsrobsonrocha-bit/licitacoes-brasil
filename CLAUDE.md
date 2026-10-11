@@ -22,7 +22,10 @@ FastAPI + Jinja2 + SQLAlchemy (SQLite em desenvolvimento, PostgreSQL em produç�
   Exceção: boot com catálogo vazio (menos de `AUTO_SYNC_MIN_VIGENTES` vigentes) recupera os 15 dias na hora.
   `/healthz/db` mostra o tipo de banco e o volume do catálogo (sqlite em produção = disco efêmero).
 - `server/templates/partials_tender_drawer.html` + `GET /api/tenders/{id}/drawer`: drawer lateral de detalhes
-  (busca e painel) com itens e anexos oficiais do PNCP e realce dos termos pesquisados.
+  (busca e painel) com itens e anexos oficiais do PNCP e realce dos termos pesquisados. O front pede primeiro
+  `?sincronizar=false` (dados gravados, imediato) e depois itens/anexos; falha do PNCP vira `pncp_indisponivel`
+  e "Itens ainda não sincronizados" (nunca derruba o drawer). Nas telas, o PNCP usa timeout curto, disjuntor de
+  120 s após timeout e não segura conexão do banco durante a espera (`pncp_compras`, `interativo=True`).
 - `server/services/minutas.py` + `/api/minutas`: declarações e proposta readequada (Lei 14.133/2021) em DOCX.
 - `server/services/certidoes.py` + `POST /api/documents/auto-import/{cnpj}`: pacote de habilitação por CNPJ no
   Cofre. Só entra válido o que foi consultado de fato (situação cadastral via BrasilAPI; CEIS/CNEP com
@@ -34,7 +37,7 @@ FastAPI + Jinja2 + SQLAlchemy (SQLite em desenvolvimento, PostgreSQL em produç�
 - `server/services/dispute_monitor.py`: Sala de Disputa (lotes e robô de lances, por usuário), com ranking Top 10
   informado pelo operador a partir do portal (`POST /api/disputes/ranking/{item}`).
 - `server/routes/disputa.py` + `server/services/estrategia_lances.py`: Mesa de Lances do Operador, exclusiva de
-  ADMIN (403 para as demais contas). Cálculo de menor perda (cobre o alvo pelo degrau, nunca joga no piso;
+  ADMIN (403 para as demais contas), assim como o robô de lances antigo (toggle-global, bid, ligar auto_lance). Cálculo de menor perda (cobre o alvo pelo degrau, nunca joga no piso;
   "melhor colocação viável" do 1º ao 10º) e registro em `admin_bids` (piso obrigatório; abaixo do piso: 422).
   A plataforma não envia lances ao portal: o operador dá o lance no portal e o registra.
 - `server/templates/`: páginas (busca, painel, funil, agenda, disputa, jurídico).

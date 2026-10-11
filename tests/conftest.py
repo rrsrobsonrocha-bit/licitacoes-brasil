@@ -185,3 +185,13 @@ def usuario_auth(criar_usuario):
 def admin_auth(criar_usuario):
     """Uma conta nova com papel ADMIN."""
     return criar_usuario("Administrador de Teste", role="ADMIN")
+
+
+@pytest.fixture(autouse=True)
+def pncp_integracao_limpa():
+    """Cada teste começa com o disjuntor do PNCP religado e sem cache de falhas de outro teste."""
+    from server.services import pncp_compras
+    pncp_compras._pncp_fora_ate = 0.0
+    pncp_compras._falhas_recentes.clear()
+    yield
+    pncp_compras._pncp_fora_ate = 0.0

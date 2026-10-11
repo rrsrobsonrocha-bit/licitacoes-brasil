@@ -169,7 +169,7 @@ def test_drawer_sem_resposta_do_pncp_nao_inventa_itens(certame_drawer):
 def test_paginas_incluem_drawer_e_realce(criar_usuario):
     busca = client.get("/search?q=medicamentos").text
     for marcador in ('id="tender-drawer"', 'id="drawer-sec-itens"', 'id="drawer-sec-arquivos"', "Abrir no PNCP",
-                     "Abrir no Portal", "Resumo com IA", "Tenho Interesse", "/drawer`", "mark.lb-realce",
+                     "Abrir no Portal", "Resumo com IA", "Tenho Interesse", "/drawer?sincronizar=false`", "mark.lb-realce",
                      "data-realce", 'id="deal-items-modal"'):
         assert marcador in busca, marcador
     conta = criar_usuario("Conta Painel")

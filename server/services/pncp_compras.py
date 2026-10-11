@@ -41,6 +41,10 @@ CABECALHOS = {
     "Accept": "application/json, */*",
 }
 TIMEOUT_JSON = httpx.Timeout(20.0, connect=10.0)
+# Telas (drawer de detalhes): o usuário está esperando; o PNCP fora do ar não pode travar a página
+TIMEOUT_INTERATIVO = httpx.Timeout(8.0, connect=4.0)
+# Após timeout/queda de conexão, as telas deixam de consultar o PNCP por este tempo (todas as compras)
+PAUSA_PNCP_FORA_SEGUNDOS = 120
 TIMEOUT_DOWNLOAD = httpx.Timeout(120.0, connect=15.0)
 TAMANHO_PAGINA_ITENS = 100
 MAX_PAGINAS_ITENS = 50
@@ -51,6 +55,9 @@ CACHE_NEGATIVO_SEGUNDOS = 30 * 60
 _transport_override: Optional[httpx.AsyncBaseTransport] = None
 # tender_id -> (timestamp, motivo) para não consultar o PNCP a cada visualização quando a compra não existe
 _falhas_recentes: Dict[str, Tuple[float, str]] = {}
+# Disjuntor: instante (time.time) até o qual a API de integração do PNCP é tratada como fora do ar
+_pncp_fora_ate: float = 0.0
+MENSAGEM_PNCP_FORA = "O PNCP não está respondendo no momento"
 
 
 class PNCPErro(Exception):
@@ -125,13 +132,27 @@ def host_permitido(url: str) -> bool:
     return partes.scheme == "https" and (partes.hostname or "").lower() in HOSTS_PERMITIDOS
 
 
-async def _get_json(caminho: str, params: Optional[Dict[str, Any]] = None) -> Any:
+def pncp_fora_do_ar() -> bool:
+    return time.time() < _pncp_fora_ate
+
+
+def _marcar_pncp_fora() -> None:
+    global _pncp_fora_ate
+    _pncp_fora_ate = time.time() + PAUSA_PNCP_FORA_SEGUNDOS
+
+
+async def _get_json(caminho: str, params: Optional[Dict[str, Any]] = None,
+                    timeout: Optional[httpx.Timeout] = None) -> Any:
+    global _pncp_fora_ate
     url = f"{settings.PNCP_INTEGRACAO_BASE_URL}/{caminho}"
     try:
-        async with _cliente(TIMEOUT_JSON) as cliente:
+        async with _cliente(timeout or TIMEOUT_JSON) as cliente:
             resp = await cliente.get(url, params=params)
     except httpx.HTTPError as exc:
+        if isinstance(exc, (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError)):
+            _marcar_pncp_fora()
         raise PNCPErro(f"PNCP indisponível: {exc.__class__.__name__}") from exc
+    _pncp_fora_ate = 0.0  # respondeu: religa o disjuntor
     if resp.status_code == 404:
         raise CompraNaoEncontrada("Compra não localizada no PNCP.")
     if resp.status_code == 204 or not resp.content:
@@ -224,12 +245,13 @@ def parse_item_pncp(raw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     }
 
 
-async def buscar_itens_pncp(ident: IdentificadorCompra) -> List[Dict[str, Any]]:
+async def buscar_itens_pncp(ident: IdentificadorCompra, timeout: Optional[httpx.Timeout] = None) -> List[Dict[str, Any]]:
     """Percorre todas as páginas de /itens e devolve os itens normalizados (ordenados por número)."""
     itens: Dict[int, Dict[str, Any]] = {}
     for pagina in range(1, MAX_PAGINAS_ITENS + 1):
         dados = await _get_json(
-            f"{ident.caminho}/itens", params={"pagina": pagina, "tamanhoPagina": TAMANHO_PAGINA_ITENS}
+            f"{ident.caminho}/itens", params={"pagina": pagina, "tamanhoPagina": TAMANHO_PAGINA_ITENS},
+            timeout=timeout,
         )
         lote = _como_lista(dados)
         for raw in lote:
@@ -357,11 +379,12 @@ def _itens_do_banco(db: Session, tender_id: str) -> List[TenderItem]:
     return db.query(TenderItem).filter(TenderItem.tender_id == tender_id).order_by(TenderItem.item_number.asc()).all()
 
 
-async def sincronizar_itens(db: Session, tender: Tender, forcar: bool = False) -> Dict[str, Any]:
+async def sincronizar_itens(db: Session, tender: Tender, forcar: bool = False, interativo: bool = False) -> Dict[str, Any]:
     """
     Atualiza os itens do certame a partir do PNCP.
     Sem ``forcar``, reutiliza itens já sincronizados (origem PNCP) e o cache de falhas recentes.
     Em falha, devolve os itens locais com ``status`` = "indisponivel" ou "nao_encontrado".
+    ``interativo`` (telas): timeout curto e, com o PNCP fora do ar há pouco, nem tenta a consulta.
     """
     existentes = _itens_do_banco(db, tender.id)
     ja_sincronizado = any(i.origem == "PNCP" for i in existentes)
@@ -388,16 +411,21 @@ async def sincronizar_itens(db: Session, tender: Tender, forcar: bool = False) -
         return resposta("cache", None, "PNCP")
     if not forcar and falha_recente(f"itens:{tender.id}"):
         return resposta("indisponivel", falha_recente(f"itens:{tender.id}"))
+    if interativo and not forcar and pncp_fora_do_ar():
+        return resposta("indisponivel", f"{MENSAGEM_PNCP_FORA}; exibindo itens da base local.")
 
+    tender_id = tender.id
+    db.commit()  # devolve a conexão ao pool enquanto espera o PNCP (sem segurar o banco na rede)
     try:
-        itens_pncp = await buscar_itens_pncp(ident)
+        itens_pncp = await buscar_itens_pncp(ident, TIMEOUT_INTERATIVO if interativo else None)
     except CompraNaoEncontrada:
         msg = "Compra não localizada no PNCP; exibindo itens da base local."
-        _registrar_falha(f"itens:{tender.id}", msg)
+        _registrar_falha(f"itens:{tender_id}", msg)
         return resposta("nao_encontrado", msg)
     except PNCPErro as exc:
         msg = f"Não foi possível consultar o PNCP agora ({exc}). Exibindo itens da base local."
-        _registrar_falha(f"itens:{tender.id}", msg)
+        if not interativo:  # na tela, o botão "Atualizar do PNCP" pode tentar de novo logo
+            _registrar_falha(f"itens:{tender_id}", msg)
         return resposta("indisponivel", msg)
 
     if not itens_pncp:
@@ -457,8 +485,8 @@ def parse_arquivo_pncp(raw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     }
 
 
-async def buscar_arquivos_pncp(ident: IdentificadorCompra) -> List[Dict[str, Any]]:
-    dados = await _get_json(f"{ident.caminho}/arquivos")
+async def buscar_arquivos_pncp(ident: IdentificadorCompra, timeout: Optional[httpx.Timeout] = None) -> List[Dict[str, Any]]:
+    dados = await _get_json(f"{ident.caminho}/arquivos", timeout=timeout)
     arquivos = [a for a in (parse_arquivo_pncp(r) for r in _como_lista(dados)) if a]
     return sorted(arquivos, key=lambda a: (a["sequencial_documento"] or 0))
 
@@ -497,7 +525,7 @@ def _docs_do_banco(db: Session, tender_id: str) -> List[TenderDocument]:
     )
 
 
-async def sincronizar_arquivos(db: Session, tender: Tender, forcar: bool = False) -> Dict[str, Any]:
+async def sincronizar_arquivos(db: Session, tender: Tender, forcar: bool = False, interativo: bool = False) -> Dict[str, Any]:
     existentes = _docs_do_banco(db, tender.id)
     ja_sincronizado = any(d.origem == "PNCP" for d in existentes)
     ident = identificar_compra(tender)
@@ -519,16 +547,21 @@ async def sincronizar_arquivos(db: Session, tender: Tender, forcar: bool = False
         return resposta("cache")
     if not forcar and falha_recente(f"arquivos:{tender.id}"):
         return resposta("indisponivel", falha_recente(f"arquivos:{tender.id}"))
+    if interativo and not forcar and pncp_fora_do_ar():
+        return resposta("indisponivel", f"{MENSAGEM_PNCP_FORA}.")
 
+    tender_id = tender.id
+    db.commit()  # devolve a conexão ao pool enquanto espera o PNCP
     try:
-        arquivos = await buscar_arquivos_pncp(ident)
+        arquivos = await buscar_arquivos_pncp(ident, TIMEOUT_INTERATIVO if interativo else None)
     except CompraNaoEncontrada:
         msg = "Compra não localizada no PNCP."
-        _registrar_falha(f"arquivos:{tender.id}", msg)
+        _registrar_falha(f"arquivos:{tender_id}", msg)
         return resposta("nao_encontrado", msg)
     except PNCPErro as exc:
         msg = f"Não foi possível consultar o PNCP agora ({exc})."
-        _registrar_falha(f"arquivos:{tender.id}", msg)
+        if not interativo:
+            _registrar_falha(f"arquivos:{tender_id}", msg)
         return resposta("indisponivel", msg)
 
     por_url = {d.source_url: d for d in existentes}

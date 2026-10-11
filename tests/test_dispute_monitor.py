@@ -209,9 +209,9 @@ def test_individual_and_global_autobid_toggles():
     assert all(it["auto_lance_ativo"] is False for it in all_off)
 
 
-def test_api_disputes_endpoints_and_sse_integrity(usuario_auth):
-    """Valida rotas HTTP de controle de robô e integridade do endpoint SSE."""
-    h = usuario_auth.headers
+def test_api_disputes_endpoints_and_sse_integrity(admin_auth):
+    """Valida rotas HTTP de controle de robô (exclusivo de ADMIN) e integridade do endpoint SSE."""
+    h = admin_auth.headers
     assert client.post("/api/disputes/track", json={"id_pregao": "X", "numero_item": 1}).status_code == 401
     # 1. Cadastra item via API
     resp_track = client.post("/api/disputes/track", headers=h, json={
@@ -294,10 +294,10 @@ async def test_sse_endpoint_stream_integrity():
     await gen.aclose()
 
 
-def test_ui_templates_elements_disputa_and_base():
-    """Valida elementos de navegação mobile e accordion na renderização HTML."""
+def test_ui_templates_elements_disputa_and_base(admin_auth):
+    """Valida elementos de navegação mobile e accordion na renderização HTML (chave geral: ADMIN)."""
     # 1. Página de Disputa com Accordion e Chave Geral
-    res_disputa = client.get("/disputa")
+    res_disputa = client.get("/disputa", headers=admin_auth.headers)
     assert res_disputa.status_code == 200
     html_disputa = res_disputa.text
     assert "Cockpit Multi-Pregão" in html_disputa
@@ -323,7 +323,7 @@ def test_ui_templates_elements_disputa_and_base():
 
 def test_sala_de_disputa_inicia_vazia_e_isolada_por_usuario(criar_usuario):
     """Sem lotes de exemplo: cada conta vê, configura e recebe eventos apenas dos próprios lotes."""
-    a, b = criar_usuario("Empresa A"), criar_usuario("Empresa B")
+    a, b = criar_usuario("Empresa A", role="ADMIN"), criar_usuario("Empresa B", role="ADMIN")
     assert client.get("/api/disputes/active", headers=a.headers).json()["total"] == 0
     assert client.get("/api/disputes/active").json()["items"] == []  # visitante
 
@@ -355,3 +355,23 @@ def test_sala_de_disputa_inicia_vazia_e_isolada_por_usuario(criar_usuario):
             dispute_monitor.unsubscribe(fila_b)
     finally:
         client.delete(f"/api/disputes/{key}", headers=a.headers)
+
+
+def test_robo_de_lances_antigo_e_exclusivo_de_admin(usuario_auth):
+    """Conta comum acompanha o lote (melhor lance, ranking), mas não liga o robô nem dá lances."""
+    h = usuario_auth.headers
+    lote = {"id_pregao": "PE 4040/2026", "numero_item": 1, "descricao": "Lote", "valor_referencia": 1000.0,
+            "melhor_lance": 950.0, "meu_lance": 960.0, "auto_lance_ativo": True}
+    resp = client.post("/api/disputes/track", headers=h, json=lote)
+    assert resp.status_code == 200 and resp.json()["item"]["auto_lance_ativo"] is False
+    key = "PE 4040/2026:1"
+    try:
+        assert client.post(f"/api/disputes/configure/{key}", headers=h, json={"auto_lance_ativo": True}).status_code == 403
+        assert client.post(f"/api/disputes/configure/{key}", headers=h, json={"valor_minimo_limite": 800}).status_code == 200
+        assert client.post(f"/api/disputes/bid/{key}", headers=h, json={"valor": 940}).status_code == 403
+        assert client.post("/api/disputes/toggle-global", headers=h, json={"status": True}).status_code == 403
+        assert client.post(f"/api/disputes/melhor-lance/{key}", headers=h, json={"valor": 930}).status_code == 200
+        html = client.get("/disputa", headers=h).text
+        assert 'id="btn-global-autobid"' not in html and "const IS_ADMIN = false;" in html
+    finally:
+        client.delete(f"/api/disputes/{key}", headers=h)
