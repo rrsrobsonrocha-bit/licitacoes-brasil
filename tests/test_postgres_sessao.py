@@ -170,3 +170,11 @@ def test_sql_bruto_usa_literais_booleanos_do_postgresql():
                    for n, linha in enumerate(arq.read_text(encoding="utf-8").splitlines(), 1)
                    if padrao.search(linha)]
     assert ocorrencias == []
+
+
+def test_ddl_das_colunas_novas_usa_tipos_do_postgresql():
+    import server.migrate as migrate
+
+    listas = [v for k, v in vars(migrate).items() if k.startswith("COLUNAS_")]
+    tipos = {ddl.split()[0].upper() for lista in listas for _, _, ddl in lista}
+    assert not tipos & {"DATETIME", "TINYINT", "BLOB"}, tipos

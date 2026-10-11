@@ -59,7 +59,7 @@ COLUNAS_ITENS_DOCUMENTOS: List[Tuple[str, str, str]] = [
     ("tender_items", "orcamento_sigiloso", "BOOLEAN"),
     ("tender_items", "informacao_complementar", "TEXT"),
     ("tender_items", "origem", "VARCHAR(20)"),
-    ("tender_items", "synced_at", "DATETIME"),
+    ("tender_items", "synced_at", "TIMESTAMP"),
     ("tender_documents", "sequencial_documento", "INTEGER"),
     ("tender_documents", "origem", "VARCHAR(20)"),
 ]
