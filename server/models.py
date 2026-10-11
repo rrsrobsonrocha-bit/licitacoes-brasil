@@ -53,16 +53,16 @@ class User(Base):
         if self.role == "ADMIN":
             return None
         situacao = self.subscription_status or "ACTIVE"
-        if situacao == "SUSPENDED":
-            return "Acesso suspenso. Entre em contato com o suporte da Licitações Brasil."
-        if situacao == "CANCELED":
-            return "Assinatura cancelada. Renove o seu plano para voltar a acessar a plataforma."
+        if situacao in ("SUSPENDED", "CANCELED"):
+            return MENSAGEM_ACESSO_SUSPENSO
         if self.access_expires_at and self.access_expires_at <= datetime.utcnow():
-            return "O seu período de acesso terminou. Renove o seu plano para continuar."
+            return MENSAGEM_ACESSO_EXPIRADO
         return None
 
 
-PLANOS = ("GRATUITO", "MENSAL", "ANUAL")
+MENSAGEM_ACESSO_SUSPENSO = "Acesso suspenso. Contacte o suporte para regularizar a sua conta."
+MENSAGEM_ACESSO_EXPIRADO = "O seu período de acesso terminou. Contacte o suporte para renovar o seu plano."
+PLANOS = ("TRIAL", "GRATUITO", "MENSAL", "ANUAL")
 SITUACOES_ASSINATURA = ("ACTIVE", "TRIAL", "SUSPENDED", "CANCELED")
 
 
@@ -600,6 +600,24 @@ class PasswordResetToken(Base):
     def is_valido(self, agora: Optional[datetime] = None) -> bool:
         ref = agora or datetime.utcnow()
         return self.used_at is None and self.expires_at > ref
+
+
+class SyncProgresso(Base):
+    """
+    Progresso da coleta do PNCP por dia de publicação e modalidade. Permite que a coleta retome
+    após um novo deploy/reinício: dias encerrados já concluídos são pulados e um dia interrompido
+    continua da página seguinte à última gravada.
+    """
+    __tablename__ = "sync_progresso"
+    __table_args__ = (UniqueConstraint("dia", "codigo_modalidade", name="uq_sync_progresso_dia_modalidade"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    dia = Column(String(8), nullable=False, index=True)  # YYYYMMDD (data de publicação no PNCP)
+    codigo_modalidade = Column(Integer, nullable=False)
+    ultima_pagina = Column(Integer, default=0, nullable=False)
+    total_paginas = Column(Integer, default=0, nullable=False)
+    concluido = Column(Boolean, default=False, nullable=False)
+    atualizado_em = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
 
 # ==============================================================================

@@ -9,6 +9,10 @@ Sem resposta da API, nada é gravado.
   mais antigo, um dia por vez; cada dia e modalidade é paginado até a última página do PNCP e cada
   página é gravada assim que chega. O ritmo respeita o limite da API (ver connectors/pncp.py), então
   o warmup completo leva da ordem de uma hora; o andamento fica em ``estado["progresso"]``.
+- Retomada: o progresso de cada dia/modalidade fica na tabela ``sync_progresso``. Após um novo
+  deploy, dias encerrados já concluídos são pulados e um dia interrompido continua da página
+  seguinte. Hoje e ontem ainda recebem publicações: retomam da última página lida (relida para
+  pegar os acréscimos), sem recomeçar do zero. Duplicidade é impossível (upsert por numeroControlePNCP).
 - Atualização periódica: hoje e ontem, com entrega dos alertas dos usuários para os editais novos.
 """
 import asyncio
@@ -21,7 +25,7 @@ from sqlalchemy import func
 from server.config import settings
 from server.database import SessionLocal
 from server.integrations.opportunity_collector import sync_procurement_opportunities
-from server.models import Tender, hoje_sao_paulo
+from server.models import SyncProgresso, Tender, hoje_sao_paulo
 from server.search_engine import filtro_vigentes
 
 # Modalidades com disputa: 6 = Pregão Eletrônico, 8 = Dispensa de Licitação
@@ -49,17 +53,76 @@ def em_producao() -> bool:
     return settings.DATABASE_URL.startswith(("postgres://", "postgresql"))
 
 
+def _progresso_salvo(dia: str) -> Dict[int, SyncProgresso]:
+    db = SessionLocal()
+    try:
+        registros = db.query(SyncProgresso).filter(SyncProgresso.dia == dia).all()
+        for r in registros:
+            db.expunge(r)
+        return {r.codigo_modalidade: r for r in registros}
+    finally:
+        db.close()
+
+
+def _salvar_progresso(dia: str, codigo_modalidade: int, pagina: int, total_paginas: int, concluido: bool) -> None:
+    db = SessionLocal()
+    try:
+        registro = db.query(SyncProgresso).filter(
+            SyncProgresso.dia == dia, SyncProgresso.codigo_modalidade == codigo_modalidade
+        ).first()
+        if not registro:
+            registro = SyncProgresso(dia=dia, codigo_modalidade=codigo_modalidade)
+            db.add(registro)
+        registro.ultima_pagina = max(0, pagina)
+        registro.total_paginas = total_paginas or 0
+        registro.concluido = bool(concluido)
+        db.commit()
+    except Exception as exc:  # o progresso é auxiliar: nunca interrompe a coleta
+        db.rollback()
+        print(f"[AUTO-SYNC] Não foi possível salvar o progresso de {dia}/{codigo_modalidade}: {exc!r}")
+    finally:
+        db.close()
+
+
+def plano_de_retomada(dia: str) -> Dict[int, int]:
+    """
+    Página inicial de cada modalidade do dia; modalidades ausentes do resultado já foram concluídas.
+    Dias encerrados (anteriores a ontem) não mudam mais no PNCP: concluídos são pulados e os
+    interrompidos seguem da próxima página. Hoje e ontem relêem a última página lida.
+    """
+    salvos = _progresso_salvo(dia)
+    encerrado = dia < (hoje_sao_paulo() - timedelta(days=1)).strftime("%Y%m%d")
+    plano: Dict[int, int] = {}
+    for codigo in MODALIDADES_DISPUTA:
+        registro = salvos.get(codigo)
+        if not registro:
+            plano[codigo] = 1
+        elif encerrado:
+            if not registro.concluido:
+                plano[codigo] = registro.ultima_pagina + 1
+        else:
+            plano[codigo] = max(1, registro.ultima_pagina)
+    return plano
+
+
 def _coletar_dias(dias: List[str], notificar_alertas: bool, tipo: str) -> Dict[str, Any]:
     """Coleta cada dia (YYYYMMDD) em sessão própria. Um dia com falha não interrompe os demais."""
     if not _trava.acquire(blocking=False):
         return {"tipo": tipo, "ignorado": "outra sincronização automática em andamento"}
     inicio = datetime.utcnow()
     estado["em_execucao"] = tipo
-    resumo = {"tipo": tipo, "dias": len(dias), "coletados": 0, "novos": 0, "atualizados": 0, "falhas": []}
+    resumo = {"tipo": tipo, "dias": len(dias), "dias_ja_concluidos": 0, "coletados": 0, "novos": 0,
+              "atualizados": 0, "falhas": []}
     try:
         for indice, dia in enumerate(dias, start=1):
+            plano = plano_de_retomada(dia)
+            if not plano:
+                resumo["dias_ja_concluidos"] += 1
+                continue
 
             def _progresso(pagina: Dict[str, Any], dia=dia, indice=indice) -> None:
+                _salvar_progresso(dia, pagina["codigo_modalidade"], pagina["pagina"],
+                                  pagina["total_paginas"], pagina["concluido"])
                 estado["progresso"] = {
                     "tipo": tipo,
                     "dia": f"{dia[6:8]}/{dia[4:6]}/{dia[:4]}",
@@ -79,7 +142,8 @@ def _coletar_dias(dias: List[str], notificar_alertas: bool, tipo: str) -> Dict[s
                     db=db,
                     data_inicial=dia,
                     data_final=dia,
-                    modalidades=MODALIDADES_DISPUTA,
+                    modalidades=[c for c in MODALIDADES_DISPUTA if c in plano],
+                    pagina_inicial=plano,
                     paginas_por_modalidade=settings.AUTO_SYNC_PAGINAS_POR_DIA,
                     limit_per_page=50,
                     reforco_al=False,

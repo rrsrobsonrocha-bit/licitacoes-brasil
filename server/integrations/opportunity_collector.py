@@ -207,6 +207,7 @@ def sync_procurement_opportunities(
     notificar_alertas: bool = True,
     pausa_entre_paginas: float = 0.0,
     ao_progredir: Optional[Callable[[Dict[str, Any]], None]] = None,
+    pagina_inicial: Optional[Dict[int, int]] = None,
 ) -> Dict[str, Any]:
     """
     Pipeline unificado de sincronização em larga escala:
@@ -222,6 +223,7 @@ def sync_procurement_opportunities(
     (``totalPaginas``) ou até uma página vazia; cada página é gravada (commit) assim que chega, e
     ``ao_progredir`` recebe o andamento (modalidade, página, total de páginas, coletados).
     Falhas persistentes da API (após as novas tentativas do conector) ficam em ``erros``.
+    ``pagina_inicial`` ({código da modalidade: página}) retoma uma coleta interrompida.
     """
     connector = PNCPConnector()
     now = datetime.utcnow()
@@ -364,7 +366,8 @@ def sync_procurement_opportunities(
 
         for mod_code, mod_label in target_modalities:
             max_pages_mod = pages_per_mod.get(mod_code, 1)
-            for page_num in range(1, max_pages_mod + 1):
+            inicio = max(1, (pagina_inicial or {}).get(mod_code, 1))
+            for page_num in range(inicio, max_pages_mod + 1):
                 if pausa_entre_paginas and page_num > 1:
                     time.sleep(pausa_entre_paginas)  # cortesia com a API pública em coletas longas
                 live_result = connector.fetch_tenders_live(
@@ -456,18 +459,32 @@ def sync_procurement_opportunities(
 
                     persistir_pendentes()
                     total_paginas = int(live_result["data"].get("totalPaginas") or 0)
+                    ultima = len(raw_data) < page_size or bool(total_paginas and page_num >= total_paginas)
                     if ao_progredir:
                         ao_progredir({
+                            "codigo_modalidade": mod_code,
                             "modalidade": mod_label,
                             "pagina": page_num,
                             "total_paginas": total_paginas,
+                            "concluido": ultima,
                             "coletados": len(records_to_process),
                             "novos": novos_inseridos,
                         })
-                    if len(raw_data) < page_size or (total_paginas and page_num >= total_paginas):
+                    if ultima:
                         break
                 elif live_result.get("success"):
-                    break  # página vazia: não há mais registros nesta modalidade
+                    # Página vazia: não há mais registros nesta modalidade
+                    if ao_progredir:
+                        ao_progredir({
+                            "codigo_modalidade": mod_code,
+                            "modalidade": mod_label,
+                            "pagina": page_num - 1,
+                            "total_paginas": int((live_result.get("data") or {}).get("totalPaginas") or 0),
+                            "concluido": True,
+                            "coletados": len(records_to_process),
+                            "novos": novos_inseridos,
+                        })
+                    break
                 else:
                     # Falha persistente mesmo após as novas tentativas do conector (ex.: 429 contínuo)
                     erros.append(f"{mod_label} página {page_num}: {str(live_result.get('error', ''))[:120]}")

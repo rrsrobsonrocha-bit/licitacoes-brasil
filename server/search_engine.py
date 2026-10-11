@@ -52,18 +52,17 @@ def filtro_publicacao(date_from: Optional[str] = None, date_to: Optional[str] = 
 
 def filtro_vigentes(agora: Optional[datetime] = None):
     """
-    Condição SQL de certame vigente/aberto para disputa, independente da data de publicação:
-    status ativo e prazo de propostas no futuro (ou, sem prazo, abertura no futuro ou não informada).
+    Condição SQL de certame vigente/aberto para disputa: status ativo e prazo FUTURO para entrega de
+    propostas (dataEncerramentoProposta do PNCP; sem ela, a data de abertura). Não há corte pela data
+    de publicação: um edital publicado há 45 ou 60 dias com propostas abertas continua vigente.
+    Sem nenhuma data de prazo informada, o certame não é contado como vigente.
     """
     agora = agora or agora_sao_paulo_naive()
     status_norm = func.lower(func.coalesce(Tender.status, ""))
     status_ativo = and_(*[~status_norm.like(f"%{trecho}%") for trecho in STATUS_NAO_VIGENTES])
     prazo_aberto = or_(
         Tender.proposal_deadline >= agora,
-        and_(
-            Tender.proposal_deadline.is_(None),
-            or_(Tender.opening_date >= agora, Tender.opening_date.is_(None)),
-        ),
+        and_(Tender.proposal_deadline.is_(None), Tender.opening_date >= agora),
     )
     return and_(status_ativo, prazo_aberto)
 

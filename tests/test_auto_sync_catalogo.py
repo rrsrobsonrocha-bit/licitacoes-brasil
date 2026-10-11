@@ -18,6 +18,24 @@ from server.services import auto_sync
 client = TestClient(app)
 
 
+@pytest.fixture(autouse=True)
+def progresso_de_coleta_limpo():
+    """Cada teste começa sem progresso de coleta salvo (a retomada é verificada explicitamente)."""
+    from server.models import SyncProgresso
+
+    def _limpar():
+        db = SessionLocal()
+        try:
+            db.query(SyncProgresso).delete(synchronize_session=False)
+            db.commit()
+        finally:
+            db.close()
+
+    _limpar()
+    yield
+    _limpar()
+
+
 class PNCPPorDia:
     """API do PNCP simulada que registra as consultas e devolve certames do dia pedido."""
 
@@ -97,9 +115,13 @@ def test_warmup_coleta_15_dias_do_mais_recente_ao_mais_antigo_e_deduplica(monkey
             assert _contar(prefixo) == 45
             alertas.assert_not_called()  # acervo retroativo não dispara alertas em massa
 
-            # Segunda execução: upsert por numeroControlePNCP, sem duplicar
+            # Segunda execução (ex.: novo deploy): retoma — dias encerrados e concluídos são pulados;
+            # só hoje e ontem, que ainda recebem publicações, são relidos. Nada é duplicado.
+            api.chamadas.clear()
             resumo2 = auto_sync.executar_warmup()
-            assert resumo2["novos"] == 0 and resumo2["atualizados"] == 45
+            assert {c[0] for c in api.chamadas} == set(esperados[:2])
+            assert resumo2["dias_ja_concluidos"] == 13
+            assert resumo2["novos"] == 0 and resumo2["atualizados"] == 6
             assert _contar(prefixo) == 45
     finally:
         _apagar_por_prefixo(prefixo)
@@ -376,3 +398,40 @@ def test_botao_sincronizar_exige_login_e_dispara_em_background(criar_usuario, mo
     disparo.return_value = False
     assert client.post("/api/sync/run", headers=conta.headers).json()["iniciada"] is False
     assert "progresso" in client.get("/api/sync/status").json()
+
+
+def test_plano_de_retomada_apos_reinicio_do_deploy():
+    from server.models import SyncProgresso
+
+    hoje = hoje_sao_paulo()
+    antigo = (hoje - timedelta(days=5)).strftime("%Y%m%d")
+    hoje_str = hoje.strftime("%Y%m%d")
+    db = SessionLocal()
+    try:
+        db.add_all([
+            # Dia encerrado: Pregão interrompido na página 2 de 30; Dispensa concluída
+            SyncProgresso(dia=antigo, codigo_modalidade=6, ultima_pagina=2, total_paginas=30, concluido=False),
+            SyncProgresso(dia=antigo, codigo_modalidade=8, ultima_pagina=53, total_paginas=53, concluido=True),
+            # Hoje: ainda recebe publicações — relê a última página lida
+            SyncProgresso(dia=hoje_str, codigo_modalidade=6, ultima_pagina=4, total_paginas=4, concluido=True),
+        ])
+        db.commit()
+    finally:
+        db.close()
+
+    assert auto_sync.plano_de_retomada(antigo) == {6: 3}  # continua da página seguinte; Dispensa pulada
+    assert auto_sync.plano_de_retomada(hoje_str) == {6: 4, 8: 1}
+    sem_progresso = (hoje - timedelta(days=9)).strftime("%Y%m%d")
+    assert auto_sync.plano_de_retomada(sem_progresso) == {6: 1, 8: 1}
+
+    # A coleta do dia interrompido pede ao PNCP a partir da página 3, só do Pregão
+    prefixo = f"RETOMA-{uuid.uuid4().hex[:8]}"
+    api = PNCPPaginado(prefixo, total_paginas=4, ultima=10)
+    try:
+        with patch.object(PNCPConnector, "fetch_tenders_live", api), \
+             patch.object(auto_sync, "_ultimos_dias", lambda _q: [antigo]):
+            auto_sync.executar_warmup(dias=1)
+        assert api.chamadas == [(6, 3), (6, 4)]
+        assert auto_sync.plano_de_retomada(antigo) == {}  # dia concluído
+    finally:
+        _apagar_por_prefixo(prefixo)

@@ -697,7 +697,13 @@
       SUSPENDED: ['Suspenso', 'bg-rose-500/10 text-rose-300 border-rose-500/30'],
       CANCELED: ['Cancelado', 'bg-slate-700/40 text-slate-300 border-slate-600'],
     };
-    const ROTULO_PLANO = { GRATUITO: 'Gratuito', MENSAL: 'Mensal', ANUAL: 'Anual' };
+    const ROTULO_PLANO = { TRIAL: 'Trial (degustação)', GRATUITO: 'Gratuito', MENSAL: 'Mensal', ANUAL: 'Anual' };
+    const DURACAO_PLANO = { TRIAL: 'dias de degustação', MENSAL: '30 dias de acesso', ANUAL: '365 dias de acesso' };
+    // Extensões de prazo oferecidas ao admin (dias somados ao prazo atual, ou a partir de hoje se vencido)
+    const EXTENSOES = [
+      ['3', '+3 Dias'], ['7', '+7 Dias'], ['15', '+15 Dias'], ['30', '+30 Dias (1 Mês)'], ['365', '+1 Ano'],
+      ['vitalicio', 'Acesso Vitalício'], ['data', 'Data personalizada…'],
+    ];
 
     function cabecalhos(extra) {
       const h = Object.assign({}, extra || {});
@@ -738,6 +744,59 @@
       }
     }
 
+    // Seletor de prazo: +3/+7/+15/+30 dias, +1 ano, acesso vitalício ou data personalizada
+    function seletorPrazo(u) {
+      const caixa = document.createElement('span');
+      caixa.className = 'inline-flex items-center gap-1 align-middle';
+      const sel = document.createElement('select');
+      sel.className = 'prazo-select bg-slate-900 border border-sky-500/40 text-sky-200 rounded-md text-[11px] px-1.5 py-1';
+      sel.setAttribute('aria-label', `Estender o acesso de ${u.name}`);
+      const titulo = document.createElement('option');
+      titulo.value = '';
+      titulo.textContent = 'Prazo…';
+      sel.appendChild(titulo);
+      const vitalicio = u.trial_days_left === null;
+      EXTENSOES.forEach(([valor, rotulo]) => {
+        const op = document.createElement('option');
+        op.value = valor;
+        op.textContent = rotulo;
+        // Acesso vitalício não tem prazo para somar dias: use a data personalizada
+        op.disabled = vitalicio && /^\d+$/.test(valor);
+        sel.appendChild(op);
+      });
+      const data = document.createElement('input');
+      data.type = 'date';
+      data.className = 'hidden bg-slate-900 border border-slate-700 text-slate-100 rounded-md text-[11px] px-1 py-0.5 [color-scheme:dark]';
+      data.min = new Date().toISOString().slice(0, 10);
+      data.setAttribute('aria-label', `Data final de acesso de ${u.name}`);
+      const id = encodeURIComponent(u.id);
+      const json = (corpo) => ({ body: JSON.stringify(corpo), headers: { 'Content-Type': 'application/json' } });
+      sel.addEventListener('change', () => {
+        const valor = sel.value;
+        data.classList.toggle('hidden', valor !== 'data');
+        if (valor === 'data') { data.focus(); return; }
+        if (!valor) return;
+        if (valor === 'vitalicio') {
+          if (confirm(`Dar acesso vitalício (sem data de expiração) a ${u.name}?`)) {
+            executar(`/api/admin/users/${id}/prazo`, json({ vitalicio: true }), `${u.name} com acesso vitalício.`);
+          }
+        } else {
+          const rotulo = EXTENSOES.find(([v]) => v === valor)[1];
+          executar(`/api/admin/users/${id}/estender?dias=${valor}`, {}, `${rotulo} para ${u.name}.`);
+        }
+        sel.value = '';
+      });
+      data.addEventListener('change', () => {
+        if (!data.value) return;
+        const legivel = data.value.split('-').reverse().join('/');
+        if (confirm(`Acesso de ${u.name} até ${legivel} (fim do dia)?`)) {
+          executar(`/api/admin/users/${id}/prazo`, json({ data: data.value }), `Acesso de ${u.name} até ${legivel}.`);
+        }
+      });
+      caixa.append(sel, data);
+      return caixa;
+    }
+
     function linha(u) {
       const tr = document.createElement('tr');
       tr.className = 'border-b border-slate-800/70 hover:bg-slate-800/30';
@@ -758,7 +817,7 @@
       const sel = document.createElement('select');
       sel.className = 'plano-select bg-slate-900 border border-slate-700 text-slate-100 rounded-md text-xs px-1.5 py-1';
       sel.setAttribute('aria-label', `Plano de ${u.name}`);
-      ['GRATUITO', 'MENSAL', 'ANUAL'].forEach((p) => {
+      ['TRIAL', 'GRATUITO', 'MENSAL', 'ANUAL'].forEach((p) => {
         const op = document.createElement('option');
         op.value = p;
         op.textContent = ROTULO_PLANO[p];
@@ -769,7 +828,7 @@
         const novo = sel.value;
         const aviso = novo === 'GRATUITO'
           ? `Mudar ${u.name} para o plano Gratuito (acesso sem data de expiração)?`
-          : `Mudar ${u.name} para o plano ${ROTULO_PLANO[novo]} (${novo === 'MENSAL' ? '30' : '365'} dias de acesso)?`;
+          : `Mudar ${u.name} para o plano ${ROTULO_PLANO[novo]} (${DURACAO_PLANO[novo]})?`;
         if (!confirm(aviso)) { sel.value = u.plan_type; return; }
         executar(`/api/admin/users/${encodeURIComponent(u.id)}/plano`,
           { body: JSON.stringify({ plan_type: novo }), headers: { 'Content-Type': 'application/json' } },
@@ -792,7 +851,7 @@
       tdStatus.appendChild(badge);
       tr.appendChild(tdStatus);
 
-      const dias = u.trial_days_left === null ? 'Sem prazo' : `${u.trial_days_left} dia${u.trial_days_left === 1 ? '' : 's'}`;
+      const dias = u.trial_days_left === null ? 'Vitalício' : `${u.trial_days_left} dia${u.trial_days_left === 1 ? '' : 's'}`;
       tr.appendChild(celula(dias, u.trial_days_left !== null && u.trial_days_left <= 3 ? 'text-amber-300 font-mono' : 'text-slate-300 font-mono'));
 
       const acoes = celula(null, 'text-right whitespace-nowrap space-x-1');
@@ -804,11 +863,7 @@
       acoes.appendChild(botao('Reativar', 'border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10',
         u.subscription_status === 'SUSPENDED' || u.subscription_status === 'CANCELED',
         () => executar(`/api/admin/users/${encodeURIComponent(u.id)}/reativar`, {}, `${u.name} reativado.`)));
-      const mais3 = botao('+3 Dias', 'border-sky-500/40 text-sky-300 hover:bg-sky-500/10',
-        u.trial_days_left !== null,
-        () => executar(`/api/admin/users/${encodeURIComponent(u.id)}/estender?dias=3`, {}, `+3 dias para ${u.name}.`));
-      if (u.trial_days_left === null) mais3.title = 'Acesso sem data de expiração';
-      acoes.appendChild(mais3);
+      acoes.appendChild(seletorPrazo(u));
       tr.appendChild(acoes);
       return tr;
     }

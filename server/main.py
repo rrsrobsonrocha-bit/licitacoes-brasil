@@ -5,11 +5,13 @@ import csv
 import io
 import asyncio
 import logging
-from datetime import datetime, date, timedelta
+from urllib.parse import urlencode
+from datetime import datetime, date, timedelta, timezone
 from zoneinfo import ZoneInfo
 from typing import Optional, List, Dict, Any, Union
 from fastapi import FastAPI, Depends, HTTPException, status, Query, Request, Response, Body, Form, File, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, FileResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse, FileResponse
+from fastapi.concurrency import run_in_threadpool
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
@@ -31,7 +33,8 @@ from server.models import (
     TenderChange, DocumentExtraction, AIAnalysis, SearchHistory,
     WebhookDispatchLog, Deal, DEAL_STAGES, DEAL_STAGE_LABELS,
     LegalDocumentTemplate, SupplierProspect, generate_uuid, PasswordResetToken,
-    DocumentoEmpresa, DOCUMENTO_CATEGORIAS, DOCUMENTO_DIAS_ALERTA, hoje_sao_paulo, PLANOS
+    DocumentoEmpresa, DOCUMENTO_CATEGORIAS, DOCUMENTO_DIAS_ALERTA, hoje_sao_paulo, PLANOS,
+    MENSAGEM_ACESSO_EXPIRADO, MENSAGEM_ACESSO_SUSPENSO
 )
 from server.schemas import (
     UserRegisterRequest, UserLoginRequest, PasswordChangeRequest,
@@ -75,6 +78,7 @@ from server.services.kit_builder import (
 )
 from server.services import document_vault
 from server.services import pncp_compras
+from server.cache import em_cache
 
 # Fuso horário oficial para prazos e agenda
 try:
@@ -265,6 +269,75 @@ async def security_and_rate_limit_middleware(request: Request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-XSS-Protection"] = "1; mode=block"
     return response
+
+# ----------------- Controle de acesso global (paywall e derrubada de sessão) -----------------
+# Rotas abertas a visitantes: vitrine institucional, autenticação, recuperação de senha,
+# health checks, PWA, arquivos estáticos e webhooks de integrações.
+ROTAS_PUBLICAS = {
+    "/", "/login", "/register", "/recuperar-senha", "/esqueci-senha", "/redefinir-senha",
+    "/healthz", "/healthz/db", "/ping", "/manifest.json", "/sw.js", "/favicon.ico", "/robots.txt",
+}
+PREFIXOS_PUBLICOS = ("/static/", "/api/auth/", "/api/webhooks/", "/api/docs", "/api/redoc", "/openapi.json")
+MENSAGEM_VITRINE = "Inicie sessão ou crie a sua conta para aceder aos detalhes e oportunidades"
+
+
+def _rota_publica(caminho: str) -> bool:
+    return caminho in ROTAS_PUBLICAS or caminho.startswith(PREFIXOS_PUBLICOS)
+
+
+def _resolver_sessao(request: Request) -> Optional[User]:
+    db = SessionLocal()
+    try:
+        user = _usuario_da_sessao(request, db)
+        if user:
+            db.expunge(user)
+        return user
+    finally:
+        db.close()
+
+
+def _redirecionar_login(request: Request, motivo: str) -> RedirectResponse:
+    destino = request.url.path + (f"?{request.url.query}" if request.url.query else "")
+    return RedirectResponse(f"/login?{urlencode({'motivo': motivo, 'next': destino})}", status_code=303)
+
+
+@app.middleware("http")
+async def controle_de_acesso_middleware(request: Request, call_next):
+    """
+    Resolve a conta da sessão em toda requisição (exposta em request.state.usuario para os templates).
+    - Conta suspensa/cancelada/expirada: sessão derrubada na hora — cookie apagado, redireciona para
+      /login (páginas) ou 403 com o motivo (API), inclusive para tokens já emitidos.
+    - Visitante em rota do sistema (com ACESSO_EXIGE_LOGIN): /login (páginas) ou 401 (API).
+    """
+    caminho = request.url.path
+    request.state.usuario = None
+    if caminho.startswith("/static/"):
+        return await call_next(request)
+
+    usuario = await run_in_threadpool(_resolver_sessao, request)
+    api = caminho.startswith("/api/")
+
+    if usuario and (usuario.status != "ACTIVE" or usuario.motivo_bloqueio()):
+        motivo = usuario.motivo_bloqueio() or "Conta inativa."
+        codigo = "expirado" if motivo == MENSAGEM_ACESSO_EXPIRADO else "suspenso"
+        if caminho.startswith(("/api/auth/", "/api/webhooks/")) or (caminho in ROTAS_PUBLICAS and not api):
+            # Login, logout e vitrine seguem acessíveis, mas como visitante
+            resposta = await call_next(request)
+        elif api:
+            resposta = JSONResponse(status_code=403, content={"detail": motivo, "sessao_encerrada": True},
+                                    headers={"X-Sessao-Encerrada": codigo})
+        else:
+            resposta = _redirecionar_login(request, codigo)
+        resposta.delete_cookie(SESSION_COOKIE, path="/")
+        return resposta
+
+    request.state.usuario = usuario
+    if not usuario and settings.ACESSO_EXIGE_LOGIN and not _rota_publica(caminho):
+        if api:
+            return JSONResponse(status_code=401, content={"detail": MENSAGEM_VITRINE})
+        return _redirecionar_login(request, "login")
+    return await call_next(request)
+
 
 # Cookie HttpOnly com o mesmo JWT da sessão: permite que páginas renderizadas no servidor
 # (/negocios, /agenda, /dashboard) saibam quem é o usuário numa navegação comum.
@@ -600,12 +673,32 @@ def page_alerts(request: Request):
     return templates.TemplateResponse(request, "alerts.html", {})
 
 @app.get("/admin", response_class=HTMLResponse)
-def page_admin(request: Request):
-    return templates.TemplateResponse(request, "admin.html", {})
+@app.get("/gestao", response_class=HTMLResponse)
+def page_admin(request: Request, db: Session = Depends(get_db)):
+    """Painel de gestão: exclusivo de ADMIN. Clientes comuns vão para o próprio painel, sem pista dele."""
+    user = get_current_user(request, db)
+    if not user:
+        return _redirecionar_login(request, "login")
+    if user.role != "ADMIN":
+        return RedirectResponse("/dashboard", status_code=303)
+    return templates.TemplateResponse(request, "admin.html", {"user": user})
+
+AVISOS_LOGIN = {
+    "login": MENSAGEM_VITRINE,
+    "vitrine": MENSAGEM_VITRINE,
+    "suspenso": MENSAGEM_ACESSO_SUSPENSO,
+    "expirado": MENSAGEM_ACESSO_EXPIRADO,
+}
+
 
 @app.get("/login", response_class=HTMLResponse)
-def page_login(request: Request):
-    return templates.TemplateResponse(request, "login.html", {"remember_days": settings.REMEMBER_ME_DAYS})
+def page_login(request: Request, motivo: Optional[str] = None):
+    return templates.TemplateResponse(request, "login.html", {
+        "remember_days": settings.REMEMBER_ME_DAYS,
+        "aviso_acesso": AVISOS_LOGIN.get(motivo or ""),
+        # Sessão derrubada pelo servidor: o navegador também descarta o token guardado
+        "encerrar_sessao": motivo in ("suspenso", "expirado"),
+    })
 
 @app.get("/register", response_class=HTMLResponse)
 def page_register(request: Request):
@@ -1283,11 +1376,11 @@ def _perfil_usuario(user: User) -> UserProfileResponse:
 
 
 def _assinatura_inicial() -> Dict[str, Any]:
-    """Conta nova: período de teste de TRIAL_DIAS dias, ou plano gratuito sem prazo quando TRIAL_DIAS=0."""
+    """Conta nova: degustação (plano TRIAL, ativa) por TRIAL_DIAS dias; com TRIAL_DIAS=0, gratuito sem prazo."""
     if settings.TRIAL_DIAS > 0:
         return {
-            "plan_type": "GRATUITO",
-            "subscription_status": "TRIAL",
+            "plan_type": "TRIAL",
+            "subscription_status": "ACTIVE",
             "access_expires_at": datetime.utcnow() + timedelta(days=settings.TRIAL_DIAS),
         }
     return {"plan_type": "GRATUITO", "subscription_status": "ACTIVE", "access_expires_at": None}
@@ -3318,13 +3411,14 @@ def api_admin_reativar(user_id: str, admin: User = Depends(require_admin), db: S
 @app.post("/api/admin/users/{user_id}/estender")
 def api_admin_estender(
     user_id: str,
-    dias: int = Query(3, ge=1, le=365),
+    dias: int = Query(3, ge=1, le=3650),
     admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     """
-    Extensão de cortesia (padrão +3 dias) sobre access_expires_at. Se o prazo já venceu, conta a
-    partir de agora. Contas sem data de expiração já têm acesso sem prazo e não são alteradas.
+    Extensão de prazo (+3, +7, +15, +30, +365 dias...) sobre access_expires_at. Se o prazo já
+    venceu, conta a partir de agora. Contas com acesso vitalício (sem data) não são alteradas:
+    para dar um prazo a elas, use a data personalizada.
     """
     cliente = _cliente_ou_404(db, user_id)
     if not cliente.access_expires_at:
@@ -3337,11 +3431,44 @@ def api_admin_estender(
     return _assinatura_admin(cliente)
 
 
+class DefinirPrazoRequest(BaseModel):
+    vitalicio: bool = False
+    data: Optional[date] = None  # último dia de acesso (fim do dia, horário de Brasília)
+
+
+@app.post("/api/admin/users/{user_id}/prazo")
+def api_admin_definir_prazo(
+    user_id: str,
+    payload: DefinirPrazoRequest,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Acesso vitalício (sem data de expiração) ou data personalizada escolhida pelo admin."""
+    cliente = _cliente_ou_404(db, user_id)
+    if payload.vitalicio:
+        cliente.access_expires_at = None
+    elif payload.data:
+        if payload.data < hoje_sao_paulo():
+            raise HTTPException(status_code=422, detail="Escolha uma data a partir de hoje. Para bloquear, use Suspender.")
+        fim_do_dia = datetime.combine(payload.data, datetime.max.time().replace(microsecond=0), tzinfo=SP_TZ)
+        cliente.access_expires_at = fim_do_dia.astimezone(timezone.utc).replace(tzinfo=None)
+    else:
+        raise HTTPException(status_code=422, detail="Informe uma data ou marque acesso vitalício.")
+    db.commit()
+    logger.warning("Admin %s definiu o prazo de %s: %s.", admin.email, cliente.email,
+                   "vitalício" if cliente.access_expires_at is None else cliente.access_expires_at.isoformat())
+    return _assinatura_admin(cliente)
+
+
 class AlterarPlanoRequest(BaseModel):
     plan_type: str
 
 
-DURACAO_PLANOS = {"MENSAL": timedelta(days=30), "ANUAL": timedelta(days=365)}
+DURACAO_PLANOS = {
+    "TRIAL": timedelta(days=max(1, settings.TRIAL_DIAS)),
+    "MENSAL": timedelta(days=30),
+    "ANUAL": timedelta(days=365),
+}
 
 
 @app.post("/api/admin/users/{user_id}/plano")
@@ -3352,8 +3479,8 @@ def api_admin_alterar_plano(
     db: Session = Depends(get_db),
 ):
     """
-    Troca manual de plano. Mensal/Anual: assinatura ativa por 30/365 dias a partir de agora (ou do
-    fim do prazo atual, se ainda vigente). Gratuito: plano gratuito ativo e sem data de expiração.
+    Troca manual de plano. Trial/Mensal/Anual: ativa por TRIAL_DIAS/30/365 dias a partir de agora (ou
+    do fim do prazo atual, se ainda vigente). Gratuito: plano gratuito ativo e sem data de expiração.
     """
     plano = (payload.plan_type or "").strip().upper()
     if plano not in PLANOS:
@@ -3374,9 +3501,11 @@ def api_admin_alterar_plano(
 
 @app.get("/api/admin/metrics")
 def api_admin_metrics(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
-    tenders_count = db.query(Tender).count()
-    users_count = db.query(User).count()
-    ai_count = db.query(AIAnalysis).count()
+    # Contagens globais em cache (TTL): estáveis mesmo durante a coleta em segundo plano
+    ttl = settings.CACHE_CONTAGENS_SEGUNDOS
+    tenders_count = em_cache("admin:tenders", ttl, lambda: db.query(func.count(Tender.id)).scalar() or 0)
+    users_count = em_cache("admin:users", ttl, lambda: db.query(func.count(User.id)).scalar() or 0)
+    ai_count = em_cache("admin:ai", ttl, lambda: db.query(func.count(AIAnalysis.id)).scalar() or 0)
     sources = db.query(Source).all()
     return {
         "tenders_count": tenders_count,

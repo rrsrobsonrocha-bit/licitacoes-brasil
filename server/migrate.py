@@ -85,6 +85,10 @@ INDICES_EXPLICITOS: List[Tuple[str, str, str]] = [
     ("ix_tenders_url_pncp", "tenders", "url_pncp"),
     ("ix_tenders_url_disputa", "tenders", "url_disputa"),
     ("ix_tenders_natureza_objeto", "tenders", "natureza_objeto"),
+    # Editais vigentes: prazo de propostas futuro, combinado com status, UF e modalidade
+    ("ix_tenders_deadline_status", "tenders", "proposal_deadline, status"),
+    ("ix_tenders_state_deadline", "tenders", "state, proposal_deadline"),
+    ("ix_tenders_modality_deadline", "tenders", "modality, proposal_deadline"),
 ]
 
 
@@ -509,7 +513,7 @@ def run_db_migrations():
         # Banco ainda sem esquema: Base.metadata.create_all (server/main.py) cria tudo.
         return
 
-    from server.models import DocumentoEmpresa, HistoricoDisputa, PasswordResetToken
+    from server.models import DocumentoEmpresa, HistoricoDisputa, PasswordResetToken, SyncProgresso
 
     # 1. Colunas novas em tabelas existentes
     _adicionar_colunas(COLUNAS_SAVED_SEARCHES)
@@ -537,6 +541,7 @@ def run_db_migrations():
     # 2. Tabelas auxiliares (auditoria de disputas, cofre de documentos e recuperação de senha)
     _criar_tabela_do_modelo(HistoricoDisputa)
     _criar_tabela_do_modelo(DocumentoEmpresa)
+    _criar_tabela_do_modelo(SyncProgresso)
     if "users" in _tabelas_existentes():
         _criar_tabela_do_modelo(PasswordResetToken)
 

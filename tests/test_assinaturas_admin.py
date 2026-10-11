@@ -78,8 +78,9 @@ def test_suspender_revoga_sessao_e_login_e_reativar_devolve_acesso(cliente, admi
     assert bloqueado.status_code == 403 and "suspenso" in bloqueado.json()["detail"]
     login = client.post("/api/auth/login", json={"email": cliente.email, "password": SENHA})
     assert login.status_code == 403 and "suspenso" in login.json()["detail"]
-    # Nas páginas, a conta suspensa volta a ser tratada como visitante (sem dados privados)
-    assert client.get("/api/user/dashboard-summary", headers=cliente.headers).json()["active_deals_count"] == 0
+    # Qualquer API devolve 403 com o sinal de sessão encerrada (o navegador desloga na hora)
+    api = client.get("/api/user/dashboard-summary", headers=cliente.headers)
+    assert api.status_code == 403 and api.headers["X-Sessao-Encerrada"] == "suspenso"
 
     resp = client.post(f"/api/admin/users/{cliente.id}/reativar", headers=admin.headers)
     assert resp.status_code == 200 and resp.json()["subscription_status"] == "ACTIVE"
@@ -163,18 +164,22 @@ def _registrar(email: str):
     return client.post("/api/auth/register", json={"name": "Conta Nova", "email": email, "password": "SenhaNova@2026"})
 
 
-def test_conta_nova_nasce_gratuita_sem_prazo_ou_em_teste(monkeypatch):
+def test_conta_nova_recebe_7_dias_de_degustacao(monkeypatch):
     import uuid
     db = SessionLocal()
     emails = [f"nova-{uuid.uuid4().hex[:8]}@exemplo.com.br" for _ in range(2)]
     try:
-        assert _registrar(emails[0]).status_code == 200
+        antes = datetime.utcnow()
+        perfil = _registrar(emails[0]).json()["user"]
+        assert (perfil["plan_type"], perfil["subscription_status"], perfil["trial_days_left"]) == ("TRIAL", "ACTIVE", 7)
         u = db.query(User).filter(User.email == emails[0]).one()
-        assert (u.plan_type, u.subscription_status, u.access_expires_at) == ("GRATUITO", "ACTIVE", None)
+        assert antes + timedelta(days=7) <= u.access_expires_at <= datetime.utcnow() + timedelta(days=7)
 
-        monkeypatch.setattr(settings, "TRIAL_DIAS", 7)
-        perfil = _registrar(emails[1]).json()["user"]
-        assert perfil["subscription_status"] == "TRIAL" and perfil["trial_days_left"] == 7
+        # TRIAL_DIAS=0: conta nasce no plano gratuito, sem data de expiração
+        monkeypatch.setattr(settings, "TRIAL_DIAS", 0)
+        assert _registrar(emails[1]).status_code == 200
+        u = db.query(User).filter(User.email == emails[1]).one()
+        assert (u.plan_type, u.subscription_status, u.access_expires_at) == ("GRATUITO", "ACTIVE", None)
     finally:
         db.query(User).filter(User.email.in_(emails)).delete(synchronize_session=False)
         db.commit()

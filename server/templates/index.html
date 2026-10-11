@@ -1,6 +1,8 @@
 {% extends "base.html" %}
 
 {% block content %}
+{%- set visitante_vitrine = request.state.usuario is not defined or request.state.usuario is none -%}
+<div id="vitrine" data-visitante="{{ '1' if visitante_vitrine else '0' }}">
 <!-- Hero Section -->
 <section class="bg-gradient-to-b from-brand-900 via-brand-800 to-slate-900 text-white pt-14 pb-20 px-4 sm:px-6 lg:px-8">
   <div class="max-w-4xl mx-auto text-center">
@@ -221,6 +223,7 @@
     </div>
   </div>
 </section>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -231,6 +234,34 @@
     url.hash = 'recent-tenders-grid';
     window.location.href = url.toString();
   }
+
+  // Vitrine pública: para visitantes, toda interação (busca, destaques, filtros, links internos)
+  // leva ao login com o convite para entrar ou criar a conta. Login e cadastro seguem livres.
+  (function () {
+    const vitrine = document.getElementById('vitrine');
+    if (!vitrine || vitrine.dataset.visitante !== '1') return;
+    const LIVRES = ['/login', '/register'];
+    function irParaLogin(destino) {
+      const params = new URLSearchParams({ motivo: 'vitrine' });
+      if (destino && destino.startsWith('/') && !destino.startsWith('//')) params.set('next', destino);
+      window.location.href = `/login?${params.toString()}`;
+    }
+    const interceptar = (ev) => {
+      const alvo = ev.target.closest('a, button, select, input[type="submit"]');
+      if (!alvo) return;
+      const href = alvo.tagName === 'A' ? (alvo.getAttribute('href') || '') : '';
+      if (LIVRES.some((livre) => href === livre || href.startsWith(livre + '?'))) return;
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
+      irParaLogin(href || '/search');
+    };
+    vitrine.addEventListener('click', interceptar, true);
+    vitrine.addEventListener('mousedown', (ev) => { if (ev.target.closest('select')) interceptar(ev); }, true);
+    vitrine.addEventListener('submit', (ev) => { ev.preventDefault(); irParaLogin('/search'); }, true);
+    vitrine.addEventListener('change', (ev) => {
+      if (ev.target.matches('select')) { ev.stopImmediatePropagation(); irParaLogin('/search'); }
+    }, true);
+  })();
 
   function fillSearch(query, state) {
     document.getElementById('hero-search-input').value = query;

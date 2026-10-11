@@ -1,3 +1,6 @@
+{#- Menu "Gestão" só para administradores: a conta vem do middleware de controle de acesso -#}
+{%- set usuario_nav = request.state.usuario if request and request.state else none -%}
+{%- set e_admin = usuario_nav is defined and usuario_nav is not none and usuario_nav.role == 'ADMIN' -%}
 <!DOCTYPE html>
 <html lang="pt-BR" class="h-full bg-slate-50">
 <head>
@@ -89,9 +92,11 @@
           <a href="/alerts" class="text-slate-200 hover:text-white transition flex items-center gap-1.5">
             <i class="fa-solid fa-bell text-sky-400"></i> Alertas
           </a>
-          <a href="/admin" class="text-slate-200 hover:text-white transition flex items-center gap-1.5">
+          {% if e_admin %}
+          <a href="/admin" id="nav-gestao" class="text-slate-200 hover:text-white transition flex items-center gap-1.5">
             <i class="fa-solid fa-shield-halved text-emerald-400"></i> Gestão
           </a>
+          {% endif %}
         </nav>
 
         <!-- User Controls / Auth -->
@@ -142,7 +147,7 @@
           <div id="mobile-user-role" class="text-[10px] text-slate-400">Perfil Público</div>
         </div>
       </div>
-      <a href="/admin" class="text-xs text-sky-400 hover:text-sky-300 font-medium py-1 px-2 rounded-md hover:bg-slate-700/50 transition">
+      <a href="{{ '/admin' if e_admin else '/dashboard' }}" class="text-xs text-sky-400 hover:text-sky-300 font-medium py-1 px-2 rounded-md hover:bg-slate-700/50 transition">
         Painel
       </a>
     </div>
@@ -239,14 +244,16 @@
         <i class="fa-solid fa-chevron-right text-xs text-slate-500"></i>
       </a>
 
-      <!-- 10. Gestão / Perfil do Usuário / Administrador -->
-      <a href="/admin" class="flex items-center justify-between px-3 py-2.5 rounded-xl text-slate-200 hover:text-white hover:bg-slate-800/80 transition">
+      {% if e_admin %}
+      <!-- 10. Gestão (somente administradores) -->
+      <a href="/admin" id="nav-gestao-mobile" class="flex items-center justify-between px-3 py-2.5 rounded-xl text-slate-200 hover:text-white hover:bg-slate-800/80 transition">
         <div class="flex items-center gap-3">
           <i class="fa-solid fa-shield-halved text-emerald-400 w-5 text-center"></i>
           <span>Gestão / Administrador</span>
         </div>
         <i class="fa-solid fa-chevron-right text-xs text-slate-500"></i>
       </a>
+      {% endif %}
     </nav>
 
     <!-- 11. Botão Sair / Autenticação no Rodapé do Drawer -->
@@ -429,6 +436,21 @@
         })
         .catch(() => {});
     }
+
+    // Sessão derrubada pelo servidor (conta suspensa/expirada): qualquer chamada à API recebe
+    // X-Sessao-Encerrada; o navegador descarta a sessão e vai para o login com o motivo.
+    (function () {
+      const fetchOriginal = window.fetch.bind(window);
+      window.fetch = async (...args) => {
+        const resposta = await fetchOriginal(...args);
+        const motivo = resposta.headers.get('X-Sessao-Encerrada');
+        if (motivo && !window.location.pathname.startsWith('/login')) {
+          try { AppSession.clear(); } catch {}
+          window.location.replace(`/login?motivo=${encodeURIComponent(motivo)}`);
+        }
+        return resposta;
+      };
+    })();
 
     // Gerenciador de Sessão no Frontend
     // "Manter conectado" => localStorage (persiste ao fechar o navegador);

@@ -81,8 +81,12 @@ class Settings(BaseModel):
     USUARIO_INICIAL_EMAIL: str = os.getenv("USUARIO_INICIAL_EMAIL", "")
     USUARIO_INICIAL_NOME: str = os.getenv("USUARIO_INICIAL_NOME", "")
     USUARIO_INICIAL_SENHA: str = os.getenv("USUARIO_INICIAL_SENHA", "")
-    # Assinaturas: dias de teste para contas novas (0 = sem teste; a conta nasce no plano gratuito sem prazo)
-    TRIAL_DIAS: int = int(os.getenv("TRIAL_DIAS", "0"))
+    # Assinaturas: dias de degustação (plano TRIAL) das contas novas; 0 = plano gratuito sem prazo
+    TRIAL_DIAS: int = int(os.getenv("TRIAL_DIAS", "7"))
+    # Paywall: páginas e APIs do sistema exigem sessão; só a vitrine (/), login e cadastro são públicos
+    ACESSO_EXIGE_LOGIN: bool = os.getenv("ACESSO_EXIGE_LOGIN", "true").lower() in ("1", "true", "yes")
+    # Cache em memória das contagens globais do painel administrativo (segundos; 0 desliga)
+    CACHE_CONTAGENS_SEGUNDOS: int = int(os.getenv("CACHE_CONTAGENS_SEGUNDOS", "60"))
     # Hotmart (integração em modo de espera): token "hottok" enviado pela Hotmart em cada webhook
     HOTMART_HOTTOK: str = os.getenv("HOTMART_HOTTOK", "")
     # Conta que recebe os negócios/alertas legados sem dono (padrão: ADMIN_EMAIL ou a conta real principal)

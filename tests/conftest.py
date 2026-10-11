@@ -26,6 +26,9 @@ os.environ["PNCP_MAX_RETRIES"] = "0"
 # Toda a suíte usa o mesmo "IP" do TestClient: o limite por IP da API (testado à parte em
 # test_security.py) não pode barrar os testes conforme a suíte cresce
 os.environ["RATE_LIMIT_REQUESTS_PER_MINUTE"] = "100000"
+# Os testes de cada funcionalidade usam um cliente anônimo; o paywall (ACESSO_EXIGE_LOGIN) é
+# ligado explicitamente e verificado em tests/test_controle_acesso.py
+os.environ["ACESSO_EXIGE_LOGIN"] = "false"
 os.environ["ORPHAN_OWNER_EMAIL"] = ""
 # Conector Licitações-e ativo em modo mock (não depende do .env da máquina)
 os.environ["LICITACOES_E_ACTIVE"] = "true"

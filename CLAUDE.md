@@ -32,7 +32,11 @@ FastAPI + Jinja2 + SQLAlchemy (SQLite em desenvolvimento, PostgreSQL em produç�
   nunca com senha no código. Contas demo antigas são apagadas no boot; registros legados sem dono
   vão para `ORPHAN_OWNER_EMAIL` (ou `ADMIN_EMAIL`, ou a conta real principal).
 - **Assinaturas.** `User.motivo_bloqueio()` é a regra única de acesso (suspensa, cancelada ou prazo
-  vencido bloqueia; ADMIN nunca). Gestão manual em `/api/admin/users/*`, só para ADMIN.
+  vencido bloqueia; ADMIN nunca). Gestão manual em `/api/admin/users/*`, só para ADMIN. Conta nova:
+  plano TRIAL de `TRIAL_DIAS` (7) dias.
+- **Controle de acesso.** O middleware `controle_de_acesso_middleware` (server/main.py) derruba na hora
+  a sessão de conta bloqueada e, com `ACESSO_EXIGE_LOGIN`, exige login fora da vitrine (`ROTAS_PUBLICAS`).
+  O menu "Gestão" e `/admin`/`/gestao` são exclusivos de ADMIN.
 
 ## Desenvolvimento
 

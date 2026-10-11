@@ -68,6 +68,12 @@
         </span>
       </label>
 
+      {% if aviso_acesso %}
+      <p id="login-aviso" role="status" data-encerrar-sessao="{{ '1' if encerrar_sessao else '0' }}"
+         class="text-xs rounded-xl px-3 py-2 border {% if encerrar_sessao %}text-rose-700 bg-rose-50 border-rose-200{% else %}text-sky-800 bg-sky-50 border-sky-200{% endif %}">
+        {{ aviso_acesso }}
+      </p>
+      {% endif %}
       <p id="login-erro" role="alert" class="hidden text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2"></p>
 
       <button
@@ -145,7 +151,30 @@
     }
   }
 
+  // Chegada a partir de uma rota protegida: sessão derrubada (suspensão/expiração) descarta o token
+  // guardado; com um token ainda válido (sessão antiga, sem cookie), recupera o cookie e segue.
+  async function tratarChegadaAoLogin() {
+    const aviso = document.getElementById('login-aviso');
+    if (aviso && aviso.dataset.encerrarSessao === '1') {
+      AppSession.clear();
+      return;
+    }
+    const token = AppSession.getToken();
+    if (!token) return;
+    try {
+      const resp = await fetch('/api/auth/session', {
+        method: 'POST', credentials: 'same-origin', headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (resp.ok) {
+        window.location.replace(destinoAposLogin(AppSession.getUser()));
+      } else if (resp.status === 401 || resp.status === 403) {
+        AppSession.clear();
+      }
+    } catch {}
+  }
+
   document.addEventListener('DOMContentLoaded', () => {
+    tratarChegadaAoLogin();
     let ultimoEmail = '';
     try { ultimoEmail = localStorage.getItem('lb_ultimo_email') || ''; } catch {}
     if (ultimoEmail) {
