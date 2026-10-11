@@ -72,8 +72,9 @@ def test_page_dashboard_html_rendering_executive_cards():
 
     # Validar os 4 cards de topo
     assert "Negócios ativos" in html
-    assert "Empresas identificadas" in html
-    assert "Licitações publicadas hoje" in html
+    assert "Órgãos mapeados" in html
+    assert "Editais vigentes para disputa" in html
+    assert "publicadas hoje" in html
     assert "Eventos na agenda" in html
 
     # Validar caixas de contagem por categoria

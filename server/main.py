@@ -17,7 +17,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
-from sqlalchemy import false, func, text
+from sqlalchemy import and_, case, false, func, text
 from pydantic import BaseModel, Field
 
 # Garantir importações locais
@@ -398,6 +398,10 @@ def page_search(
     db: Session = Depends(get_db)
 ):
     effective_size = limit or page_size or 20
+    # Sem período escolhido, a página abre com os editais vigentes (propostas abertas) do catálogo
+    # global; vigentes=false mostra também os encerrados.
+    if vigentes is None and not date_from and not date_to:
+        vigentes = True
     params = SearchFilterParams(
         q=q,
         state=normalizar_uf(state) or normalizar_uf(uf),
@@ -436,7 +440,8 @@ def page_search(
         "total_vigentes": total_vigentes,
         # Atalhos de período de publicação no fuso oficial (America/Sao_Paulo)
         "hoje_iso": hoje.isoformat(),
-        "sete_dias_iso": (hoje - timedelta(days=6)).isoformat()
+        "sete_dias_iso": (hoje - timedelta(days=6)).isoformat(),
+        "quinze_dias_iso": (hoje - timedelta(days=14)).isoformat()
     })
 
 @app.get("/tenders/{tender_id}", response_class=HTMLResponse)
@@ -855,12 +860,18 @@ def get_fornecedores_data(db: Session) -> Dict[str, Any]:
     gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("AI_API_KEY") or ""
     gemini_configured = bool(gemini_key and gemini_key.strip())
 
-    tenders = db.query(Tender).all()
+    # Só as colunas usadas, em lotes: o catálogo global tem dezenas de milhares de editais
+    tenders = db.query(
+        Tender.contracting_entity, Tender.state, Tender.city, Tender.estimated_total_value,
+        Tender.administrative_sphere, Tender.uasg_code, Tender.modality,
+    ).yield_per(2000)
     entities_map: Dict[str, Dict[str, Any]] = {}
     states_set = set()
     total_val = 0.0
+    total_tenders = 0
 
     for t in tenders:
+        total_tenders += 1
         ent = t.contracting_entity or "Órgão Federal / PNCP"
         if t.state:
             states_set.add(t.state)
@@ -904,7 +915,7 @@ def get_fornecedores_data(db: Session) -> Dict[str, Any]:
         "gemini_configured": gemini_configured,
         "companies": companies,
         "total_companies": len(companies),
-        "total_tenders": len(tenders),
+        "total_tenders": total_tenders,
         "total_value": total_val,
         "states_count": len(states_set)
     }
@@ -3044,8 +3055,10 @@ def get_dashboard_summary_data(db: Session, user: Optional[User] = None) -> Dict
     vigentes_count = db.query(func.count(Tender.id)).filter(filtro_vigentes()).scalar() or 0
     total_tenders_count = db.query(func.count(Tender.id)).scalar() or 0
 
-    # 2. Empresas identificadas (órgãos compradores únicos ou entidades)
-    companies_count = db.query(func.count(func.distinct(Tender.contracting_entity))).scalar() or 0
+    # 2. Órgãos mapeados: órgãos públicos distintos com editais vigentes no catálogo global
+    companies_count = db.query(func.count(func.distinct(Tender.contracting_entity))).filter(
+        filtro_vigentes(), Tender.contracting_entity.isnot(None)
+    ).scalar() or 0
 
     # 3. Licitações publicadas HOJE: data oficial de publicação no PNCP, dia corrente em Brasília
     #    (o mesmo critério do filtro "Publicadas hoje" da busca; sem contar sincronizações locais)
@@ -3056,15 +3069,16 @@ def get_dashboard_summary_data(db: Session, user: Optional[User] = None) -> Dict
     total_items_count = db.query(TenderItem).count()
     items_today_count = db.query(TenderItem).join(Tender).filter(publicadas_hoje).count()
 
-    # 4. Distribuição por categoria: Serviços, Materiais e Não Classificado
-    tenders = db.query(Tender).all()
+    # 4. Editais vigentes por tipo de demanda: Serviços, Materiais e Não Classificado
+    #    (só as colunas necessárias, para não carregar o catálogo inteiro na memória)
     servicos_count = 0
     materiais_count = 0
     nao_classificado_count = 0
 
-    for t in tenders:
-        cat = (t.category or "").lower().strip()
-        obj = (t.title or "").lower() + " " + (t.object_description or "").lower()
+    vigentes_resumo = db.query(Tender.category, Tender.title, Tender.object_description).filter(filtro_vigentes())
+    for categoria, titulo, descricao in vigentes_resumo.yield_per(1000):
+        cat = (categoria or "").lower().strip()
+        obj = (titulo or "").lower() + " " + (descricao or "").lower()
         if any(k in cat for k in ["serviço", "servico", "consultoria", "manuten", "loca", "engenharia", "obra", "vigil", "limpeza"]) or any(k in obj for k in ["prestação de serviço", "prestacao de servico", "serviço de", "servicos de"]):
             servicos_count += 1
         elif any(k in cat for k in ["material", "materiais", "medicamento", "alimento", "equipamento", "hospitalar", "suprimento", "insumo", "ti", "tecnologia", "produto"]) or any(k in obj for k in ["aquisição", "aquisicao", "fornecimento"]):
@@ -3075,21 +3089,14 @@ def get_dashboard_summary_data(db: Session, user: Optional[User] = None) -> Dict
             else:
                 nao_classificado_count += 1
 
-    # 5. Distribuição por faixa de valor: Até R$ 50 mil, R$ 50 mil a R$ 250 mil, Acima de R$ 250 mil
-    ate_50k = 0
-    de_50k_a_250k = 0
-    acima_250k = 0
-
-    for t in tenders:
-        val = t.estimated_total_value
-        if val is None or val == 0:
-            ate_50k += 1
-        elif val <= 50000.0:
-            ate_50k += 1
-        elif 50000.0 < val <= 250000.0:
-            de_50k_a_250k += 1
-        else:
-            acima_250k += 1
+    # 5. Editais vigentes por faixa de valor: Até R$ 50 mil, R$ 50 mil a R$ 250 mil, Acima de R$ 250 mil
+    valor = func.coalesce(Tender.estimated_total_value, 0.0)
+    faixas = db.query(
+        func.sum(case((valor <= 50000.0, 1), else_=0)),
+        func.sum(case((and_(valor > 50000.0, valor <= 250000.0), 1), else_=0)),
+        func.sum(case((valor > 250000.0, 1), else_=0)),
+    ).filter(filtro_vigentes()).one()
+    ate_50k, de_50k_a_250k, acima_250k = (int(f or 0) for f in faixas)
 
     # 6. Próximos eventos da agenda vinculados aos negócios do usuário
     deals = _deals_do_usuario(db, user).all()
@@ -3266,10 +3273,9 @@ def api_list_sources():
     return list_all_sources()
 
 # ==========================================================
-# AGENDADOR AUTOMATICO DE OPORTUNIDADES A CADA 2 HORAS
+# ABASTECIMENTO AUTOMATICO DO CATALOGO GLOBAL (AUTO-WARMUP + ATUALIZACAO PERIODICA)
 # ==========================================================
-from server.services.portal_collector import PortalCollectorService
-from server.database import SessionLocal
+from server.services import auto_sync
 
 # Referências fortes às tarefas de background (evita coleta pelo GC e permite cancelar no shutdown)
 _background_tasks: set = set()
@@ -3280,40 +3286,23 @@ def _start_background_task(coro):
     task.add_done_callback(_background_tasks.discard)
     return task
 
-async def loop_coleta_automatica():
-    """Executa a coleta de novas licitacoes a cada 2 horas em background."""
-    await asyncio.sleep(15)  # Aguarda 15s para estabilizar o boot do servidor
-
-    intervalo_minutos = 120  # Execucao a cada 2 horas
-
-    while True:
-        try:
-            print("[AUTO-COLETA] Iniciando busca automatica de oportunidades no PNCP...")
-            collector = PortalCollectorService()
-            db = SessionLocal()
-            try:
-                # Somente dados reais do PNCP: sem catalogo de contingencia na coleta automatica
-                resultado = await collector.sync_pipeline(
-                    sources=["PNCP"], db_session=db, use_fallback=False
-                )
-            finally:
-                db.close()
-            print(
-                f"[AUTO-COLETA] Concluido: {resultado.get('total_collected', 0)} coletadas, "
-                f"{resultado.get('persisted_tenders', 0)} gravadas/atualizadas, "
-                f"erros: {resultado.get('errors') or 'nenhum'}"
-            )
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:
-            print(f"[AUTO-COLETA] Falha na execucao: {e}")
-
-        print(f"[AUTO-COLETA] Proxima busca em {intervalo_minutos} minutos (2 horas)...")
-        await asyncio.sleep(intervalo_minutos * 60)
-
 @app.on_event("startup")
-async def iniciar_busca_automatica():
-    _start_background_task(loop_coleta_automatica())
+async def iniciar_sincronizacao_automatica():
+    # Coleta os últimos 15 dias no arranque e atualiza periodicamente, sem clique de nenhum usuário
+    if settings.AUTO_SYNC_ENABLED:
+        _start_background_task(auto_sync.loop_sincronizacao_automatica())
+
+@app.get("/api/sync/status")
+def api_sync_status(db: Session = Depends(get_db)):
+    """Situação pública do abastecimento automático do catálogo global."""
+    return {
+        "ativo": settings.AUTO_SYNC_ENABLED,
+        "intervalo_minutos": settings.AUTO_SYNC_INTERVALO_MINUTOS,
+        "dias_warmup": settings.AUTO_SYNC_DIAS,
+        "total_editais": db.query(func.count(Tender.id)).scalar() or 0,
+        "editais_vigentes": db.query(func.count(Tender.id)).filter(filtro_vigentes()).scalar() or 0,
+        **auto_sync.estado,
+    }
 
 # ==========================================================
 # HEALTH CHECKS

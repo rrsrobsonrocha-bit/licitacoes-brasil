@@ -3,6 +3,7 @@ import sys
 import json
 import logging
 import re
+import time
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional, Tuple
 
@@ -197,7 +198,14 @@ def sync_procurement_opportunities(
     uf: Optional[str] = None,
     pages: int = 10,
     limit_per_page: int = 50,
-    dry_run: bool = False
+    dry_run: bool = False,
+    data_inicial: Optional[str] = None,
+    data_final: Optional[str] = None,
+    modalidades: Optional[List[int]] = None,
+    paginas_por_modalidade: Optional[int] = None,
+    reforco_al: bool = True,
+    notificar_alertas: bool = True,
+    pausa_entre_paginas: float = 0.0,
 ) -> Dict[str, Any]:
     """
     Pipeline unificado de sincronização em larga escala:
@@ -206,11 +214,15 @@ def sync_procurement_opportunities(
     3. Nenhum certame fictício: sem resposta da API, nada é inserido.
     4. Upsert idempotente no SQLite dev_licitacoes.db por external_id (sem duplicidades).
     5. Retorna estatísticas consolidadas: total_coletados, novos_inseridos, atualizados, total_geral_banco.
+
+    Para coletas em lote (auto-warmup), ``data_inicial``/``data_final`` (YYYYMMDD) fixam a janela de
+    publicação, ``modalidades`` restringe os códigos consultados e ``paginas_por_modalidade`` pagina
+    cada modalidade até esse teto (a paginação para sozinha na última página).
     """
     connector = PNCPConnector()
     now = datetime.utcnow()
-    data_final = now.strftime("%Y%m%d")
-    data_inicial = (now - timedelta(days=days_back)).strftime("%Y%m%d")
+    data_final = data_final or now.strftime("%Y%m%d")
+    data_inicial = data_inicial or (now - timedelta(days=days_back)).strftime("%Y%m%d")
 
     records_to_process: List[Dict[str, Any]] = []
     seen_external_ids = set()
@@ -222,10 +234,14 @@ def sync_procurement_opportunities(
         (6, "Pregão Eletrônico"),
         (9, "Inexigibilidade")
     ]
+    if modalidades:
+        target_modalities = [(cod, rotulo) for cod, rotulo in target_modalities if cod in modalidades]
 
     try:
         page_size = max(10, min(limit_per_page, 100))
-        if pages <= 2:
+        if paginas_por_modalidade:
+            pages_per_mod = {cod: paginas_por_modalidade for cod, _ in target_modalities}
+        elif pages <= 2:
             pages_per_mod = {8: 1, 6: 1, 9: 1}
         else:
             p_disp = max(1, pages // 2)
@@ -236,6 +252,8 @@ def sync_procurement_opportunities(
         for mod_code, mod_label in target_modalities:
             max_pages_mod = pages_per_mod.get(mod_code, 1)
             for page_num in range(1, max_pages_mod + 1):
+                if pausa_entre_paginas and page_num > 1:
+                    time.sleep(pausa_entre_paginas)  # cortesia com a API pública em coletas longas
                 live_result = connector.fetch_tenders_live(
                     data_inicial=data_inicial,
                     data_final=data_final,
@@ -325,9 +343,12 @@ def sync_procurement_opportunities(
 
                     if len(raw_data) < page_size:
                         break
+                else:
+                    # Falha da API ou página vazia: fim desta modalidade (sem martelar as páginas seguintes)
+                    break
 
         # Coleta de reforço para Alagoas (AL) se uf não for restritivo para outro estado
-        if not uf or uf.upper() == "AL":
+        if reforco_al and (not uf or uf.upper() == "AL"):
             al_result = connector.fetch_tenders_live(
                 data_inicial=data_inicial,
                 data_final=data_final,
@@ -490,7 +511,7 @@ def sync_procurement_opportunities(
 
     if not dry_run:
         db.commit()
-        if new_tenders:
+        if new_tenders and notificar_alertas:
             try:
                 from server.services.alert_service import check_and_deliver_tender_alerts
                 for nt in new_tenders:

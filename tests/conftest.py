@@ -18,6 +18,8 @@ os.environ["EMAIL_PROVIDER"] = "MOCK"
 # A suíte usa contas/certames de exemplo próprios (seed_dados_de_teste): a migração não deve apagá-los
 os.environ["REMOVER_DADOS_DEMONSTRACAO"] = "false"
 os.environ["ADMIN_EMAIL"] = ""
+# Sem coleta automática em background na suíte (a rotina é testada diretamente)
+os.environ["AUTO_SYNC_ENABLED"] = "false"
 os.environ["ORPHAN_OWNER_EMAIL"] = ""
 # Conector Licitações-e ativo em modo mock (não depende do .env da máquina)
 os.environ["LICITACOES_E_ACTIVE"] = "true"

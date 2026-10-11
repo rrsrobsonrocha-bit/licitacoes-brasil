@@ -1,0 +1,131 @@
+"""
+Abastecimento contínuo do catálogo global de editais (Licitações Brasil).
+
+O catálogo é compartilhado por todas as contas e permanente: esta rotina só insere ou atualiza
+certames devolvidos pela API oficial do PNCP (upsert por numeroControlePNCP) e nunca apaga nada.
+Sem resposta da API, nada é gravado.
+
+- Auto-warmup: percorre os últimos ``AUTO_SYNC_DIAS`` dias de publicação, do mais recente para o
+  mais antigo, um dia por vez (cada dia é paginado até o fim e gravado em seguida, o que mantém a
+  memória baixa e deixa os editais mais novos disponíveis primeiro).
+- Atualização periódica: hoje e ontem, com entrega dos alertas dos usuários para os editais novos.
+"""
+import asyncio
+import threading
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional
+
+from sqlalchemy import func
+
+from server.config import settings
+from server.database import SessionLocal
+from server.integrations.opportunity_collector import sync_procurement_opportunities
+from server.models import Tender, hoje_sao_paulo
+from server.search_engine import filtro_vigentes
+
+# Modalidades com disputa: 6 = Pregão Eletrônico, 8 = Dispensa de Licitação
+MODALIDADES_DISPUTA = [6, 8]
+
+_trava = threading.Lock()
+estado: Dict[str, Any] = {
+    "em_execucao": None,
+    "ultima_execucao": None,
+    "ultimo_resultado": None,
+    "proxima_execucao": None,
+}
+
+
+def contar_vigentes() -> int:
+    db = SessionLocal()
+    try:
+        return db.query(func.count(Tender.id)).filter(filtro_vigentes()).scalar() or 0
+    finally:
+        db.close()
+
+
+def em_producao() -> bool:
+    return settings.DATABASE_URL.startswith(("postgres://", "postgresql"))
+
+
+def _coletar_dias(dias: List[str], notificar_alertas: bool, tipo: str) -> Dict[str, Any]:
+    """Coleta cada dia (YYYYMMDD) em sessão própria. Um dia com falha não interrompe os demais."""
+    if not _trava.acquire(blocking=False):
+        return {"tipo": tipo, "ignorado": "outra sincronização automática em andamento"}
+    inicio = datetime.utcnow()
+    estado["em_execucao"] = tipo
+    resumo = {"tipo": tipo, "dias": len(dias), "coletados": 0, "novos": 0, "atualizados": 0, "falhas": []}
+    try:
+        for dia in dias:
+            db = SessionLocal()
+            try:
+                r = sync_procurement_opportunities(
+                    db=db,
+                    data_inicial=dia,
+                    data_final=dia,
+                    modalidades=MODALIDADES_DISPUTA,
+                    paginas_por_modalidade=settings.AUTO_SYNC_PAGINAS_POR_DIA,
+                    limit_per_page=50,
+                    reforco_al=False,
+                    notificar_alertas=notificar_alertas,
+                    pausa_entre_paginas=0.2,
+                )
+                resumo["coletados"] += r.get("total_coletados", 0)
+                resumo["novos"] += r.get("novos_inseridos", 0)
+                resumo["atualizados"] += r.get("atualizados", 0)
+                print(f"[AUTO-SYNC] {tipo} {dia}: {r.get('total_coletados', 0)} coletados, "
+                      f"{r.get('novos_inseridos', 0)} novos (catálogo: {r.get('total_geral_banco', 0)}).")
+            except Exception as exc:
+                db.rollback()
+                resumo["falhas"].append(f"{dia}: {exc}")
+                print(f"[AUTO-SYNC] {tipo} {dia}: falha ({exc!r}); seguindo para o próximo dia.")
+            finally:
+                db.close()
+        resumo["vigentes"] = contar_vigentes()
+        resumo["duracao_segundos"] = round((datetime.utcnow() - inicio).total_seconds(), 1)
+        estado["ultima_execucao"] = datetime.utcnow().isoformat()
+        estado["ultimo_resultado"] = resumo
+        return resumo
+    finally:
+        estado["em_execucao"] = None
+        _trava.release()
+
+
+def _ultimos_dias(quantidade: int) -> List[str]:
+    hoje = hoje_sao_paulo()
+    return [(hoje - timedelta(days=i)).strftime("%Y%m%d") for i in range(max(1, quantidade))]
+
+
+def executar_warmup(dias: Optional[int] = None) -> Dict[str, Any]:
+    """Coleta os últimos ``dias`` (padrão AUTO_SYNC_DIAS), sem disparar alertas do acervo retroativo."""
+    return _coletar_dias(_ultimos_dias(dias or settings.AUTO_SYNC_DIAS), notificar_alertas=False, tipo="warmup")
+
+
+def executar_atualizacao() -> Dict[str, Any]:
+    """Publicações de hoje e de ontem (Brasília), com entrega de alertas para os editais novos."""
+    return _coletar_dias(_ultimos_dias(2), notificar_alertas=True, tipo="atualizacao")
+
+
+def precisa_warmup(no_arranque: bool) -> bool:
+    return (no_arranque and em_producao()) or contar_vigentes() < settings.AUTO_SYNC_MIN_VIGENTES
+
+
+async def loop_sincronizacao_automatica(atraso_inicial: float = 15.0) -> None:
+    """Warmup no arranque e atualização periódica do catálogo, sem depender de nenhum usuário."""
+    await asyncio.sleep(atraso_inicial)  # deixa o servidor terminar de subir
+    no_arranque = True
+    while True:
+        try:
+            if await asyncio.to_thread(precisa_warmup, no_arranque):
+                print(f"[AUTO-SYNC] Warmup: coletando os últimos {settings.AUTO_SYNC_DIAS} dias do PNCP...")
+                resumo = await asyncio.to_thread(executar_warmup)
+            else:
+                resumo = await asyncio.to_thread(executar_atualizacao)
+            print(f"[AUTO-SYNC] Concluído: {resumo}")
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            print(f"[AUTO-SYNC] Falha na sincronização automática: {exc!r}")
+        no_arranque = False
+        intervalo = max(5, settings.AUTO_SYNC_INTERVALO_MINUTOS) * 60
+        estado["proxima_execucao"] = (datetime.utcnow() + timedelta(seconds=intervalo)).isoformat()
+        await asyncio.sleep(intervalo)

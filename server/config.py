@@ -78,6 +78,15 @@ class Settings(BaseModel):
     # Limpeza automática das contas/certames de demonstração antigos na migração (desligada só na suíte de testes)
     REMOVER_DADOS_DEMONSTRACAO: bool = os.getenv("REMOVER_DADOS_DEMONSTRACAO", "true").lower() in ("1", "true", "yes")
 
+    # Abastecimento contínuo do catálogo global a partir da API oficial do PNCP (sem clique do usuário):
+    # no arranque coleta os últimos AUTO_SYNC_DIAS (sempre em produção, ou com menos de
+    # AUTO_SYNC_MIN_VIGENTES editais vigentes) e depois atualiza a cada AUTO_SYNC_INTERVALO_MINUTOS.
+    AUTO_SYNC_ENABLED: bool = os.getenv("AUTO_SYNC_ENABLED", "true").lower() in ("1", "true", "yes")
+    AUTO_SYNC_DIAS: int = int(os.getenv("AUTO_SYNC_DIAS", "15"))
+    AUTO_SYNC_MIN_VIGENTES: int = int(os.getenv("AUTO_SYNC_MIN_VIGENTES", "500"))
+    AUTO_SYNC_INTERVALO_MINUTOS: int = int(os.getenv("AUTO_SYNC_INTERVALO_MINUTOS", "60"))
+    AUTO_SYNC_PAGINAS_POR_DIA: int = int(os.getenv("AUTO_SYNC_PAGINAS_POR_DIA", "100"))
+
     # PNCP — API de integração (itens e arquivos das compras)
     PNCP_INTEGRACAO_BASE_URL: str = os.getenv("PNCP_INTEGRACAO_BASE_URL", "https://pncp.gov.br/api/pncp/v1").rstrip("/")
     PNCP_DOWNLOAD_MAX_MB: int = int(os.getenv("PNCP_DOWNLOAD_MAX_MB", "100"))

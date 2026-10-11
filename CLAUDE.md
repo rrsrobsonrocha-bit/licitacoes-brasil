@@ -13,6 +13,7 @@ FastAPI + Jinja2 + SQLAlchemy (SQLite em desenvolvimento, PostgreSQL em produç�
 - `server/main.py`: rotas HTML e API.
 - `server/models.py`, `server/migrate.py`: modelos e migrações idempotentes, executadas no boot.
 - `server/integrations/opportunity_collector.py`, `server/services/portal_collector.py`: coleta na API oficial do PNCP.
+- `server/services/auto_sync.py`: auto-warmup dos últimos 15 dias e atualização periódica do catálogo (sem clique do usuário).
 - `server/services/dispute_monitor.py`: Sala de Disputa (lotes e robô de lances, por usuário).
 - `server/templates/`: páginas (busca, painel, funil, agenda, disputa, jurídico).
 

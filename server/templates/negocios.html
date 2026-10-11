@@ -71,6 +71,26 @@
   {% set login_required_what = 'o seu funil de negócios' %}
   {% include "partials_login_required.html" %}
 
+  {% if user and total_deals == 0 %}
+  <!-- Funil vazio: convite para explorar o catálogo global de editais abertos -->
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
+    <div id="funil-vazio-cta" class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-emerald-500/5 border border-dashed border-emerald-500/30 rounded-2xl p-5">
+      <div class="flex items-start gap-3">
+        <div class="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center shrink-0">
+          <i class="fa-solid fa-flag-checkered"></i>
+        </div>
+        <div>
+          <p class="text-sm font-semibold text-slate-100">Seu funil está pronto.</p>
+          <p class="text-xs text-slate-400 mt-0.5">Escolha editais com propostas abertas e adicione-os ao funil para acompanhar cada etapa até o contrato.</p>
+        </div>
+      </div>
+      <a href="/search?vigentes=true&amp;sort_by=deadline_asc" class="inline-flex items-center justify-center gap-2 self-start sm:self-auto bg-emerald-600 hover:bg-emerald-500 text-white font-semibold px-4 py-2 rounded-xl text-xs transition shadow-md">
+        <i class="fa-solid fa-magnifying-glass"></i> Explorar editais abertos e adicionar oportunidades
+      </a>
+    </div>
+  </div>
+  {% endif %}
+
   <!-- Quadro Kanban (5 Colunas) -->
   <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">

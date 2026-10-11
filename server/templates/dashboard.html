@@ -25,10 +25,10 @@
         </div>
 
         <div class="flex items-center gap-2.5">
-          <button onclick="syncFromDashboard()" id="btn-dash-sync" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-medium px-3.5 py-2 rounded-xl text-xs transition flex items-center gap-2 cursor-pointer shadow-sm">
-            <i class="fa-solid fa-arrows-rotate text-emerald-400" id="dash-sync-icon"></i>
-            <span id="dash-sync-label">Sincronizar (500+)</span>
-          </button>
+          <span id="auto-sync-status" title="O catálogo é atualizado automaticamente a partir da API oficial do PNCP" class="bg-slate-800/70 text-slate-300 border border-slate-700 font-medium px-3.5 py-2 rounded-xl text-xs flex items-center gap-2">
+            <span class="relative flex h-2 w-2"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60"></span><span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"></span></span>
+            <span id="auto-sync-label">Catálogo atualizado automaticamente</span>
+          </span>
           <a href="/negocios?view=quadros" class="bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-semibold px-4 py-2 rounded-xl text-xs transition shadow-sm flex items-center gap-2">
             <i class="fa-solid fa-table-columns"></i> Funil Kanban
           </a>
@@ -42,35 +42,58 @@
 
   <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6 space-y-6">
 
-    <!-- 0. DESTAQUE: CATÁLOGO GLOBAL DE EDITAIS VIGENTES (independente da data de publicação) -->
-    <a
-      id="card-vigentes"
-      href="/search?vigentes=true&amp;sort_by=deadline_asc"
-      title="Ver todos os editais vigentes, abertos para disputa"
-      class="group cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gradient-to-r from-sky-950/80 via-slate-900/90 to-emerald-950/70 border border-sky-800/60 hover:border-sky-500/70 rounded-2xl p-5 shadow-lg hover:shadow-xl transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
-    >
-      <div class="flex items-center gap-4">
-        <div class="w-12 h-12 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-300 flex items-center justify-center shrink-0">
-          <i class="fa-solid fa-gavel text-lg"></i>
-        </div>
-        <div>
-          <span class="text-xs font-bold uppercase tracking-wider text-sky-300">Editais vigentes para disputa</span>
-          <div class="flex items-baseline gap-2 mt-0.5">
-            <span class="text-3xl font-black font-mono text-white tracking-tight" id="stat-vigentes">{{ summary.vigentes_count if summary else 0 }}</span>
-            <span class="text-xs text-slate-400">de <span id="stat-total-tenders" class="font-mono">{{ summary.total_tenders_count if summary else 0 }}</span> no catálogo</span>
-          </div>
-          <p class="text-xs text-slate-400 mt-0.5">Prazo de propostas em aberto, publicados hoje ou há 5, 15, 30 dias ou mais.</p>
-        </div>
-      </div>
-      <span class="inline-flex items-center gap-2 self-start sm:self-auto bg-sky-600 group-hover:bg-sky-500 text-white font-semibold px-4 py-2 rounded-xl text-xs transition shadow-md">
-        Ver editais vigentes <i class="fa-solid fa-arrow-right text-[11px]"></i>
-      </span>
-    </a>
-
-    <!-- 1. OS 4 CARDS DE TOPO (LICITAÇÕESBRASIL EXECUTIVE STATS) — todos clicáveis -->
+    <!-- 1. OS 4 CARDS DE TOPO — todos clicáveis; o principal é o volume de editais vigentes do catálogo global -->
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
 
-      <!-- Card 1: Negócios ativos (abre o funil Kanban) -->
+      <!-- Card 1 (principal): Editais vigentes para disputa, com as publicadas hoje como métrica secundária -->
+      <div class="metric-card group cursor-pointer bg-gradient-to-br from-sky-950/80 via-slate-900/90 to-emerald-950/60 border border-sky-800/60 hover:border-sky-500/70 hover:-translate-y-0.5 hover:shadow-xl rounded-2xl p-5 shadow-lg transition-all duration-200 flex flex-col justify-between">
+        <a id="card-vigentes" href="/search?vigentes=true&amp;sort_by=deadline_asc" title="Ver todos os editais vigentes, abertos para disputa" class="block focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 rounded-xl">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold uppercase tracking-wider text-sky-300">Editais vigentes para disputa</span>
+            <div class="w-10 h-10 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-300 flex items-center justify-center">
+              <i class="fa-solid fa-gavel text-base"></i>
+            </div>
+          </div>
+          <div class="mt-4">
+            <div class="text-3xl font-black font-mono text-white tracking-tight" id="stat-vigentes">
+              {{ summary.vigentes_count if summary else 0 }}
+            </div>
+            <div class="text-xs text-slate-400 mt-1">
+              Propostas abertas · de <span id="stat-total-tenders" class="font-mono">{{ summary.total_tenders_count if summary else 0 }}</span> no catálogo
+            </div>
+          </div>
+        </a>
+        <a
+          id="card-tenders-today"
+          href="/search?{{ {'date_from': hoje_iso, 'date_to': hoje_iso}|urlencode }}"
+          title="Ver as licitações publicadas hoje (data oficial do PNCP, horário de Brasília)"
+          class="mt-3 pt-2.5 border-t border-slate-700/60 flex items-center justify-between text-xs text-slate-300 hover:text-amber-300 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 rounded"
+        >
+          <span><i class="fa-regular fa-calendar-check text-amber-400 mr-1"></i><strong class="font-mono text-amber-300" id="stat-tenders-today">{{ summary.tenders_today_count if summary else 0 }}</strong> publicadas hoje</span>
+          <span class="text-[11px] text-amber-300">Ver →</span>
+        </a>
+      </div>
+
+      <!-- Card 2: Órgãos mapeados (órgãos públicos com editais vigentes; abre Fornecedores / Órgãos) -->
+      <a id="card-companies" href="/fornecedores" title="Ver órgãos e compradores mapeados" class="metric-card group cursor-pointer bg-slate-900/80 border border-slate-800 hover:bg-slate-900 hover:-translate-y-0.5 hover:shadow-xl rounded-2xl p-5 shadow-lg transition-all duration-200 flex flex-col justify-between focus:outline-none focus-visible:ring-2 hover:border-sky-500/40 focus-visible:ring-sky-400">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Órgãos mapeados</span>
+          <div class="w-10 h-10 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-400 flex items-center justify-center">
+            <i class="fa-solid fa-building-columns text-base"></i>
+          </div>
+        </div>
+        <div class="mt-4">
+          <div class="text-3xl font-black font-mono text-white tracking-tight" id="stat-companies">
+            {{ summary.companies_identified_count if summary else 0 }}
+          </div>
+          <div class="text-xs text-slate-400 mt-1 flex items-center justify-between">
+            <span>Órgãos públicos com editais abertos</span>
+            <span class="text-sky-400 group-hover:underline font-medium text-[11px]">Ver órgãos →</span>
+          </div>
+        </div>
+      </a>
+
+      <!-- Card 3: Negócios ativos (funil privado do usuário; abre o Kanban) -->
       <a id="card-active-deals" href="/negocios?view=quadros" title="Abrir o funil de negócios" class="metric-card group cursor-pointer bg-slate-900/80 border border-slate-800 hover:bg-slate-900 hover:-translate-y-0.5 hover:shadow-xl rounded-2xl p-5 shadow-lg transition-all duration-200 flex flex-col justify-between focus:outline-none focus-visible:ring-2 hover:border-emerald-500/40 focus-visible:ring-emerald-400">
         <div class="flex items-center justify-between">
           <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Negócios ativos</span>
@@ -83,51 +106,8 @@
             {{ summary.active_deals_count if summary else 0 }}
           </div>
           <div class="flex items-center justify-between text-xs text-slate-400 mt-1">
-            <span>Oportunidades em acompanhamento</span>
+            <span id="stat-active-deals-hint">{% if summary and summary.active_deals_count %}Oportunidades em acompanhamento{% else %}Seu funil está pronto{% endif %}</span>
             <span class="text-emerald-400 group-hover:underline font-medium text-[11px]">Ver funil →</span>
-          </div>
-        </div>
-      </a>
-
-      <!-- Card 2: Empresas identificadas (abre Fornecedores / Órgãos) -->
-      <a id="card-companies" href="/fornecedores" title="Ver órgãos e compradores mapeados" class="metric-card group cursor-pointer bg-slate-900/80 border border-slate-800 hover:bg-slate-900 hover:-translate-y-0.5 hover:shadow-xl rounded-2xl p-5 shadow-lg transition-all duration-200 flex flex-col justify-between focus:outline-none focus-visible:ring-2 hover:border-sky-500/40 focus-visible:ring-sky-400">
-        <div class="flex items-center justify-between">
-          <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Empresas identificadas</span>
-          <div class="w-10 h-10 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-400 flex items-center justify-center">
-            <i class="fa-solid fa-building text-base"></i>
-          </div>
-        </div>
-        <div class="mt-4">
-          <div class="text-3xl font-black font-mono text-white tracking-tight" id="stat-companies">
-            {{ summary.companies_identified_count if summary else 0 }}
-          </div>
-          <div class="text-xs text-slate-400 mt-1 flex items-center justify-between">
-            <span>Órgãos e compradores mapeados</span>
-            <span class="text-sky-400 group-hover:underline font-medium text-[11px]">Ver órgãos →</span>
-          </div>
-        </div>
-      </a>
-
-      <!-- Card 3: Licitações publicadas hoje (abre a busca filtrada pela data de publicação de hoje) -->
-      <a
-        id="card-tenders-today"
-        href="/search?{{ {'date_from': hoje_iso, 'date_to': hoje_iso}|urlencode }}"
-        title="Ver as licitações publicadas hoje"
-        class="metric-card group cursor-pointer bg-slate-900/80 border border-slate-800 hover:bg-slate-900 hover:-translate-y-0.5 hover:shadow-xl rounded-2xl p-5 shadow-lg transition-all duration-200 flex flex-col justify-between focus:outline-none focus-visible:ring-2 hover:border-amber-500/40 focus-visible:ring-amber-400"
-      >
-        <div class="flex items-center justify-between">
-          <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Licitações publicadas hoje</span>
-          <div class="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center">
-            <i class="fa-solid fa-file-invoice text-base"></i>
-          </div>
-        </div>
-        <div class="mt-4">
-          <div class="text-3xl font-black font-mono text-amber-400 tracking-tight" id="stat-tenders-today">
-            {{ summary.tenders_today_count if summary else 0 }}
-          </div>
-          <div class="text-xs text-slate-400 mt-1 flex items-center justify-between">
-            <span><strong class="text-slate-300 font-mono" id="stat-items-today">{{ summary.items_today_count if summary else 0 }}</strong> itens catalogados</span>
-            <span class="text-[10px] bg-slate-800 text-amber-300 px-1.5 py-0.5 rounded border border-slate-700">Hoje <i class="fa-solid fa-arrow-right text-[9px] ml-0.5"></i></span>
           </div>
         </div>
       </a>
@@ -166,6 +146,24 @@
           Abrir Quadro Completo <i class="fa-solid fa-arrow-right"></i>
         </a>
       </div>
+
+      {% if not summary or not summary.active_deals_count %}
+      <!-- Funil vazio: convite para explorar o catálogo global de editais abertos -->
+      <div id="funil-vazio-cta" class="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-emerald-500/5 border border-dashed border-emerald-500/30 rounded-xl p-4">
+        <div class="flex items-start gap-3">
+          <div class="w-9 h-9 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center shrink-0">
+            <i class="fa-solid fa-flag-checkered"></i>
+          </div>
+          <div>
+            <p class="text-sm font-semibold text-slate-100">Seu funil está pronto.</p>
+            <p class="text-xs text-slate-400 mt-0.5">Escolha editais com propostas abertas e adicione-os ao funil para acompanhar cada etapa até o contrato.</p>
+          </div>
+        </div>
+        <a href="/search?vigentes=true&amp;sort_by=deadline_asc" class="inline-flex items-center justify-center gap-2 self-start sm:self-auto bg-emerald-600 hover:bg-emerald-500 text-white font-semibold px-4 py-2 rounded-xl text-xs transition shadow-md">
+          <i class="fa-solid fa-magnifying-glass"></i> Explorar editais abertos e adicionar oportunidades
+        </a>
+      </div>
+      {% endif %}
 
       <!-- Grid com os contadores por etapa -->
       <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
@@ -246,14 +244,14 @@
       </div>
     </div>
 
-    <!-- 3. BLOCO DE RESUMO "LICITAÇÕES PUBLICADAS HOJE" (CATEGORIAS E FAIXAS DE VALOR) -->
+    <!-- 3. BLOCO DE RESUMO DOS EDITAIS VIGENTES (CATEGORIAS E FAIXAS DE VALOR) -->
     <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-lg">
       <div class="flex items-center justify-between mb-5">
         <div>
           <h2 class="text-sm font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2">
-            <i class="fa-solid fa-chart-simple text-amber-400"></i> Licitações publicadas hoje
+            <i class="fa-solid fa-chart-simple text-amber-400"></i> Editais vigentes por demanda e valor
           </h2>
-          <p class="text-xs text-slate-400 mt-0.5">Segmentação estratégica por tipo de demanda e faixas orçamentárias.</p>
+          <p class="text-xs text-slate-400 mt-0.5">Editais com propostas abertas, por tipo de demanda e faixa orçamentária.</p>
         </div>
         <span class="text-xs bg-slate-800 text-slate-300 px-2.5 py-1 rounded-lg border border-slate-700 font-mono">
           PNCP + Compras.gov
@@ -493,6 +491,8 @@
         // 1. Cards de Topo
         const activeDealsEl = document.getElementById('stat-active-deals');
         if (activeDealsEl) activeDealsEl.textContent = data.active_deals_count || data.deals_count || 0;
+        const dealsHintEl = document.getElementById('stat-active-deals-hint');
+        if (dealsHintEl) dealsHintEl.textContent = (data.active_deals_count || 0) > 0 ? 'Oportunidades em acompanhamento' : 'Seu funil está pronto';
 
         const companiesEl = document.getElementById('stat-companies');
         if (companiesEl) companiesEl.textContent = data.companies_identified_count || data.companies_count || 0;
@@ -562,36 +562,27 @@
     }
   }
 
-  async function syncFromDashboard() {
-    const btn = document.getElementById('btn-dash-sync');
-    const icon = document.getElementById('dash-sync-icon');
-    const label = document.getElementById('dash-sync-label');
-    if (btn) btn.disabled = true;
-    if (icon) icon.classList.add('animate-spin');
-    if (label) label.textContent = 'Sincronizando...';
-
+  async function loadAutoSyncStatus() {
+    const label = document.getElementById('auto-sync-label');
+    if (!label) return;
     try {
-      const res = await fetch('/api/tenders/sync?pages=10&limit_per_page=50', { method: 'POST' });
-      const data = await res.json();
-      if (res.ok) {
-        if (label) label.textContent = `Atualizado (${data.total_geral_banco} certames)`;
-        setTimeout(() => {
-          window.location.reload();
-        }, 1200);
-      } else {
-        if (label) label.textContent = 'Sincronizar (500+)';
-        if (btn) btn.disabled = false;
-        if (icon) icon.classList.remove('animate-spin');
+      const resp = await fetch('/api/sync/status');
+      if (!resp.ok) return;
+      const st = await resp.json();
+      if (st.em_execucao) {
+        label.textContent = 'Atualizando catálogo com o PNCP…';
+      } else if (st.ultima_execucao) {
+        const quando = new Date(st.ultima_execucao + 'Z');
+        label.textContent = `Catálogo atualizado às ${quando.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
       }
-    } catch {
-      if (label) label.textContent = 'Sincronizar (500+)';
-      if (btn) btn.disabled = false;
-      if (icon) icon.classList.remove('animate-spin');
+    } catch (e) {
+      /* indicador opcional: mantém o texto padrão */
     }
   }
 
   document.addEventListener('DOMContentLoaded', () => {
     loadDashboardData();
+    loadAutoSyncStatus();
   });
 </script>
 {% endblock %}

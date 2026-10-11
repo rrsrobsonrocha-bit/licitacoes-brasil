@@ -43,7 +43,7 @@
         ('modality', params.modality), ('status', params.status), ('administrative_sphere', params.administrative_sphere),
         ('source_system', params.source_system), ('portal', params.portal), ('uasg_code', params.uasg_code),
         ('value_min', params.value_min), ('value_max', params.value_max), ('date_from', params.date_from),
-        ('date_to', params.date_to), ('vigentes', 'true' if params.vigentes else None), ('sort_by', params.sort_by), ('page_size', params.page_size)
+        ('date_to', params.date_to), ('vigentes', 'true' if params.vigentes else ('false' if params.vigentes is sameas false else None)), ('sort_by', params.sort_by), ('page_size', params.page_size)
       ] %}
         {% if valor is not none and valor != '' %}{% set _ = qs_uf_base.update({chave: valor}) %}{% endif %}
       {% endfor %}
@@ -202,6 +202,7 @@
           {% if uf_ativa %}{% set _ = qs_periodo.update({'uf': uf_ativa}) %}{% endif %}
           {% set periodo_hoje = params.date_from == hoje_iso and params.date_to == hoje_iso %}
           {% set periodo_7d = params.date_from == sete_dias_iso and params.date_to == hoje_iso %}
+          {% set periodo_15d = params.date_from == quinze_dias_iso and params.date_to == hoje_iso %}
           {% set periodo_vigentes = params.vigentes and not params.date_from and not params.date_to %}
           {% set atalho = 'flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-xs font-semibold border transition' %}
           {% set atalho_on = 'bg-sky-500/15 text-sky-200 border-sky-500/50' %}
@@ -209,16 +210,19 @@
           <div id="filtro-periodo-publicacao" class="space-y-2">
             <label class="block text-xs font-semibold text-slate-300">Período de publicação</label>
             <div class="grid grid-cols-1 gap-1.5">
-              <a id="atalho-publicadas-hoje" href="/search?{{ dict(qs_periodo, date_from=hoje_iso, date_to=hoje_iso)|urlencode }}" class="{{ atalho }} {{ atalho_on if periodo_hoje else atalho_off }}">
-                <span><i class="fa-regular fa-calendar-check mr-1.5 text-sky-400"></i>Publicadas hoje</span>
-                <span class="text-[10px] font-mono text-slate-400">{{ hoje_iso[8:10] }}/{{ hoje_iso[5:7] }}</span>
+              <a id="atalho-todas-vigentes" href="/search?{{ dict(qs_periodo, vigentes='true')|urlencode }}" class="{{ atalho }} {{ atalho_on if periodo_vigentes else atalho_off }}">
+                <span><i class="fa-solid fa-gavel mr-1.5 text-emerald-400"></i>Todas as vigentes/abertas</span>
+                <span class="text-[10px] font-mono text-slate-400">{{ total_vigentes }}</span>
+              </a>
+              <a id="atalho-ultimos-15-dias" href="/search?{{ dict(qs_periodo, date_from=quinze_dias_iso, date_to=hoje_iso)|urlencode }}" class="{{ atalho }} {{ atalho_on if periodo_15d else atalho_off }}">
+                <span><i class="fa-regular fa-calendar mr-1.5 text-sky-400"></i>Últimos 15 dias</span>
               </a>
               <a id="atalho-ultimos-7-dias" href="/search?{{ dict(qs_periodo, date_from=sete_dias_iso, date_to=hoje_iso)|urlencode }}" class="{{ atalho }} {{ atalho_on if periodo_7d else atalho_off }}">
                 <span><i class="fa-regular fa-calendar-days mr-1.5 text-sky-400"></i>Últimos 7 dias</span>
               </a>
-              <a id="atalho-todas-vigentes" href="/search?{{ dict(qs_periodo, vigentes='true')|urlencode }}" class="{{ atalho }} {{ atalho_on if periodo_vigentes else atalho_off }}">
-                <span><i class="fa-solid fa-gavel mr-1.5 text-emerald-400"></i>Todas as vigentes/abertas</span>
-                <span class="text-[10px] font-mono text-slate-400">{{ total_vigentes }}</span>
+              <a id="atalho-publicadas-hoje" href="/search?{{ dict(qs_periodo, date_from=hoje_iso, date_to=hoje_iso)|urlencode }}" class="{{ atalho }} {{ atalho_on if periodo_hoje else atalho_off }}">
+                <span><i class="fa-regular fa-calendar-check mr-1.5 text-sky-400"></i>Publicadas hoje</span>
+                <span class="text-[10px] font-mono text-slate-400">{{ hoje_iso[8:10] }}/{{ hoje_iso[5:7] }}</span>
               </a>
             </div>
             <div class="grid grid-cols-2 gap-2">
@@ -257,6 +261,7 @@
 
           <!-- Somente editais vigentes (prazo de propostas em aberto), qualquer data de publicação -->
           <label class="flex items-start gap-2 text-xs text-slate-200 cursor-pointer select-none bg-slate-900/70 border border-slate-800 rounded-xl p-2.5">
+            <input type="hidden" name="vigentes" value="false" />
             <input type="checkbox" name="vigentes" value="true" {% if params.vigentes %}checked{% endif %} class="mt-0.5 w-4 h-4 rounded border-slate-600 bg-slate-800 accent-emerald-500 cursor-pointer" />
             <span>
               <span class="font-semibold">Somente editais vigentes</span>
@@ -298,7 +303,7 @@
               {% set qs_vigentes = {} %}
               {% for chave, valor in qs_uf_base.items() if chave not in ('vigentes', 'page') %}{% set _ = qs_vigentes.update({chave: valor}) %}{% endfor %}
               {% if uf_ativa %}{% set _ = qs_vigentes.update({'uf': uf_ativa}) %}{% endif %}
-              {% if not params.vigentes %}{% set _ = qs_vigentes.update({'vigentes': 'true'}) %}{% endif %}
+              {% set _ = qs_vigentes.update({'vigentes': 'false' if params.vigentes else 'true'}) %}
               <a
                 id="toggle-vigentes"
                 href="/search{% if qs_vigentes %}?{{ qs_vigentes|urlencode }}{% endif %}"
@@ -558,7 +563,7 @@
           ('modality', params.modality), ('status', params.status), ('administrative_sphere', params.administrative_sphere),
           ('source_system', params.source_system), ('portal', params.portal), ('uasg_code', params.uasg_code),
           ('value_min', params.value_min), ('value_max', params.value_max), ('date_from', params.date_from),
-          ('date_to', params.date_to), ('vigentes', 'true' if params.vigentes else None), ('sort_by', params.sort_by), ('page_size', params.page_size)
+          ('date_to', params.date_to), ('vigentes', 'true' if params.vigentes else ('false' if params.vigentes is sameas false else None)), ('sort_by', params.sort_by), ('page_size', params.page_size)
         ] %}
           {% if valor is not none and valor != '' %}{% set _ = qs_paginacao.update({chave: valor}) %}{% endif %}
         {% endfor %}
