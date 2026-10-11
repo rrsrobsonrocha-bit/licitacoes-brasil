@@ -44,7 +44,7 @@ caixa_mock = _CaixaMock()
 
 
 def _remetente() -> str:
-    return formataddr(("LicitaçõesBrasil", settings.EMAIL_FROM))
+    return formataddr(("Licitações Brasil", settings.EMAIL_FROM))
 
 
 def _enviar_smtp(destinatario: str, assunto: str, texto: str, html: Optional[str]) -> None:
@@ -114,14 +114,14 @@ def montar_email_redefinicao(nome: str, link: str, minutos: int) -> tuple:
     from html import escape
 
     primeiro_nome = (nome or "").split(" ")[0] or "olá"
-    assunto = "Redefinição de senha — LicitaçõesBrasil"
+    assunto = "Redefinição de senha — Licitações Brasil"
     texto = (
         f"Olá, {primeiro_nome}.\n\n"
-        "Recebemos um pedido para redefinir a senha da sua conta na LicitaçõesBrasil.\n"
+        "Recebemos um pedido para redefinir a senha da sua conta na Licitações Brasil.\n"
         f"Para criar uma nova senha, acesse o link abaixo (válido por {minutos} minutos e de uso único):\n\n"
         f"{link}\n\n"
         "Se você não fez este pedido, ignore este e-mail: sua senha atual continua válida.\n\n"
-        "Equipe LicitaçõesBrasil"
+        "Equipe Licitações Brasil"
     )
     html = f"""<!doctype html>
 <html lang="pt-BR"><body style="margin:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a">

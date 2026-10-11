@@ -25,6 +25,31 @@ def agora_sao_paulo_naive() -> datetime:
     return datetime.now(_SP_TZ).replace(tzinfo=None)
 
 
+def _parse_data_iso(valor: Optional[str]):
+    """'YYYY-MM-DD' -> date (None se vazio ou inválido)."""
+    if not valor:
+        return None
+    try:
+        return datetime.strptime(str(valor).strip()[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def filtro_publicacao(date_from: Optional[str] = None, date_to: Optional[str] = None):
+    """
+    Condição SQL estrita sobre a data oficial de publicação no PNCP (dataPublicacaoPncp, gravada em
+    horário de Brasília em Tender.publication_date) — nunca a data de inserção/sincronização local.
+    O intervalo é fechado nos dias informados: [date_from 00:00, date_to + 1 dia 00:00).
+    """
+    inicio, fim = _parse_data_iso(date_from), _parse_data_iso(date_to)
+    condicoes = []
+    if inicio:
+        condicoes.append(Tender.publication_date >= datetime.combine(inicio, datetime.min.time()))
+    if fim:
+        condicoes.append(Tender.publication_date < datetime.combine(fim + timedelta(days=1), datetime.min.time()))
+    return and_(*condicoes) if condicoes else None
+
+
 def filtro_vigentes(agora: Optional[datetime] = None):
     """
     Condição SQL de certame vigente/aberto para disputa, independente da data de publicação:
@@ -246,17 +271,9 @@ def search_tenders(db: Session, params: SearchFilterParams, user_id: Optional[st
     if params.value_max is not None:
         query = query.filter(Tender.estimated_total_value <= params.value_max)
 
-    if params.date_from:
-        try:
-            query = query.filter(Tender.publication_date >= f"{params.date_from} 00:00:00")
-        except Exception:
-            pass
-
-    if params.date_to:
-        try:
-            query = query.filter(Tender.publication_date <= f"{params.date_to} 23:59:59")
-        except Exception:
-            pass
+    cond_publicacao = filtro_publicacao(params.date_from, params.date_to)
+    if cond_publicacao is not None:
+        query = query.filter(cond_publicacao)
 
     if params.vigentes:
         query = query.filter(filtro_vigentes())

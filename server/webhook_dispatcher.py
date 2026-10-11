@@ -68,7 +68,7 @@ def dispatch_webhook_sync(
     Dispara um webhook síncrono e registra o log em WebhookDispatchLog com latência e status.
     """
     canal_norm = canal.upper() if canal and canal.upper() in SUPPORTED_CHANNELS else "GENERIC"
-    req_headers = {"Content-Type": "application/json", "User-Agent": "LicitacoesBrasil-Webhook/1.0"}
+    req_headers = {"Content-Type": "application/json", "User-Agent": "licitacoes-brasil-webhook/1.0"}
     if headers:
         req_headers.update(headers)
 
@@ -133,7 +133,7 @@ async def dispatch_webhook_async(
     Dispara um webhook assíncrono e registra o log em WebhookDispatchLog com latência e status.
     """
     canal_norm = canal.upper() if canal and canal.upper() in SUPPORTED_CHANNELS else "GENERIC"
-    req_headers = {"Content-Type": "application/json", "User-Agent": "LicitacoesBrasil-Webhook/1.0"}
+    req_headers = {"Content-Type": "application/json", "User-Agent": "licitacoes-brasil-webhook/1.0"}
     if headers:
         req_headers.update(headers)
 

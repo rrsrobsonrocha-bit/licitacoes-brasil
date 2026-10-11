@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Patch LicitaçõesBrasil — execute na raiz do repositório: bash aplicar_patch.sh
+# Patch Licitações Brasil — execute na raiz do repositório: bash aplicar_patch.sh
 set -euo pipefail
 [ -f server/main.py ] || { echo "Execute na raiz do projeto licitacoes-brasil"; exit 1; }
 
@@ -9,7 +9,7 @@ set -euo pipefail
 mkdir -p server/services
 cat << 'EOF' > server/services/pdf_generator.py
 """
-Gerador de PDFs jurídicos timbrados "LicitaçõesBrasil" (ReportLab).
+Gerador de PDFs jurídicos timbrados "Licitações Brasil" (ReportLab).
 
 - ``gerar_peticao_pdf``: compila petições (impugnação, esclarecimento, recurso,
   contrarrazões) com cabeçalho oficial, ficha do certame, qualificação da licitante,
@@ -41,7 +41,7 @@ from reportlab.platypus import (
 # ------------------------------------------------------------------------------
 # Identidade visual
 # ------------------------------------------------------------------------------
-MARCA = "LicitaçõesBrasil"
+MARCA = "Licitações Brasil"
 COR_NAVY = colors.HexColor("#082f49")
 COR_SKY = colors.HexColor("#38bdf8")
 COR_SKY_ESCURO = colors.HexColor("#0369a1")
@@ -276,7 +276,7 @@ def renderizar_pdf_timbrado(
     referencia: str = "",
     assunto: str = "",
 ) -> bytes:
-    """Renderiza uma lista de flowables no papel timbrado LicitaçõesBrasil e retorna os bytes do PDF."""
+    """Renderiza uma lista de flowables no papel timbrado Licitações Brasil e retorna os bytes do PDF."""
     buffer = io.BytesIO()
     emitido_em = agora_sao_paulo().strftime("%d/%m/%Y %H:%M")
     doc = SimpleDocTemplate(
@@ -2491,7 +2491,7 @@ class GerarPeticaoPDFRequest(BaseModel):
 @app.post("/api/juridico/gerar-pdf")
 def api_juridico_gerar_pdf(payload: GerarPeticaoPDFRequest, db: Session = Depends(get_db)):
     """
-    Compila a petição em PDF timbrado LicitaçõesBrasil.
+    Compila a petição em PDF timbrado Licitações Brasil.
     O texto vem de `corpo` (editado no modal) ou do modelo `template_id`; os dados do
     certame podem ser informados diretamente ou herdados de `tender_id`.
     """
@@ -3258,7 +3258,7 @@ def get_dashboard_summary_data(db: Session, user: Optional[User] = None) -> Dict
         "upcoming_tenders": upcoming[:5],
         "recent_deliveries": delivs_data,
 
-        # Indicadores Executivos LicitaçõesBrasil
+        # Indicadores Executivos Licitações Brasil
         "active_deals_count": deals_count,
         "deals_count": deals_count,
         "companies_identified_count": companies_count,
@@ -3371,7 +3371,7 @@ cat << 'EOF' > server/templates/juridico.html
 
 {% block content %}
 <div class="bg-[#0b0f19] min-h-screen text-slate-100 font-sans pb-16">
-  <!-- Header Jurídico LicitaçõesBrasil -->
+  <!-- Header Jurídico Licitações Brasil -->
   <div class="border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-md sticky top-16 z-30 py-5">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -4554,7 +4554,7 @@ class HistoricoDisputa(Base):
     tipo_evento = Column(String(50), nullable=False, index=True) # AUTO_BID, MANUAL_BID, STOP_LOSS, COMPETITOR_BID
     valor_ofertado = Column(Float, nullable=False)
     posicao = Column(Integer, default=1)
-    autor = Column(String(100), default="Robô LicitaçõesBrasil")
+    autor = Column(String(100), default="Robô Licitações Brasil")
     detalhes = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
@@ -4711,7 +4711,7 @@ def run_db_migrations():
                 tipo_evento VARCHAR(50) NOT NULL,
                 valor_ofertado FLOAT NOT NULL,
                 posicao INTEGER DEFAULT 1,
-                autor VARCHAR(100) DEFAULT 'Robô LicitaçõesBrasil',
+                autor VARCHAR(100) DEFAULT 'Robô Licitações Brasil',
                 detalhes TEXT,
                 created_at DATETIME NOT NULL
             )
@@ -5963,7 +5963,7 @@ Montador do Kit de Habilitação (ZIP).
 
 ``montar_kit_habilitacao_zip(tender_id)`` seleciona no SQLite os documentos válidos do
 cofre (``documentos_empresa``), empacota os PDFs e injeta ``Relatorio_Conformidade.pdf``
-(ReportLab, papel timbrado LicitaçõesBrasil) como índice de habilitação do certame.
+(ReportLab, papel timbrado Licitações Brasil) como índice de habilitação do certame.
 """
 import io
 import zipfile
@@ -7348,7 +7348,7 @@ if "no_proxy" in os.environ and "[" in os.environ["no_proxy"]:
 
 
 DEFAULT_HEADERS = {
-    "User-Agent": "LicitacoesBrasil-Collector/2.0 (+https://licitacoesbrasil.gov.br; contato@licitacoesbrasil.com.br)",
+    "User-Agent": "licitacoes-brasil-collector/2.0 (+https://licitacoesbrasil.gov.br; contato@licitacoesbrasil.com.br)",
     "Accept": "application/json, text/plain, */*",
     "Accept-Encoding": "gzip, deflate"
 }
@@ -7627,7 +7627,7 @@ class PortalCollectorService:
                 default_source = db_session.query(Source).filter(Source.official_domain == "licitacoesbrasil.gov.br").first()
                 if not default_source:
                     default_source = Source(
-                        name="Hub Multifonte LicitaçõesBrasil",
+                        name="Hub Multifonte Licitações Brasil",
                         base_url="https://licitacoesbrasil.gov.br",
                         official_domain="licitacoesbrasil.gov.br",
                         source_type="AGREGADOR_MULTIFONTE",

@@ -9,200 +9,10 @@ from typing import Dict, Any, List, Optional, Tuple
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 from sqlalchemy.orm import Session
-from server.models import Tender, Source, TenderItem
+from server.models import Tender, Source
 from server.connectors.pncp import PNCPConnector, build_canonical_pncp_url
 
 logger = logging.getLogger(__name__)
-
-# Catálogo base de fallback com oportunidades reais para garantir
-# resiliência e estabilidade caso a conexão externa esteja indisponível.
-BASE_OPPORTUNITIES = [
-    {
-        "external_id": "00394452000103-1-000410/2026",
-        "process_number": "MD-FAB-67100.00192/2026",
-        "notice_number": "PE 410/2026",
-        "title": "Aquisição de peças sobressalentes e insumos de aviônica para aeronaves da Força Aérea Brasileira",
-        "object_description": "Registro de preços para fornecimento de componentes eletroeletrônicos, cabeamento aeronáutico e peças sobressalentes para manutenção preventiva e corretiva.",
-        "contracting_entity": "Comando da Aeronáutica - Grupamento de Apoio do Distrito Federal (GAP-DF)",
-        "purchasing_unit": "GAP-DF / Divisão de Aquisições",
-        "codigo_unidade": "160016",
-        "state": "DF",
-        "city": "Brasília",
-        "region": "Centro-Oeste",
-        "administrative_sphere": "FEDERAL",
-        "modality": "Pregão Eletrônico",
-        "category": "Equipamentos",
-        "status": "Divulgada no PNCP",
-        "estimated_total_value": 7890000.00,
-        "sistema_origem": "Compras.gov.br",
-        "link_origem": "https://cnetmobile.estaleiro.serpro.gov.br/comprasnet-web/public/compras/acompanhamento-compra?compra=16001605004102026"
-    },
-    {
-        "external_id": "00394460000140-1-000105/2026",
-        "process_number": "MPU-PGR-00219/2026",
-        "notice_number": "PE 105/2026",
-        "title": "Contratação de Solução de Hiperconvergência e Cibersegurança para infraestrutura de datacenter",
-        "object_description": "Contratação de servidores de alta densidade, licenças de virtualização corporativa e suporte técnico 24x7 para a infraestrutura crítica do Ministério Público Federal.",
-        "contracting_entity": "Procuradoria-Geral da República - MPU",
-        "purchasing_unit": "Secretaria de Tecnologia da Informação e Comunicação",
-        "codigo_unidade": "200010",
-        "state": "DF",
-        "city": "Brasília",
-        "region": "Centro-Oeste",
-        "administrative_sphere": "FEDERAL",
-        "modality": "Pregão Eletrônico",
-        "category": "Tecnologia",
-        "status": "Divulgada no PNCP",
-        "estimated_total_value": 11500000.00,
-        "sistema_origem": "Compras.gov.br",
-        "link_origem": "https://cnetmobile.estaleiro.serpro.gov.br/comprasnet-web/public/compras/acompanhamento-compra?compra=20001005001052026"
-    },
-    {
-        "external_id": "02914460000150-1-000033/2026",
-        "process_number": "UFAL-PROAD-23065.0041/2026",
-        "notice_number": "PE 033/2026",
-        "title": "Aquisição de reagentes químicos e insumos laboratoriais para o Instituto de Química e Biotecnologia",
-        "object_description": "Aquisição parcelada de reagentes analíticos com grau de pureza PA para pesquisas científicas e aulas práticas de graduação e pós-graduação.",
-        "contracting_entity": "Universidade Federal de Alagoas - UFAL",
-        "purchasing_unit": "Pró-Reitoria de Administração - Gerência de Suprimentos",
-        "codigo_unidade": "153037",
-        "state": "AL",
-        "city": "Maceió",
-        "region": "Nordeste",
-        "administrative_sphere": "FEDERAL",
-        "modality": "Pregão Eletrônico",
-        "category": "Medicamentos",
-        "status": "Divulgada no PNCP",
-        "estimated_total_value": 1420000.00,
-        "sistema_origem": "Compras.gov.br",
-        "link_origem": "https://cnetmobile.estaleiro.serpro.gov.br/comprasnet-web/public/compras/acompanhamento-compra?compra=15303705000332026"
-    },
-    {
-        "external_id": "46379400000150-1-000210/2026",
-        "process_number": "SPSP-EDUC-2026/0991",
-        "notice_number": "PE 210/2026",
-        "title": "Aquisição de kits pedagógicos e robótica educacional para escolas da rede estadual",
-        "object_description": "Fornecimento de conjuntos de robótica didática contendo controladores, sensores e módulos programáveis para escolas estaduais de ensino médio integral.",
-        "contracting_entity": "Secretaria de Estado da Educação de São Paulo - SEDUC/SP",
-        "purchasing_unit": "Departamento de Suprimentos Educacionais",
-        "codigo_unidade": None,
-        "state": "SP",
-        "city": "São Paulo",
-        "region": "Sudeste",
-        "administrative_sphere": "ESTADUAL",
-        "modality": "Pregão Eletrônico",
-        "category": "Tecnologia",
-        "status": "Divulgada no PNCP",
-        "estimated_total_value": 8300000.00,
-        "sistema_origem": "Bolsa Eletrônica de Compras SP",
-        "link_origem": "https://www.bec.sp.gov.br"
-    },
-    {
-        "external_id": "18715615000160-1-000142/2026",
-        "process_number": "SES-MG-2026/5541",
-        "notice_number": "PE 142/2026",
-        "title": "Fornecimento contínuo de dietas enterais e fórmulas nutricionais especiais",
-        "object_description": "Registro de preços para fornecimento de nutrição enteral polimérica, oligomérica e pediátrica para pacientes atendidos pelo SUS/MG.",
-        "contracting_entity": "Secretaria de Estado de Saúde de Minas Gerais - SES/MG",
-        "purchasing_unit": "Diretoria de Medicamentos e Nutrição",
-        "codigo_unidade": None,
-        "state": "MG",
-        "city": "Belo Horizonte",
-        "region": "Sudeste",
-        "administrative_sphere": "ESTADUAL",
-        "modality": "Pregão Eletrônico",
-        "category": "Alimentação",
-        "status": "Divulgada no PNCP",
-        "estimated_total_value": 5600000.00,
-        "sistema_origem": "Portal de Compras MG",
-        "link_origem": "https://www.compras.mg.gov.br"
-    },
-    {
-        "external_id": "00394502000144-1-000177/2026",
-        "process_number": "MAR-CPAL-63024.000177/2026",
-        "notice_number": "Dispensa Comprasnet Nº 177/2026",
-        "title": "Aquisição de materiais de navegação e salvatagem - Comando da Marinha / Capitania dos Portos de AL",
-        "object_description": "Dispensa eletrônica para aquisição de peças de reposição e salvatagem para lanchas da Capitania dos Portos de Alagoas (UASG 783310).",
-        "contracting_entity": "Comando da Marinha - Capitania dos Portos de Alagoas",
-        "purchasing_unit": "Capitania dos Portos de Alagoas / UASG 783310",
-        "codigo_unidade": "783310",
-        "state": "AL",
-        "city": "Maceió",
-        "region": "Nordeste",
-        "administrative_sphere": "FEDERAL",
-        "modality": "Dispensa Eletrônica",
-        "category": "Equipamentos",
-        "status": "Divulgada no PNCP",
-        "estimated_total_value": 48500.00,
-        "sistema_origem": "Compras.gov.br",
-        "link_origem": "https://cnetmobile.estaleiro.serpro.gov.br/comprasnet-web/public/compras/acompanhamento-compra?compra=78331006001772026",
-        "executor_portal": "Compras.gov.br"
-    },
-    {
-        "external_id": "15126437000143-1-000088/2026",
-        "process_number": "EBSERH-HUPAA-23065.0088/2026",
-        "notice_number": "Dispensa Eletrônica 88/2026",
-        "title": "Aquisição de linhas de hemodiálise e insumos de terapia renal substitutiva - HUPAA/EBSERH em Maceió/AL",
-        "object_description": "Dispensa de licitação para atendimento aos pacientes renais crônicos do Hospital Universitário Professor Alberto Antunes (EBSERH/UFAL).",
-        "contracting_entity": "Empresa Brasileira de Serviços Hospitalares - EBSERH / HUPAA-UFAL",
-        "purchasing_unit": "Hospital Universitário Prof. Alberto Antunes / UASG 155012",
-        "codigo_unidade": "155012",
-        "state": "AL",
-        "city": "Maceió",
-        "region": "Nordeste",
-        "administrative_sphere": "FEDERAL",
-        "modality": "Dispensa Eletrônica",
-        "category": "Materiais hospitalares",
-        "status": "Divulgada no PNCP",
-        "estimated_total_value": 59200.00,
-        "sistema_origem": "Compras.gov.br",
-        "link_origem": "https://cnetmobile.estaleiro.serpro.gov.br/comprasnet-web/public/compras/acompanhamento-compra?compra=15501206000882026",
-        "executor_portal": "Compras.gov.br"
-    },
-    {
-        "external_id": "00394452000103-1-000092/2026",
-        "process_number": "CMNE-7RM-64010.00092/2026",
-        "notice_number": "Dispensa Eletrônica 92/2026",
-        "title": "Manutenção corretiva e preventiva de grupos geradores - Comando Militar do Nordeste / 7ª RM",
-        "object_description": "Dispensa eletrônica para serviços emergenciais de manutenção elétrica e geradores de energia da 7ª Região Militar do Exército Brasileiro.",
-        "contracting_entity": "Comando do Exército - 7ª Região Militar",
-        "purchasing_unit": "Comando Militar do Nordeste / UASG 160092",
-        "codigo_unidade": "160092",
-        "state": "PE",
-        "city": "Recife",
-        "region": "Nordeste",
-        "administrative_sphere": "FEDERAL",
-        "modality": "Dispensa Eletrônica",
-        "category": "Serviços",
-        "status": "Divulgada no PNCP",
-        "estimated_total_value": 38700.00,
-        "sistema_origem": "Compras.gov.br",
-        "link_origem": "https://cnetmobile.estaleiro.serpro.gov.br/comprasnet-web/public/compras/acompanhamento-compra?compra=16009206000922026",
-        "executor_portal": "Compras.gov.br"
-    },
-    {
-        "external_id": "00394452000103-1-000064/2026",
-        "process_number": "COMAER-BASV-67200.00064/2026",
-        "notice_number": "Dispensa de Licitação 64/2026",
-        "title": "Aquisição de ferramental aeronáutico e suporte de solo - Base Aérea de Salvador",
-        "object_description": "Dispensa de licitação para aquisição emergencial de ferramentas aeronáuticas para manutenção do pátio de aeronaves da Base Aérea de Salvador.",
-        "contracting_entity": "Comando da Aeronáutica - Base Aérea de Salvador",
-        "purchasing_unit": "Grupamento de Apoio de Salvador / UASG 160064",
-        "codigo_unidade": "160064",
-        "state": "BA",
-        "city": "Salvador",
-        "region": "Nordeste",
-        "administrative_sphere": "FEDERAL",
-        "modality": "Dispensa de Licitação",
-        "category": "Equipamentos",
-        "status": "Divulgada no PNCP",
-        "estimated_total_value": 27400.00,
-        "sistema_origem": "Compras.gov.br",
-        "link_origem": "https://cnetmobile.estaleiro.serpro.gov.br/comprasnet-web/public/compras/acompanhamento-compra?compra=16006406000642026",
-        "executor_portal": "Compras.gov.br"
-    }
-]
-
 
 def infer_category(title: str, obj: str, default: str = "Outros") -> str:
     """Classifica a categoria de contratação com base nos termos-chave do título e objeto."""
@@ -228,358 +38,14 @@ def infer_category(title: str, obj: str, default: str = "Outros") -> str:
     return default
 
 
-def _build_full_fallback_catalog() -> List[Dict[str, Any]]:
-    """
-    Constrói um catálogo amplo de 550+ certames reais e representativos
-    abrangendo todos os 27 estados da federação e múltiplos portais de compras
-    (Compras.gov.br, BEC/SP, Compras MG, Compras RS, Comprasnet BA, SIGA RJ,
-     Compras Paraná, BLL Compras, Licitações-e, Portal de Compras Públicas, Licitanet, PNCP Geral).
-    """
-    catalog = list(BASE_OPPORTUNITIES)
-    now = datetime.utcnow()
-
-    # Modelos de contratações por portal
-    uf_list = [
-        ("DF", "Brasília", "Centro-Oeste"),
-        ("SP", "São Paulo", "Sudeste"),
-        ("RJ", "Rio de Janeiro", "Sudeste"),
-        ("MG", "Belo Horizonte", "Sudeste"),
-        ("RS", "Porto Alegre", "Sul"),
-        ("PR", "Curitiba", "Sul"),
-        ("SC", "Florianópolis", "Sul"),
-        ("BA", "Salvador", "Nordeste"),
-        ("PE", "Recife", "Nordeste"),
-        ("CE", "Fortaleza", "Nordeste"),
-        ("GO", "Goiânia", "Centro-Oeste"),
-        ("ES", "Vitória", "Sudeste"),
-        ("PA", "Belém", "Norte"),
-        ("AM", "Manaus", "Norte"),
-        ("MT", "Cuiabá", "Centro-Oeste"),
-        ("MS", "Campo Grande", "Centro-Oeste"),
-        ("MA", "São Luís", "Nordeste"),
-        ("PB", "João Pessoa", "Nordeste"),
-        ("RN", "Natal", "Nordeste"),
-        ("AL", "Maceió", "Nordeste"),
-        ("PI", "Teresina", "Nordeste"),
-        ("SE", "Aracaju", "Nordeste"),
-        ("RO", "Porto Velho", "Norte"),
-        ("TO", "Palmas", "Norte"),
-        ("AC", "Rio Branco", "Norte"),
-        ("AP", "Macapá", "Norte"),
-        ("RR", "Boa Vista", "Norte")
-    ]
-
-    # 1. COMPRAS.GOV.BR (Governo Federal com UASG Oficial) - 270 certames (10 por estado)
-    federal_agencies = [
-        ("Ministério da Saúde - DLOG", "Medicamentos", "Aquisição emergencial de medicamentos para distribuição nacional", 18500000.0),
-        ("Comando do Exército - Batalhão Logístico", "Alimentação", "Registro de preços para subsistência e rações operacionais", 4200000.0),
-        ("Universidade Federal - PROAD", "Equipamentos", "Equipamentos analíticos de alta precisão para laboratórios centrais", 3100000.0),
-        ("Instituto Federal de Educação, Ciência e Tecnologia", "Tecnologia", "Modernização de infraestrutura de conectividade e switches core", 2400000.0),
-        ("Hospital Universitário Federal / EBSERH", "Materiais hospitalares", "Insumos médicos, fios cirúrgicos e descartáveis de alta vazão", 5600000.0),
-        ("Polícia Federal - Superintendência Regional", "Equipamentos", "Aquisição de viaturas táticas blindadas e sistemas de radiocomunicação", 9800000.0),
-        ("Tribunal Regional do Trabalho", "Serviços", "Serviços de suporte técnico e sustentação de banco de dados corporativo", 1800000.0),
-        ("Comando da Aeronáutica - Esquadrão Aéreo", "Serviços", "Serviços de manutenção preventiva e predial de instalações aeronáuticas", 3700000.0),
-        ("Instituto Nacional do Seguro Social - SR", "Serviços", "Serviços contínuos de conservação, asseio e limpeza predial", 2900000.0),
-        ("Receita Federal do Brasil - Delegacia Regional", "Tecnologia", "Solução de inteligência fiscal com análise de padrões e OCR", 6400000.0)
-    ]
-
-    seq = 100
-    for uf, city, region in uf_list:
-        for idx_agency, (agency, cat, title_base, val_base) in enumerate(federal_agencies):
-            seq += 1
-            uasg_num = f"{150000 + (seq % 89999):06d}"
-            ext_id = f"00394452000103-1-{seq:06d}/2026"
-            entity_name = f"{agency} ({uf})"
-            catalog.append({
-                "external_id": ext_id,
-                "process_number": f"SISG-PROC-{seq:05d}/2026",
-                "notice_number": f"PE {seq % 999 + 1:03d}/2026",
-                "title": f"{title_base} - {agency} em {city}/{uf}",
-                "object_description": f"Contratação via sistema Compras.gov.br para atender à demanda da unidade {entity_name}. Registro de preços com participação exclusiva ou ampla concorrência.",
-                "contracting_entity": entity_name,
-                "purchasing_unit": f"Divisão de Contratações / UASG {uasg_num}",
-                "codigo_unidade": uasg_num,
-                "state": uf,
-                "city": city,
-                "region": region,
-                "administrative_sphere": "FEDERAL",
-                "modality": "Pregão Eletrônico",
-                "category": cat,
-                "status": "Divulgada no PNCP",
-                "estimated_total_value": val_base + ((seq % 15) * 85000.0),
-                "sistema_origem": "Compras.gov.br",
-                "link_origem": f"https://cnetmobile.estaleiro.serpro.gov.br/comprasnet-web/public/compras/acompanhamento-compra?compra={uasg_num}0500{seq % 500:03d}2026",
-                "executor_portal": "Compras.gov.br"
-            })
-
-    # 2. BEC/SP (Bolsa Eletrônica de Compras SP) - 60 certames
-    bec_agencies = [
-        ("Polícia Militar do Estado de São Paulo - PMESP", "Equipamentos", "Equipamentos de proteção individual e coletes balísticos nível III-A", 12400000.0),
-        ("Secretaria de Estado da Saúde de SP - SES/SP", "Medicamentos", "Fármacos imunobiológicos e quimioterápicos de alta complexidade", 23100000.0),
-        ("Universidade de São Paulo - USP", "Tecnologia", "Infraestrutura de supercomputação para processamento genômico", 8700000.0),
-        ("Secretaria da Administração Penitenciária - SAP/SP", "Alimentação", "Fornecimento de refeições balanceadas para unidades prisionais", 15200000.0),
-        ("Departamento de Estradas de Rodagem - DER/SP", "Obras", "Recapeamento e sinalização horizontal na malha viária estadual", 31000000.0),
-        ("Hospital das Clínicas da FMUSP", "Materiais hospitalares", "Kits de cânulas, oxigenadores e tubos endotraqueais para UTI", 7400000.0)
-    ]
-    for i in range(10):
-        for agency, cat, title_base, val in bec_agencies:
-            seq += 1
-            ext_id = f"46379400000150-1-{seq:06d}/2026"
-            catalog.append({
-                "external_id": ext_id,
-                "process_number": f"BEC-SP-{seq:05d}/2026",
-                "notice_number": f"OC {seq % 800 + 1:03d}/2026",
-                "title": f"{title_base} - {agency}",
-                "object_description": f"Pregão eletrônico processado pela Bolsa Eletrônica de Compras de São Paulo (BEC/SP) para {agency}.",
-                "contracting_entity": agency,
-                "purchasing_unit": "Centro de Despesas e Suprimentos - BEC",
-                "codigo_unidade": None,
-                "state": "SP",
-                "city": "São Paulo",
-                "region": "Sudeste",
-                "administrative_sphere": "ESTADUAL",
-                "modality": "Pregão Eletrônico",
-                "category": cat,
-                "status": "Divulgada no PNCP",
-                "estimated_total_value": val + (i * 120000.0),
-                "sistema_origem": "Bolsa Eletrônica de Compras SP",
-                "link_origem": f"https://www.bec.sp.gov.br/bec_p/DetalheEdital.aspx?id={seq}",
-                "executor_portal": "BEC/SP"
-            })
-
-    # 3. COMPRAS RS / PREGÃO BANRISUL - 40 certames
-    rs_agencies = [
-        ("Secretaria de Segurança Pública do RS - SSP/RS", "Tecnologia", "Videomonitoramento inteligente e leitura automática de placas", 14300000.0),
-        ("Secretaria de Estado da Saúde do RS - SES/RS", "Medicamentos", "Antibióticos de uso hospitalar e hemoderivados", 11900000.0),
-        ("Prefeitura de Pelotas - SMS", "Materiais hospitalares", "Insumos e materiais para atendimento básico de saúde", 3200000.0),
-        ("Prefeitura de Caxias do Sul - SMED", "Alimentação", "Gêneros alimentícios perecíveis e não perecíveis para alimentação escolar", 4800000.0)
-    ]
-    for i in range(10):
-        for agency, cat, title_base, val in rs_agencies:
-            seq += 1
-            ext_id = f"87934675000196-1-{seq:06d}/2026"
-            catalog.append({
-                "external_id": ext_id,
-                "process_number": f"CELIC-RS-{seq:05d}/2026",
-                "notice_number": f"PE {seq % 600 + 1:03d}/2026",
-                "title": f"{title_base} - {agency}",
-                "object_description": f"Certame eletrônico realizado pelo sistema Compras RS / Pregão Banrisul para {agency}.",
-                "contracting_entity": agency,
-                "purchasing_unit": "Central de Licitações do Estado do RS (CELIC)",
-                "codigo_unidade": None,
-                "state": "RS",
-                "city": "Porto Alegre",
-                "region": "Sul",
-                "administrative_sphere": "ESTADUAL" if "Secretaria" in agency else "MUNICIPAL",
-                "modality": "Pregão Eletrônico",
-                "category": cat,
-                "status": "Divulgada no PNCP",
-                "estimated_total_value": val + (i * 90000.0),
-                "sistema_origem": "Compras RS / Pregão Banrisul",
-                "link_origem": f"https://pregaobanrisul.com.br/editais/{seq % 999:04d}_2026/{seq}",
-                "executor_portal": "Compras RS"
-            })
-
-    # 4. COMPRAS MG (Portal de Compras MG) - 35 certames
-    mg_agencies = [
-        ("Secretaria de Estado de Educação de MG - SEE/MG", "Tecnologia", "Conectividade de alta velocidade para laboratórios didáticos", 9500000.0),
-        ("Polícia Militar de Minas Gerais - PMMG", "Equipamentos", "Equipamentos táticos e armamento de menor potencial ofensivo", 8100000.0),
-        ("Hospital João XXIII / FHEMIG", "Materiais hospitalares", "Próteses e kits cirúrgicos ortopédicos para urgência e trauma", 6700000.0)
-    ]
-    for i in range(12):
-        for agency, cat, title_base, val in mg_agencies:
-            seq += 1
-            ext_id = f"18715615000160-1-{seq:06d}/2026"
-            catalog.append({
-                "external_id": ext_id,
-                "process_number": f"SEPLAG-MG-{seq:05d}/2026",
-                "notice_number": f"PE {seq % 500 + 1:03d}/2026",
-                "title": f"{title_base} - {agency}",
-                "object_description": f"Registro de preços eletrônico via Portal de Compras MG para {agency}.",
-                "contracting_entity": agency,
-                "purchasing_unit": "Superintendência Central de Recursos Logísticos - SEPLAG",
-                "codigo_unidade": None,
-                "state": "MG",
-                "city": "Belo Horizonte",
-                "region": "Sudeste",
-                "administrative_sphere": "ESTADUAL",
-                "modality": "Pregão Eletrônico",
-                "category": cat,
-                "status": "Divulgada no PNCP",
-                "estimated_total_value": val + (i * 75000.0),
-                "sistema_origem": "Portal de Compras MG",
-                "link_origem": f"https://www.compras.mg.gov.br/processos-de-compras?id={seq}",
-                "executor_portal": "Compras MG"
-            })
-
-    # 5. BLL COMPRAS (Bolsa de Licitações e Leilões) - 35 certames municipais
-    bll_cities = [
-        ("PR", "Londrina", "Prefeitura Municipal de Londrina", "Obras", "Pavimentação asfáltica e drenagem de vias urbanas", 8900000.0),
-        ("SC", "Joinville", "Prefeitura Municipal de Joinville", "Medicamentos", "Aquisição de medicamentos essenciais da atenção básica", 5400000.0),
-        ("SP", "Campinas", "Prefeitura Municipal de Campinas", "Serviços", "Serviços de transporte sanitário e ambulâncias com equipe", 6300000.0),
-        ("MG", "Uberlândia", "Prefeitura Municipal de Uberlândia", "Equipamentos", "Equipamentos de climatização para unidades escolares", 3100000.0)
-    ]
-    for i in range(9):
-        for uf, city, agency, cat, title_base, val in bll_cities:
-            seq += 1
-            ext_id = f"76214560000199-1-{seq:06d}/2026"
-            catalog.append({
-                "external_id": ext_id,
-                "process_number": f"BLL-PROC-{seq:05d}/2026",
-                "notice_number": f"PE {seq % 400 + 1:03d}/2026",
-                "title": f"{title_base} - {agency}",
-                "object_description": f"Pregão eletrônico nacional realizado na plataforma BLL Compras para {agency}.",
-                "contracting_entity": agency,
-                "purchasing_unit": "Secretaria Municipal de Administração e Compras",
-                "codigo_unidade": None,
-                "state": uf,
-                "city": city,
-                "region": "Sul" if uf in ("PR", "SC") else "Sudeste",
-                "administrative_sphere": "MUNICIPAL",
-                "modality": "Pregão Eletrônico",
-                "category": cat,
-                "status": "Divulgada no PNCP",
-                "estimated_total_value": val + (i * 80000.0),
-                "sistema_origem": "BLL Compras",
-                "link_origem": f"https://bllcompras.com/Process/ProcessSearchPublic?id={seq}",
-                "executor_portal": "BLL Compras"
-            })
-
-    # 6. PORTAL DE COMPRAS PÚBLICAS - 30 certames
-    pcp_cities = [
-        ("ES", "Linhares", "Prefeitura Municipal de Linhares", "Medicamentos", "Fornecimento parcelado de medicamentos orais e injetáveis", 4100000.0),
-        ("MG", "Lavras", "Prefeitura Municipal de Lavras", "Equipamentos", "Tratores e implementos agrícolas para apoio ao produtor rural", 2900000.0),
-        ("PA", "São João do Araguaia", "Prefeitura Municipal de São João do Araguaia", "Alimentação", "Merenda escolar com itens da agricultura familiar", 1850000.0)
-    ]
-    for i in range(10):
-        for uf, city, agency, cat, title_base, val in pcp_cities:
-            seq += 1
-            ext_id = f"25145690000133-1-{seq:06d}/2026"
-            catalog.append({
-                "external_id": ext_id,
-                "process_number": f"PCP-PROC-{seq:05d}/2026",
-                "notice_number": f"PE {seq % 300 + 1:03d}/2026",
-                "title": f"{title_base} - {agency}",
-                "object_description": f"Processo licitatório conduzido pela plataforma Portal de Compras Públicas para {agency}.",
-                "contracting_entity": agency,
-                "purchasing_unit": "Comissão Permanente de Licitações",
-                "codigo_unidade": None,
-                "state": uf,
-                "city": city,
-                "region": "Sudeste" if uf in ("ES", "MG") else "Norte",
-                "administrative_sphere": "MUNICIPAL",
-                "modality": "Pregão Eletrônico",
-                "category": cat,
-                "status": "Divulgada no PNCP",
-                "estimated_total_value": val + (i * 60000.0),
-                "sistema_origem": "Portal de Compras Públicas",
-                "link_origem": f"https://www.portaldecompraspublicas.com.br/processos/{uf}/{agency.replace(' ', '-')}/RPE-{seq}",
-                "executor_portal": "Portal de Compras Públicas"
-            })
-
-    # 7. LICITAÇÕES-E (Banco do Brasil) - 25 certames
-    bb_agencies = [
-        ("Banco do Brasil S.A. - DITEC", "Tecnologia", "Módulos de criptografia quântica e resiliência cibernética", 22500000.0),
-        ("Prefeitura Municipal de Ribeirão Preto", "Materiais hospitalares", "Materiais descartáveis para a rede municipal de urgência", 5300000.0),
-        ("Companhia de Saneamento Básico - SABESP", "Equipamentos", "Bombas submersíveis de alta pressão e motores de acionamento", 8900000.0)
-    ]
-    for i in range(8):
-        for agency, cat, title_base, val in bb_agencies:
-            seq += 1
-            ext_id = f"00000000000191-1-{seq:06d}/2026"
-            catalog.append({
-                "external_id": ext_id,
-                "process_number": f"BB-LICIT-{seq:05d}/2026",
-                "notice_number": f"PE {seq % 200 + 1:03d}/2026",
-                "title": f"{title_base} - {agency}",
-                "object_description": f"Pregão eletrônico operado pelo sistema Licitações-e (Banco do Brasil) para {agency}.",
-                "contracting_entity": agency,
-                "purchasing_unit": "Centro de Suprimentos Corporativos",
-                "codigo_unidade": None,
-                "state": "SP",
-                "city": "São Paulo",
-                "region": "Sudeste",
-                "administrative_sphere": "FEDERAL" if "Banco" in agency else "MUNICIPAL",
-                "modality": "Pregão Eletrônico",
-                "category": cat,
-                "status": "Divulgada no PNCP",
-                "estimated_total_value": val + (i * 95000.0),
-                "sistema_origem": "Licitações-e (Banco do Brasil)",
-                "link_origem": f"https://www.licitacoes-e.com.br/aop/consultar-detalhes-licitacao.aop?numeroLicitacao={seq}",
-                "executor_portal": "Licitações-e"
-            })
-
-    # 8. OUTROS PORTAIS ESTADUAIS (SIGA RJ, Comprasnet BA, Compras Paraná) - 60 certames
-    other_portals = [
-        ("RJ", "Rio de Janeiro", "Governo do Estado do Rio de Janeiro - SEAP", "Alimentação", "Fornecimento de refeições balanceadas para unidades socioeducativas", 19500000.0, "SIGA RJ", "https://www.siga.rj.gov.br", "SIGA RJ"),
-        ("BA", "Salvador", "Governo do Estado da Bahia - SESAB", "Medicamentos", "Medicamentos oncológicos para a rede hospitalar da Bahia", 16800000.0, "Comprasnet Bahia", "https://www.comprasnet.ba.gov.br", "Comprasnet BA"),
-        ("PR", "Curitiba", "Governo do Estado do Paraná - SEED/PR", "Tecnologia", "Laboratórios maker e plataformas digitais para o ensino médio", 7200000.0, "Compras Paraná", "https://www.comprasparana.pr.gov.br", "Compras Paraná")
-    ]
-    for i in range(20):
-        for uf, city, agency, cat, title_base, val, sys_name, sys_link, port_name in other_portals:
-            seq += 1
-            ext_id = f"13456789000100-1-{seq:06d}/2026"
-            catalog.append({
-                "external_id": ext_id,
-                "process_number": f"{port_name.replace(' ', '')}-{seq:05d}/2026",
-                "notice_number": f"PE {seq % 150 + 1:03d}/2026",
-                "title": f"{title_base} - {agency}",
-                "object_description": f"Contratação via portal estadual {sys_name} para atendimento às demandas de {agency}.",
-                "contracting_entity": agency,
-                "purchasing_unit": "Diretoria de Compras e Suprimentos Estaduais",
-                "codigo_unidade": None,
-                "state": uf,
-                "city": city,
-                "region": "Sudeste" if uf == "RJ" else ("Nordeste" if uf == "BA" else "Sul"),
-                "administrative_sphere": "ESTADUAL",
-                "modality": "Pregão Eletrônico",
-                "category": cat,
-                "status": "Divulgada no PNCP",
-                "estimated_total_value": val + (i * 85000.0),
-                "sistema_origem": sys_name,
-                "link_origem": f"{sys_link}/detalhe?id={seq}",
-                "executor_portal": port_name
-            })
-
-    # 9. DISPENSAS ELETRÔNICAS E DISPENSAS DE LICITAÇÃO (Marinha, Exército, Aeronáutica, EBSERH) - 135 certames
-    dispensa_templates = [
-        ("Comando da Marinha - Capitania dos Portos", "Equipamentos", "Manutenção preventiva de motores de popa e materiais náuticos de salvatagem", 48500.0, "Dispensa Eletrônica"),
-        ("Comando do Exército - Batalhão Logístico", "Alimentação", "Fornecimento emergencial de rações operacionais e gêneros secos", 39000.0, "Dispensa Eletrônica"),
-        ("Comando da Aeronáutica - Destacamento de Apoio", "Serviços", "Manutenção preventiva e corretiva de nobreaks e grupos geradores", 42000.0, "Dispensa de Licitação"),
-        ("Hospital Universitário / EBSERH", "Materiais hospitalares", "Insumos médicos de urgência, cateteres e kits de punção", 54000.0, "Dispensa Eletrônica"),
-        ("Universidade Federal - Centro de Tecnologia", "Tecnologia", "Componentes de rede e substituição emergencial de switches", 29000.0, "Dispensa de Licitação")
-    ]
-    for uf, city, region in uf_list:
-        for idx_disp, (agency, cat, title_base, val_base, mod_name) in enumerate(dispensa_templates):
-            seq += 1
-            uasg_code = "783310" if (uf == "AL" and "Marinha" in agency) else f"{160000 + (seq % 89999):06d}"
-            ext_id = f"00394502000144-1-{seq:06d}/2026" if "Marinha" in agency else f"00394452000103-1-{seq:06d}/2026"
-            notice_num = "Dispensa Comprasnet Nº 177/2026" if (uf == "AL" and "Marinha" in agency) else f"Dispensa {seq % 400 + 1:03d}/2026"
-            catalog.append({
-                "external_id": ext_id,
-                "process_number": f"DISP-{uf}-{seq:05d}/2026",
-                "notice_number": notice_num,
-                "title": f"{title_base} - {agency} ({uf})",
-                "object_description": f"{mod_name} com fulcro na Lei 14.133/2021 para atendimento imediato da unidade {agency} em {city}/{uf}.",
-                "contracting_entity": f"{agency} ({uf})",
-                "purchasing_unit": f"Divisão de Suprimentos / UASG {uasg_code}",
-                "codigo_unidade": uasg_code,
-                "state": uf,
-                "city": city,
-                "region": region,
-                "administrative_sphere": "FEDERAL",
-                "modality": mod_name,
-                "category": cat,
-                "status": "Divulgada no PNCP",
-                "estimated_total_value": val_base + ((seq % 10) * 1200.0),
-                "sistema_origem": "Compras.gov.br",
-                "link_origem": f"https://cnetmobile.estaleiro.serpro.gov.br/comprasnet-web/public/compras/acompanhamento-compra?compra={uasg_code}0600{seq % 300:03d}2026",
-                "executor_portal": "Compras.gov.br"
-            })
-
-    return catalog
-
-FALLBACK_OPPORTUNITIES = _build_full_fallback_catalog()
+def _data_pncp(valor: Any) -> Optional[datetime]:
+    """Converte uma data/hora do PNCP (horário de Brasília, ISO) em datetime; None se ausente ou inválida."""
+    if not valor:
+        return None
+    try:
+        return datetime.fromisoformat(str(valor).replace("Z", "").split(".")[0])
+    except (TypeError, ValueError):
+        return None
 
 
 def detect_operational_source(record: Dict[str, Any]) -> Tuple[str, Optional[str], bool]:
@@ -737,7 +203,7 @@ def sync_procurement_opportunities(
     Pipeline unificado de sincronização em larga escala:
     1. Paginação contínua na API oficial do PNCP (páginas 1 a N, limite_per_page itens por página).
     2. Enriquece a identificação de portais executores (Compras.gov.br, BEC/SP, BLL, Compras RS, MG, BA, RJ, etc.).
-    3. Suplementação resiliente com catálogo multissistema para garantir cobertura de centenas de registros.
+    3. Nenhum certame fictício: sem resposta da API, nada é inserido.
     4. Upsert idempotente no SQLite dev_licitacoes.db por external_id (sem duplicidades).
     5. Retorna estatísticas consolidadas: total_coletados, novos_inseridos, atualizados, total_geral_banco.
     """
@@ -792,27 +258,10 @@ def sync_procurement_opportunities(
                         source_sys, uasg, sicaf = detect_operational_source(r)
                         portal_name = detect_executor_portal(r)
 
-                        # Parse de datas com fallbacks robustos
-                        pub_date = now - timedelta(hours=4)
-                        if r.get("dataPublicacaoPncp"):
-                            try:
-                                pub_date = datetime.fromisoformat(r["dataPublicacaoPncp"].split(".")[0])
-                            except Exception:
-                                pass
-
-                        open_date = now + timedelta(days=8)
-                        if r.get("dataAberturaProposta"):
-                            try:
-                                open_date = datetime.fromisoformat(r["dataAberturaProposta"].split(".")[0])
-                            except Exception:
-                                pass
-
-                        deadline = open_date + timedelta(hours=2)
-                        if r.get("dataEncerramentoProposta"):
-                            try:
-                                deadline = datetime.fromisoformat(r["dataEncerramentoProposta"].split(".")[0])
-                            except Exception:
-                                pass
+                        # Datas oficiais informadas pelo PNCP; ausentes ficam vazias (nunca estimadas)
+                        pub_date = _data_pncp(r.get("dataPublicacaoPncp"))
+                        open_date = _data_pncp(r.get("dataAberturaProposta"))
+                        deadline = _data_pncp(r.get("dataEncerramentoProposta"))
 
                         unidade = r.get("unidadeOrgao", {}) if isinstance(r.get("unidadeOrgao"), dict) else {}
                         orgao = r.get("orgaoEntidade", {}) if isinstance(r.get("orgaoEntidade"), dict) else {}
@@ -918,9 +367,9 @@ def sync_procurement_opportunities(
                         "category": infer_category(title_str, obj_desc),
                         "status": r.get("situacaoCompraNome", "Divulgada no PNCP"),
                         "estimated_total_value": r.get("valorTotalEstimado") or r.get("valorTotalHomologado"),
-                        "publication_date": now - timedelta(hours=2),
-                        "opening_date": now + timedelta(days=5),
-                        "proposal_deadline": now + timedelta(days=5, hours=4),
+                        "publication_date": _data_pncp(r.get("dataPublicacaoPncp")),
+                        "opening_date": _data_pncp(r.get("dataAberturaProposta")),
+                        "proposal_deadline": _data_pncp(r.get("dataEncerramentoProposta")),
                         "source_system": source_sys,
                         "uasg_code": uasg,
                         "sicaf_ready": sicaf,
@@ -936,103 +385,8 @@ def sync_procurement_opportunities(
     except Exception as exc:
         logger.warning(f"[Sync] Erro na consulta contínua ao PNCP: {exc}")
 
-    # Garante a inclusão dos certames-âncora (Marinha, EBSERH, Exército, Aeronáutica)
-    for base_item in BASE_OPPORTUNITIES:
-        ext_id = base_item["external_id"]
-        if ext_id in seen_external_ids:
-            continue
-        if uf and base_item.get("state") != uf.upper():
-            continue
-        seen_external_ids.add(ext_id)
-        source_sys, uasg, sicaf = detect_operational_source(base_item)
-        portal_name = detect_executor_portal(base_item)
-        pncp_url = generate_pncp_link(ext_id, base_item.get("link_origem"))
-        cnet_url = generate_comprasnet_link(uasg, base_item["notice_number"], base_item.get("link_origem")) if sicaf else None
-        dispute_url = base_item.get("link_origem") or cnet_url or pncp_url
-
-        records_to_process.append({
-            "external_id": ext_id,
-            "process_number": base_item["process_number"],
-            "notice_number": base_item["notice_number"],
-            "title": base_item["title"],
-            "object_description": base_item["object_description"],
-            "contracting_entity": base_item["contracting_entity"],
-            "purchasing_unit": base_item["purchasing_unit"],
-            "state": base_item["state"],
-            "city": base_item["city"],
-            "region": base_item.get("region", "Nordeste"),
-            "administrative_sphere": base_item["administrative_sphere"],
-            "modality": base_item["modality"],
-            "category": base_item["category"],
-            "status": base_item["status"],
-            "estimated_total_value": base_item["estimated_total_value"],
-            "publication_date": now - timedelta(days=1),
-            "opening_date": now + timedelta(days=5),
-            "proposal_deadline": now + timedelta(days=5, hours=8),
-            "source_system": source_sys,
-            "uasg_code": uasg,
-            "sicaf_ready": sicaf,
-            "url_disputa": dispute_url,
-            "url_pncp": pncp_url,
-            "link_comprasnet": cnet_url,
-            "link_pncp": pncp_url,
-            "source_url": pncp_url,
-            "official_notice_url": base_item.get("link_origem") or dispute_url,
-            "executor_portal": portal_name
-        })
-
-    # 2. Se a coleta online retornou poucos registros (< 50) ou ambiente offline,
-    # suplementa com o catálogo de fallback multifontes
-    target_min = max(50, pages * limit_per_page) if pages > 1 else 50
-    if len(records_to_process) < target_min:
-        logger.info(f"[Sync] Suplementando com catálogo multifontes ({len(records_to_process)} coletados online, alvo {target_min}).")
-        for item in FALLBACK_OPPORTUNITIES:
-            ext_id = item["external_id"]
-            if ext_id in seen_external_ids:
-                continue
-            if uf and item.get("state") != uf.upper():
-                continue
-
-            seen_external_ids.add(ext_id)
-            source_sys, uasg, sicaf = detect_operational_source(item)
-            portal_name = detect_executor_portal(item)
-            pncp_url = generate_pncp_link(ext_id, item.get("link_origem"))
-            cnet_url = generate_comprasnet_link(uasg, item["notice_number"], item.get("link_origem")) if sicaf else None
-            dispute_url = item.get("link_origem") or cnet_url or pncp_url
-
-            records_to_process.append({
-                "external_id": ext_id,
-                "process_number": item["process_number"],
-                "notice_number": item["notice_number"],
-                "title": item["title"],
-                "object_description": item["object_description"],
-                "contracting_entity": item["contracting_entity"],
-                "purchasing_unit": item["purchasing_unit"],
-                "state": item["state"],
-                "city": item["city"],
-                "region": item.get("region", "Sudeste"),
-                "administrative_sphere": item["administrative_sphere"],
-                "modality": item["modality"],
-                "category": item["category"],
-                "status": item["status"],
-                "estimated_total_value": item["estimated_total_value"],
-                "publication_date": now - timedelta(days=1),
-                "opening_date": now + timedelta(days=10),
-                "proposal_deadline": now + timedelta(days=10, hours=9),
-                "source_system": source_sys,
-                "uasg_code": uasg,
-                "sicaf_ready": sicaf,
-                "url_disputa": dispute_url,
-                "url_pncp": pncp_url,
-                "link_comprasnet": cnet_url,
-                "link_pncp": pncp_url,
-                "source_url": pncp_url,
-                "official_notice_url": item.get("link_origem") or dispute_url,
-                "executor_portal": portal_name
-            })
-
-            if len(records_to_process) >= target_min and len(records_to_process) >= 500:
-                break
+    # Somente certames realmente retornados pela API oficial do PNCP são gravados:
+    # sem rede ou sem resultados, a sincronização não insere nada (catálogo 100% real).
 
     # 3. Assegura a fonte PNCP no banco
     source = db.query(Source).filter(Source.id == "pncp-source-01").first()
@@ -1087,6 +441,9 @@ def sync_procurement_opportunities(
             existing.object_description = opp["object_description"]
             existing.status = opp["status"]
             existing.estimated_total_value = opp.get("estimated_total_value", existing.estimated_total_value)
+            for campo in ("publication_date", "opening_date", "proposal_deadline"):
+                if opp.get(campo):
+                    setattr(existing, campo, opp[campo])
             existing.raw_data_reference = raw_ref
             existing.last_synced_at = now
             atualizados += 1
@@ -1107,7 +464,7 @@ def sync_procurement_opportunities(
                 modality=opp.get("modality", "Pregão Eletrônico"),
                 category=opp.get("category", "Geral"),
                 status=opp.get("status", "Divulgada no PNCP"),
-                publication_date=opp.get("publication_date", now),
+                publication_date=opp.get("publication_date"),
                 opening_date=opp.get("opening_date"),
                 proposal_deadline=opp.get("proposal_deadline"),
                 estimated_total_value=opp.get("estimated_total_value"),
@@ -1127,20 +484,7 @@ def sync_procurement_opportunities(
             )
             db.add(new_tender)
             db.flush()
-
-            # Cria item padrão da contratação para viabilizar busca detalhada
-            item_desc = opp["title"]
-            item_val = opp.get("estimated_total_value") or 50000.0
-            new_item = TenderItem(
-                tender_id=new_tender.id,
-                item_number=1,
-                description=item_desc,
-                quantity=1.0,
-                unit="UNIDADE",
-                estimated_unit_value=item_val,
-                estimated_total_value=item_val
-            )
-            db.add(new_item)
+            # Os itens reais são obtidos do endpoint /itens do PNCP sob demanda (pncp_compras.sincronizar_itens)
             new_tenders.append(new_tender)
             novos_inseridos += 1
 

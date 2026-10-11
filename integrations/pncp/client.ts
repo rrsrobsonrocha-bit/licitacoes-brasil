@@ -32,7 +32,7 @@ export class PNCPClient {
     const res = await fetch(`${this.baseUrl}/v1/contratacoes/publicacao?${searchParams.toString()}`, {
       headers: {
         'Accept': 'application/json',
-        'User-Agent': 'LicitacoesBrasil-Next/1.0',
+        'User-Agent': 'licitacoes-brasil-next/1.0',
       },
       next: { revalidate: 300 },
     });

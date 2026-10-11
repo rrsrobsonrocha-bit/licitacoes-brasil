@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Disputa Multi-Pregão ao Vivo | LicitaçõesBrasil{% endblock %}
+{% block title %}Disputa Multi-Pregão ao Vivo | Licitações Brasil{% endblock %}
 
 {% block content %}
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -32,11 +32,6 @@
       <button id="btn-sound-toggle" onclick="toggleAudio()" class="px-4 py-2.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center gap-2 transition shadow-sm">
         <i id="sound-icon" class="fa-solid fa-volume-high text-sky-400"></i>
         <span id="sound-label">Som: Ligado</span>
-      </button>
-
-      <!-- Pulse Simulation Button (Mock/Dev) -->
-      <button onclick="triggerSimulatedPulse()" class="px-4 py-2.5 rounded-xl text-xs font-semibold bg-amber-500 hover:bg-amber-400 text-slate-950 flex items-center gap-2 transition shadow-sm font-bold">
-        <i class="fa-solid fa-bolt"></i> Simular Pulso
       </button>
 
       <!-- Quick Track Modal Toggle -->
@@ -613,6 +608,20 @@
                   </div>
                 </div>
 
+                <!-- Melhor lance atual informado a partir do portal de disputa -->
+                <div class="p-3 bg-amber-50 rounded-xl border border-amber-200">
+                  <label class="block text-[11px] font-bold text-amber-800 mb-1">
+                    Melhor Lance Atual no Portal (R$)
+                  </label>
+                  <div class="flex items-center gap-2">
+                    <input type="number" step="0.01" min="0.01" id="best-bid-${sKey}" value="${item.melhor_lance > 0 ? item.melhor_lance.toFixed(2) : ''}" class="w-full px-3 py-1.5 text-xs font-mono rounded-lg border border-amber-300 outline-none focus:ring-2 focus:ring-amber-500">
+                    <button type="button" onclick="submitBestBid('${item.item_key}')" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 whitespace-nowrap transition shadow-sm">
+                      Atualizar
+                    </button>
+                  </div>
+                  <span class="text-[10px] text-amber-700">Informe o valor exibido no portal; com o robô ativo, ele cobre respeitando degrau e piso.</span>
+                </div>
+
                 <!-- Cobertura Manual de Emergência -->
                 <div class="p-3 bg-slate-50 rounded-xl border border-slate-200">
                   <label class="block text-[11px] font-bold text-slate-700 mb-1">
@@ -625,6 +634,10 @@
                     </button>
                   </div>
                 </div>
+
+                <button type="button" onclick="removeDisputeItem('${item.item_key}')" class="w-full py-1.5 rounded-lg text-[11px] font-semibold text-rose-600 hover:bg-rose-50 border border-rose-200 transition">
+                  <i class="fa-regular fa-trash-can"></i> Remover lote da Sala de Disputa
+                </button>
               </div>
 
               <!-- Coluna 3: Histórico Visual dos Concorrentes -->
@@ -735,6 +748,11 @@
         renderDisputeAccordion();
         showToast(`🛑 Stop-Loss Atingido: Robô suspenso em ${item.id_pregao} para proteger margem mínima (${formatCurrency(event.piso)})!`, 'error');
       }
+    } else if (event.type === 'ITEM_REMOVED') {
+      if (event.item) {
+        delete activeItems[event.item.item_key];
+        renderDisputeAccordion();
+      }
     } else if (event.type === 'GLOBAL_AUTOBID_TOGGLED') {
       updateGlobalAutobidUI(event.global_status);
       loadInitialActiveDisputes();
@@ -764,15 +782,44 @@
     }
   }
 
-  async function triggerSimulatedPulse() {
+  // Registra o melhor lance atual visto no portal de disputa (dado real informado pelo usuário)
+  async function submitBestBid(itemKey) {
+    const sKey = safeKey(itemKey);
+    const input = document.getElementById(`best-bid-${sKey}`);
+    const val = input ? parseFloat(input.value) : NaN;
+    if (!val || isNaN(val) || val <= 0) {
+      showToast('Informe o melhor lance exibido no portal.', 'error');
+      return;
+    }
     try {
-      const res = await fetch('/api/disputes/pulse', { method: 'POST' });
-      const data = await res.json();
-      if (data.status === 'success') {
-        showToast('Pulso concorrente simulado com sucesso!', 'success');
+      const res = await fetch('/api/disputes/melhor-lance/' + encodeURIComponent(itemKey), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ valor: val })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || 'Falha ao registrar o melhor lance.');
+      if (data.item) {
+        activeItems[data.item.item_key] = data.item;
+        renderDisputeAccordion();
       }
+      showToast(`Melhor lance de ${formatCurrency(val)} registrado.`, 'success');
     } catch (e) {
-      showToast('Erro ao simular pulso.', 'error');
+      showToast(e.message || 'Falha ao registrar o melhor lance.', 'error');
+    }
+  }
+
+  async function removeDisputeItem(itemKey) {
+    const item = activeItems[itemKey];
+    if (!confirm(`Remover o lote ${item ? item.id_pregao + ' (item ' + item.numero_item + ')' : ''} da Sala de Disputa?`)) return;
+    try {
+      const res = await fetch('/api/disputes/' + encodeURIComponent(itemKey), { method: 'DELETE' });
+      if (!res.ok) throw new Error();
+      delete activeItems[itemKey];
+      renderDisputeAccordion();
+      showToast('Lote removido da Sala de Disputa.', 'info');
+    } catch (e) {
+      showToast('Não foi possível remover o lote.', 'error');
     }
   }
 

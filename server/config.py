@@ -68,6 +68,16 @@ class Settings(BaseModel):
     # Somente para desenvolvimento: devolve o link de redefinição na resposta da API quando EMAIL_PROVIDER=MOCK
     AUTH_EXPOSE_RESET_LINK: bool = os.getenv("AUTH_EXPOSE_RESET_LINK", "false").lower() in ("1", "true", "yes")
 
+    # Administrador inicial (opcional). Sem ADMIN_EMAIL nenhuma conta padrão é criada.
+    # Com ADMIN_EMAIL de conta existente, ela é promovida a ADMIN; com ADMIN_PASSWORD, a conta é criada.
+    ADMIN_EMAIL: str = os.getenv("ADMIN_EMAIL", "")
+    ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "")
+    ADMIN_NAME: str = os.getenv("ADMIN_NAME", "Administrador")
+    # Conta que recebe os negócios/alertas legados sem dono (padrão: ADMIN_EMAIL ou a conta real principal)
+    ORPHAN_OWNER_EMAIL: str = os.getenv("ORPHAN_OWNER_EMAIL", "")
+    # Limpeza automática das contas/certames de demonstração antigos na migração (desligada só na suíte de testes)
+    REMOVER_DADOS_DEMONSTRACAO: bool = os.getenv("REMOVER_DADOS_DEMONSTRACAO", "true").lower() in ("1", "true", "yes")
+
     # PNCP — API de integração (itens e arquivos das compras)
     PNCP_INTEGRACAO_BASE_URL: str = os.getenv("PNCP_INTEGRACAO_BASE_URL", "https://pncp.gov.br/api/pncp/v1").rstrip("/")
     PNCP_DOWNLOAD_MAX_MB: int = int(os.getenv("PNCP_DOWNLOAD_MAX_MB", "100"))

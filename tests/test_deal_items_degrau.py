@@ -128,7 +128,8 @@ def test_extrair_degrau_minimo():
     assert pncp_compras.extrair_degrau_minimo(None) is None
 
 
-def test_disputa_usa_degrau_do_edital_e_fallback():
+def test_disputa_usa_degrau_do_edital_e_fallback(usuario_auth):
+    h = usuario_auth.headers
     tender_id = _tender_com_itens(degrau_raw=1.5)
     try:
         r = client.get(f"/api/disputes/degrau?id_pregao={tender_id}&numero_item=1").json()
@@ -137,16 +138,16 @@ def test_disputa_usa_degrau_do_edital_e_fallback():
         assert r2 == {"degrau_minimo": 0.01, "origem": "padrao"}
 
         base = {"id_pregao": tender_id, "descricao": "Notebook", "valor_referencia": 50000, "meu_lance": 49000}
-        item1 = client.post("/api/disputes/track", json={**base, "numero_item": 1, "degrau_minimo": None}).json()["item"]
+        item1 = client.post("/api/disputes/track", json={**base, "numero_item": 1, "degrau_minimo": None}, headers=h).json()["item"]
         assert item1["degrau_minimo"] == 1.5 and item1["degrau_origem"] == "edital"
 
-        item2 = client.post("/api/disputes/track", json={**base, "numero_item": 2}).json()["item"]
+        item2 = client.post("/api/disputes/track", json={**base, "numero_item": 2}, headers=h).json()["item"]
         assert item2["degrau_minimo"] == 0.01 and item2["degrau_origem"] == "padrao"
 
         # Valor digitado pelo usuário prevalece sobre o edital
-        item3 = client.post("/api/disputes/track", json={**base, "numero_item": 1, "degrau_minimo": 3}).json()["item"]
+        item3 = client.post("/api/disputes/track", json={**base, "numero_item": 1, "degrau_minimo": 3}, headers=h).json()["item"]
         assert item3["degrau_minimo"] == 3.0 and item3["degrau_origem"] == "manual"
     finally:
         for n in (1, 2):
-            dispute_monitor._items.pop(f"{tender_id}:{n}", None)
+            dispute_monitor.remove_item(f"{tender_id}:{n}", owner_id=usuario_auth.id)
         _remover(tender_id)

@@ -3,7 +3,7 @@ Montador do Kit de Habilitação (ZIP).
 
 ``montar_kit_habilitacao_zip(tender_id)`` seleciona no SQLite os documentos válidos do
 cofre (``documentos_empresa``), empacota os PDFs e injeta ``Relatorio_Conformidade.pdf``
-(ReportLab, papel timbrado LicitaçõesBrasil) como índice de habilitação do certame.
+(ReportLab, papel timbrado Licitações Brasil) como índice de habilitação do certame.
 """
 import io
 import zipfile

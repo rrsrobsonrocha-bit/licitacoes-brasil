@@ -2,7 +2,7 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
-from typing import Dict, List, Optional, Any, Set
+from typing import Dict, List, Optional, Any
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +31,10 @@ def normalizar_degrau(valor: Any) -> Optional[float]:
     return max(DEGRAU_PADRAO, round(degrau, 2))
 
 
+def _chave_interna(owner_id: Optional[str], item_key: str) -> str:
+    return f"{owner_id or ''}|{item_key}"
+
+
 @dataclass
 class PregaoItem:
     id_pregao: str
@@ -49,10 +53,15 @@ class PregaoItem:
     fonte_portal: str = "PNCP"
     historico_concorrentes: List[dict] = field(default_factory=list)
     updated_at: datetime = field(default_factory=get_sp_now)
+    owner_id: Optional[str] = None  # conta dona do lote (multitenancy); cada usuário vê só os seus
 
     @property
     def item_key(self) -> str:
         return f"{self.id_pregao}:{self.numero_item}"
+
+    @property
+    def storage_key(self) -> str:
+        return _chave_interna(self.owner_id, self.item_key)
 
     @property
     def is_losing(self) -> bool:
@@ -79,6 +88,7 @@ class PregaoItem:
             "posicao_atual": posicao_atual,
             "historico_concorrentes": list(self.historico_concorrentes),
             "is_losing": self.is_losing,
+            "owner_id": self.owner_id,
             "updated_at": self.updated_at.isoformat() if isinstance(self.updated_at, datetime) else str(self.updated_at)
         }
 
@@ -93,10 +103,11 @@ class DisputeMonitorService:
     def __init__(self):
         self._items: Dict[str, PregaoItem] = {}
         self._event_queue: asyncio.Queue = asyncio.Queue(maxsize=2000)
-        self._subscribers: Set[asyncio.Queue] = set()
+        # fila do assinante SSE -> conta dona (eventos de lotes só chegam ao dono)
+        self._subscribers: Dict[asyncio.Queue, Optional[str]] = {}
         self._running: bool = False
         self._monitor_task: Optional[asyncio.Task] = None
-        self._global_autobid_enabled: bool = False
+        self._global_autobid_enabled: Dict[Optional[str], bool] = {}
 
     async def start(self):
         if self._running:
@@ -124,24 +135,28 @@ class DisputeMonitorService:
         while self._running:
             try:
                 await asyncio.sleep(20)
-                # Heartbeat leve para assinantes conectados
-                ping_event = {
-                    "type": "HEARTBEAT",
-                    "total_items": len(self._items),
-                    "global_autobid": self._global_autobid_enabled,
-                    "timestamp": get_sp_now().isoformat()
-                }
-                self.broadcast_sync(ping_event)
+                # Heartbeat leve: cada assinante recebe apenas os números da própria conta
+                for q, owner_id in list(self._subscribers.items()):
+                    self._entregar(q, {
+                        "type": "HEARTBEAT",
+                        "total_items": len(self._itens_do_dono(owner_id)),
+                        "global_autobid": self._global_autobid_enabled.get(owner_id, False),
+                        "timestamp": get_sp_now().isoformat()
+                    })
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error(f"Erro no ciclo do DisputeMonitorService: {e}")
                 await asyncio.sleep(5)
 
-    def track_item(self, item_data: Any) -> PregaoItem:
-        """Adiciona ou atualiza certame/lote na lista de monitoramento ativo."""
+    def _itens_do_dono(self, owner_id: Optional[str]) -> List[PregaoItem]:
+        return [it for it in self._items.values() if it.owner_id == owner_id]
+
+    def track_item(self, item_data: Any, owner_id: Optional[str] = None) -> PregaoItem:
+        """Adiciona ou atualiza certame/lote na lista de monitoramento ativo da conta ``owner_id``."""
         if isinstance(item_data, PregaoItem):
             item = item_data
+            item.owner_id = owner_id if owner_id is not None else item.owner_id
         elif isinstance(item_data, dict):
             id_p = str(item_data.get("id_pregao", "")).strip()
             num_it = int(item_data.get("numero_item", 1))
@@ -161,12 +176,8 @@ class DisputeMonitorService:
             status_auto = str(item_data.get("status_automacao", "Robô Ativo" if auto_bid else "Aguardando"))
             fonte = str(item_data.get("fonte_portal", "PNCP")).strip()
 
+            # Somente lances reais informados; nenhum concorrente é inventado
             hist = list(item_data.get("historico_concorrentes", []))
-            if not hist and best_bid > 0:
-                hist = [
-                    {"posicao": 1, "valor": best_bid, "timestamp": get_sp_now().isoformat(), "autor": "Melhor Oferta"},
-                    {"posicao": 2, "valor": round(best_bid * 1.015, 2), "timestamp": get_sp_now().isoformat(), "autor": "Concorrente #2"}
-                ]
 
             item = PregaoItem(
                 id_pregao=id_p,
@@ -184,12 +195,13 @@ class DisputeMonitorService:
                 status_automacao=status_auto,
                 fonte_portal=fonte,
                 historico_concorrentes=hist,
-                updated_at=get_sp_now()
+                updated_at=get_sp_now(),
+                owner_id=owner_id
             )
         else:
             raise ValueError("Parâmetro item_data deve ser instância de PregaoItem ou dict válido.")
 
-        self._items[item.item_key] = item
+        self._items[item.storage_key] = item
 
         event = {
             "type": "ITEM_TRACKED",
@@ -199,20 +211,35 @@ class DisputeMonitorService:
         self.broadcast_sync(event)
         return item
 
-    def get_active_snapshot(self) -> List[dict]:
-        """Devolve o snapshot consolidado de todos os lotes e pregões em acompanhamento."""
-        return [it.to_dict() for it in self._items.values()]
+    def get_active_snapshot(self, owner_id: Optional[str] = None) -> List[dict]:
+        """Snapshot dos lotes em acompanhamento da conta ``owner_id``."""
+        return [it.to_dict() for it in self._itens_do_dono(owner_id)]
 
-    def get_item(self, id_pregao: str, numero_item: int) -> Optional[PregaoItem]:
-        return self._items.get(f"{id_pregao}:{numero_item}")
+    def get_item(self, id_pregao: str, numero_item: int, owner_id: Optional[str] = None) -> Optional[PregaoItem]:
+        return self._items.get(_chave_interna(owner_id, f"{id_pregao}:{numero_item}"))
 
-    def _find_item(self, item_id: str) -> Optional[PregaoItem]:
-        if item_id in self._items:
-            return self._items[item_id]
-        for key, it in self._items.items():
-            if str(it.numero_item) == str(item_id) or it.id_pregao == item_id or key == item_id:
+    def _find_item(self, item_id: str, owner_id: Optional[str] = None) -> Optional[PregaoItem]:
+        """Localiza um lote da conta ``owner_id`` (nunca devolve lotes de outra conta)."""
+        exato = self._items.get(_chave_interna(owner_id, item_id))
+        if exato:
+            return exato
+        for it in self._itens_do_dono(owner_id):
+            if str(it.numero_item) == str(item_id) or it.id_pregao == item_id or it.item_key == item_id:
                 return it
         return None
+
+    def remove_item(self, item_id: str, owner_id: Optional[str] = None) -> bool:
+        """Remove um lote da conta ``owner_id``."""
+        item = self._find_item(item_id, owner_id)
+        if not item:
+            return False
+        self._items.pop(item.storage_key, None)
+        self.broadcast_sync({
+            "type": "ITEM_REMOVED",
+            "item": item.to_dict(),
+            "timestamp": get_sp_now().isoformat()
+        })
+        return True
 
     def configure_item(
         self,
@@ -220,10 +247,11 @@ class DisputeMonitorService:
         degrau_minimo: Optional[float] = None,
         valor_minimo_limite: Optional[float] = None,
         posicao_alvo: Optional[int] = None,
-        auto_lance_ativo: Optional[bool] = None
+        auto_lance_ativo: Optional[bool] = None,
+        owner_id: Optional[str] = None
     ) -> Optional[PregaoItem]:
         """Persiste parâmetros individuais de automação e margem para o lote especificado."""
-        item = self._find_item(item_id)
+        item = self._find_item(item_id, owner_id)
         if not item:
             return None
 
@@ -244,7 +272,7 @@ class DisputeMonitorService:
 
         # Se foi ativado e está perdendo, tenta lance automático imediatamente
         if item.auto_lance_ativo and item.is_losing:
-            self.executar_lance_automatico(item.item_key)
+            self.executar_lance_automatico(item.item_key, owner_id)
 
         event = {
             "type": "ITEM_CONFIGURED",
@@ -254,7 +282,7 @@ class DisputeMonitorService:
         self.broadcast_sync(event)
         return item
 
-    def executar_lance_automatico(self, item_id: str) -> Optional[dict]:
+    def executar_lance_automatico(self, item_id: str, owner_id: Optional[str] = None) -> Optional[dict]:
         """
         Executa cálculo e cobertura de lances com estrita preservação de margem e stop-loss:
         - Verifica melhor_lance concorrente atualizado em tempo real.
@@ -264,7 +292,7 @@ class DisputeMonitorService:
         - Caso o cálculo ultrapasse o piso para baixo: suspende novos lances do robô
           e emite estado de 'Piso Atingido / Margem Esgotada'.
         """
-        item = self._find_item(item_id)
+        item = self._find_item(item_id, owner_id)
         if not item:
             return None
 
@@ -345,17 +373,18 @@ class DisputeMonitorService:
 
         return item.to_dict()
 
-    def toggle_all_autobid(self, status: bool) -> List[dict]:
-        """Liga ou desliga todos os interruptores de automação em simultâneo."""
-        self._global_autobid_enabled = bool(status)
+    def toggle_all_autobid(self, status: bool, owner_id: Optional[str] = None) -> List[dict]:
+        """Liga ou desliga todos os interruptores de automação da conta ``owner_id``."""
+        ligado = bool(status)
+        self._global_autobid_enabled[owner_id] = ligado
         updated = []
-        for it in self._items.values():
-            it.auto_lance_ativo = self._global_autobid_enabled
+        for it in self._itens_do_dono(owner_id):
+            it.auto_lance_ativo = ligado
             if it.auto_lance_ativo:
                 it.status_automacao = "Robô Ativo"
                 # Se estiver perdendo, dispara tentativa de lance
                 if it.is_losing:
-                    self.executar_lance_automatico(it.item_key)
+                    self.executar_lance_automatico(it.item_key, owner_id)
             else:
                 it.status_automacao = "Desativado"
             it.updated_at = get_sp_now()
@@ -363,75 +392,74 @@ class DisputeMonitorService:
 
         event = {
             "type": "GLOBAL_AUTOBID_TOGGLED",
-            "global_status": self._global_autobid_enabled,
+            "global_status": ligado,
             "total_items": len(updated),
+            "owner_id": owner_id,
             "timestamp": get_sp_now().isoformat()
         }
         self.broadcast_sync(event)
         return updated
 
-    def simulate_pulse(self, item_key: Optional[str] = None) -> List[dict]:
+    def registrar_melhor_lance(self, item_id: str, valor: Any, owner_id: Optional[str] = None) -> Optional[dict]:
         """
-        Método de contingência/mock para certames de teste.
-        Gera atualizações automáticas de lances e aciona o robô se ativo.
+        Registra o melhor lance atual da disputa, informado pelo usuário a partir do portal
+        (Compras.gov.br, BLL, BNC...). Atualiza o histórico e, se o robô do lote estiver
+        ativo e o usuário passar a perder, tenta cobrir respeitando degrau e piso.
         """
-        updated = []
-        targets = [self._items[item_key]] if (item_key and item_key in self._items) else list(self._items.values())
+        item = self._find_item(item_id, owner_id)
+        if not item:
+            return None
+        try:
+            novo = round(float(valor), 2)
+        except (TypeError, ValueError):
+            raise ValueError("Informe um valor numérico para o melhor lance.")
+        if novo <= 0:
+            raise ValueError("O melhor lance deve ser maior que zero.")
 
-        for it in targets:
-            if it.fase == "ENCERRADO":
-                continue
+        item.melhor_lance = novo
+        item.updated_at = get_sp_now()
+        item.historico_concorrentes.insert(0, {
+            "posicao": 1,
+            "valor": novo,
+            "timestamp": get_sp_now().isoformat(),
+            "autor": "Melhor lance informado"
+        })
+        item.historico_concorrentes = item.historico_concorrentes[:20]
 
-            base = it.melhor_lance if it.melhor_lance > 0 else it.valor_referencia
-            decrement = max(10.0, round(base * 0.015, 2))
-            novo_melhor_lance = max(50.0, round(base - decrement, 2))
+        self.broadcast_sync({
+            "type": "BID_UPDATE",
+            "item": item.to_dict(),
+            "is_losing": item.is_losing,
+            "timestamp": get_sp_now().isoformat()
+        })
+        if item.auto_lance_ativo and item.is_losing:
+            self.executar_lance_automatico(item.item_key, owner_id)
+        return item.to_dict()
 
-            it.melhor_lance = novo_melhor_lance
-            it.updated_at = get_sp_now()
-
-            # Adiciona ao histórico do concorrente
-            it.historico_concorrentes.insert(0, {
-                "posicao": 1,
-                "valor": novo_melhor_lance,
-                "timestamp": get_sp_now().isoformat(),
-                "autor": "Concorrente Externo"
-            })
-            if len(it.historico_concorrentes) > 20:
-                it.historico_concorrentes = it.historico_concorrentes[:20]
-
-            # Transição para IMINENCIA se ainda estiver ABERTO
-            if it.fase == "ABERTO":
-                it.fase = "IMINENCIA"
-                event_type = "IMMINENCE_ALERT"
-            else:
-                event_type = "BID_UPDATE"
-
-            event = {
-                "type": event_type,
-                "item": it.to_dict(),
-                "delta": decrement,
-                "is_losing": it.is_losing,
-                "timestamp": get_sp_now().isoformat()
-            }
-            self.broadcast_sync(event)
-
-            # Se robô do item estiver ativo, tenta cobrir automaticamente
-            if it.auto_lance_ativo:
-                self.executar_lance_automatico(it.item_key)
-
-            updated.append(it.to_dict())
-
-        return updated
-
-    def subscribe(self) -> asyncio.Queue:
-        """Cria e registra uma fila assíncrona dedicada para um assinante SSE."""
+    def subscribe(self, owner_id: Optional[str] = None) -> asyncio.Queue:
+        """Cria e registra uma fila assíncrona dedicada para um assinante SSE da conta ``owner_id``."""
         q: asyncio.Queue = asyncio.Queue(maxsize=200)
-        self._subscribers.add(q)
+        self._subscribers[q] = owner_id
         return q
 
     def unsubscribe(self, q: asyncio.Queue):
         """Remove fila de assinante desconectado."""
-        self._subscribers.discard(q)
+        self._subscribers.pop(q, None)
+
+    def _entregar(self, q: asyncio.Queue, event: dict) -> bool:
+        try:
+            q.put_nowait(event)
+            return True
+        except Exception:
+            self._subscribers.pop(q, None)
+            return False
+
+    @staticmethod
+    def _dono_do_evento(event: dict) -> Optional[str]:
+        if "owner_id" in event:
+            return event.get("owner_id")
+        item = event.get("item")
+        return item.get("owner_id") if isinstance(item, dict) else None
 
     def broadcast_sync(self, event: dict):
         """Envia evento para a fila interna e para todos os ouvintes conectados."""
@@ -444,17 +472,11 @@ class DisputeMonitorService:
             except Exception:
                 pass
 
-        dead = set()
-        for q in self._subscribers:
-            try:
-                q.put_nowait(event)
-            except asyncio.QueueFull:
-                dead.add(q)
-            except Exception:
-                dead.add(q)
-
-        for d in dead:
-            self._subscribers.discard(d)
+        # Cada evento só chega aos assinantes da conta dona do lote
+        dono = self._dono_do_evento(event)
+        for q, owner_id in list(self._subscribers.items()):
+            if owner_id == dono:
+                self._entregar(q, event)
 
     def _persist_dispute_history(
         self,
@@ -463,7 +485,7 @@ class DisputeMonitorService:
         tipo_evento: str,
         valor: float,
         posicao: int = 1,
-        autor: str = "Robô LicitaçõesBrasil",
+        autor: str = "Robô Licitações Brasil",
         detalhes: Optional[dict] = None
     ):
         """Grava telemetria e auditoria de lances no banco SQLite/Postgres de forma resiliente."""

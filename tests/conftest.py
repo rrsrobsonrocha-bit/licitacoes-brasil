@@ -15,6 +15,10 @@ os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL") or f"sqlite:///
 os.environ["GEMINI_API_KEY"] = ""
 os.environ["AI_API_KEY"] = ""
 os.environ["EMAIL_PROVIDER"] = "MOCK"
+# A suíte usa contas/certames de exemplo próprios (seed_dados_de_teste): a migração não deve apagá-los
+os.environ["REMOVER_DADOS_DEMONSTRACAO"] = "false"
+os.environ["ADMIN_EMAIL"] = ""
+os.environ["ORPHAN_OWNER_EMAIL"] = ""
 # Conector Licitações-e ativo em modo mock (não depende do .env da máquina)
 os.environ["LICITACOES_E_ACTIVE"] = "true"
 os.environ["LICITACOES_E_MOCK_MODE"] = "true"
@@ -23,7 +27,7 @@ os.environ.setdefault("LICITACOES_E_MOCK_TOKEN", "mock_bearer_token_local_dev")
 import pytest  # noqa: E402
 
 from server.database import engine, Base, SessionLocal  # noqa: E402
-from server.seed_data import seed_database  # noqa: E402
+from server.seed_data import seed_database, seed_dados_de_teste  # noqa: E402
 
 
 # ------------------------------------------------------------------------------
@@ -95,6 +99,8 @@ def setup_test_database(bloquear_rede_externa):
     db = SessionLocal()
     try:
         seed_database(db)
+        # Contas e certames de exemplo existem só no banco descartável dos testes
+        seed_dados_de_teste(db)
     finally:
         db.close()
     yield
@@ -119,14 +125,14 @@ def criar_usuario():
 
     criados = []
 
-    def _criar(nome: str = "Conta de Teste"):
+    def _criar(nome: str = "Conta de Teste", role: str = "USER"):
         db = SessionLocal()
         try:
             user = User(
                 name=nome,
                 email=f"teste-{uuid.uuid4().hex[:10]}@exemplo.com.br",
                 password_hash=hash_password("SenhaTeste@123"),
-                role="USER",
+                role=role,
                 status="ACTIVE",
             )
             db.add(user)
@@ -161,3 +167,9 @@ def criar_usuario():
 def usuario_auth(criar_usuario):
     """Uma conta nova autenticada."""
     return criar_usuario()
+
+
+@pytest.fixture
+def admin_auth(criar_usuario):
+    """Uma conta nova com papel ADMIN."""
+    return criar_usuario("Administrador de Teste", role="ADMIN")

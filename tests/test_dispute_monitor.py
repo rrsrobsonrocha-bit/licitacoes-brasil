@@ -83,16 +83,21 @@ def test_dispute_monitor_event_queue_and_subscribers():
         assert ev1["item"]["id_pregao"] == "PE 303/2026"
         assert ev1["item"]["numero_item"] == 5
 
-        # 2. Simular pulso concorrente deve gerar atualização de lance e transição para IMINENCIA
-        updated = service.simulate_pulse("PE 303/2026:5")
-        assert len(updated) == 1
-        assert updated[0]["fase"] == "IMINENCIA"
-        assert updated[0]["melhor_lance"] < 31000.0
+        # 2. Melhor lance real informado pelo usuário atualiza o lote e emite BID_UPDATE
+        updated = service.registrar_melhor_lance("PE 303/2026:5", 30500.0)
+        assert updated["melhor_lance"] == 30500.0
+        assert updated["is_losing"] is True
+        assert updated["historico_concorrentes"][0]["valor"] == 30500.0
 
         assert not sub_queue.empty()
         ev2 = sub_queue.get_nowait()
-        assert ev2["type"] == "IMMINENCE_ALERT"
-        assert ev2["item"]["fase"] == "IMINENCIA"
+        assert ev2["type"] == "BID_UPDATE"
+        assert ev2["item"]["melhor_lance"] == 30500.0
+
+        # Nenhum concorrente fictício é criado ao cadastrar o lote
+        assert not hasattr(service, "simulate_pulse")
+        with pytest.raises(ValueError):
+            service.registrar_melhor_lance("PE 303/2026:5", 0)
 
     finally:
         service.unsubscribe(sub_queue)
@@ -204,10 +209,12 @@ def test_individual_and_global_autobid_toggles():
     assert all(it["auto_lance_ativo"] is False for it in all_off)
 
 
-def test_api_disputes_endpoints_and_sse_integrity():
+def test_api_disputes_endpoints_and_sse_integrity(usuario_auth):
     """Valida rotas HTTP de controle de robô e integridade do endpoint SSE."""
+    h = usuario_auth.headers
+    assert client.post("/api/disputes/track", json={"id_pregao": "X", "numero_item": 1}).status_code == 401
     # 1. Cadastra item via API
-    resp_track = client.post("/api/disputes/track", json={
+    resp_track = client.post("/api/disputes/track", headers=h, json={
         "id_pregao": "PE 808/2026",
         "numero_item": 1,
         "descricao": "Solução de Backup em Nuvem",
@@ -224,7 +231,7 @@ def test_api_disputes_endpoints_and_sse_integrity():
     key = "PE 808/2026:1"
 
     # 2. POST /api/disputes/configure/{item_id}
-    resp_cfg = client.post(f"/api/disputes/configure/{key}", json={
+    resp_cfg = client.post(f"/api/disputes/configure/{key}", headers=h, json={
         "degrau_minimo": 0.02,
         "valor_minimo_limite": 19500.0,
         "posicao_alvo": 1,
@@ -238,14 +245,27 @@ def test_api_disputes_endpoints_and_sse_integrity():
     assert cfg_data["item"]["auto_lance_ativo"] is True
 
     # 3. POST /api/disputes/toggle-global
-    resp_tg = client.post("/api/disputes/toggle-global", json={"status": True})
+    resp_tg = client.post("/api/disputes/toggle-global", headers=h, json={"status": True})
     assert resp_tg.status_code == 200
     assert resp_tg.json()["global_status"] is True
 
     # 4. POST /api/disputes/bid/{item_id} (manual bid)
-    resp_bid = client.post(f"/api/disputes/bid/{key}", json={"valor": 23950.0})
+    resp_bid = client.post(f"/api/disputes/bid/{key}", headers=h, json={"valor": 23950.0})
     assert resp_bid.status_code == 200
     assert resp_bid.json()["item"]["meu_lance"] == 23950.0
+
+    # 5. Melhor lance informado do portal
+    resp_ml = client.post(f"/api/disputes/melhor-lance/{key}", headers=h, json={"valor": 23900.0})
+    assert resp_ml.status_code == 200
+    hist = resp_ml.json()["item"]["historico_concorrentes"]
+    assert any(h["valor"] == 23900.0 and h["autor"] == "Melhor lance informado" for h in hist)
+    # Robô ativo (toggle-global): cobre o lance informado com o degrau configurado
+    assert resp_ml.json()["item"]["meu_lance"] == 23899.98
+    assert client.post(f"/api/disputes/melhor-lance/{key}", headers=h, json={"valor": "abc"}).status_code == 422
+
+    # 6. Remoção do lote
+    assert client.delete(f"/api/disputes/{key}", headers=h).status_code == 200
+    assert client.get("/api/disputes/active", headers=h).json()["total"] == 0
 
 @pytest.mark.asyncio
 async def test_sse_endpoint_stream_integrity():
@@ -299,3 +319,39 @@ def test_ui_templates_elements_disputa_and_base():
     assert "safe-area-bottom" in html_home
     assert "pb-24 md:pb-0" in html_home
     assert "Disputa AO VIVO" in html_home
+
+
+def test_sala_de_disputa_inicia_vazia_e_isolada_por_usuario(criar_usuario):
+    """Sem lotes de exemplo: cada conta vê, configura e recebe eventos apenas dos próprios lotes."""
+    a, b = criar_usuario("Empresa A"), criar_usuario("Empresa B")
+    assert client.get("/api/disputes/active", headers=a.headers).json()["total"] == 0
+    assert client.get("/api/disputes/active").json()["items"] == []  # visitante
+
+    lote = {"id_pregao": "PE 909/2026", "numero_item": 1, "descricao": "Lote da Empresa A",
+            "valor_referencia": 1000.0, "melhor_lance": 950.0, "meu_lance": 960.0}
+    assert client.post("/api/disputes/track", headers=a.headers, json=lote).status_code == 200
+    key = "PE 909/2026:1"
+    try:
+        assert client.get("/api/disputes/active", headers=a.headers).json()["total"] == 1
+        assert client.get("/api/disputes/active", headers=b.headers).json()["total"] == 0
+        item_a = client.get("/api/disputes/active", headers=a.headers).json()["items"][0]
+        assert item_a["historico_concorrentes"] == []  # sem concorrentes inventados
+
+        # B não configura, não lança, não informa melhor lance e não remove o lote de A
+        assert client.post(f"/api/disputes/configure/{key}", headers=b.headers, json={"auto_lance_ativo": True}).status_code == 404
+        assert client.post(f"/api/disputes/bid/{key}", headers=b.headers, json={"valor": 900}).status_code == 404
+        assert client.post(f"/api/disputes/melhor-lance/{key}", headers=b.headers, json={"valor": 900}).status_code == 404
+        assert client.delete(f"/api/disputes/{key}", headers=b.headers).status_code == 404
+        assert client.post("/api/disputes/toggle-global", headers=b.headers, json={"status": True}).json()["total_updated"] == 0
+
+        # Eventos SSE: a fila de B não recebe eventos do lote de A
+        fila_a, fila_b = dispute_monitor.subscribe(a.id), dispute_monitor.subscribe(b.id)
+        try:
+            client.post(f"/api/disputes/melhor-lance/{key}", headers=a.headers, json={"valor": 940})
+            assert not fila_a.empty()
+            assert fila_b.empty()
+        finally:
+            dispute_monitor.unsubscribe(fila_a)
+            dispute_monitor.unsubscribe(fila_b)
+    finally:
+        client.delete(f"/api/disputes/{key}", headers=a.headers)

@@ -6,6 +6,8 @@ from fastapi.testclient import TestClient
 from server.main import app
 from server.database import SessionLocal
 from server.models import Tender, Source
+from server.connectors.pncp import PNCPConnector
+from tests.pncp_simulado import catalogo_simulado, fetch_tenders_live_simulado
 from server.integrations.opportunity_collector import (
     detect_operational_source,
     detect_executor_portal,
@@ -15,6 +17,22 @@ from server.integrations.opportunity_collector import (
 )
 
 client = TestClient(app)
+
+
+@pytest.fixture
+def pncp_simulado():
+    """API do PNCP simulada (a suíte roda sem rede)."""
+    with patch.object(PNCPConnector, "fetch_tenders_live", fetch_tenders_live_simulado()):
+        yield
+
+
+@pytest.fixture
+def pncp_offline():
+    """API do PNCP indisponível: nenhuma página retorna dados."""
+    def _falha(self, *args, **kwargs):
+        return {"success": False, "error": "offline"}
+    with patch.object(PNCPConnector, "fetch_tenders_live", _falha):
+        yield
 
 
 def test_detect_operational_source_compras_gov():
@@ -70,7 +88,7 @@ def test_generate_pncp_link():
     assert pncp_link == "https://pncp.gov.br/app/editais/00394452000103/2026/410"
 
 
-def test_sync_procurement_opportunities_executes_and_deduplicates():
+def test_sync_procurement_opportunities_executes_and_deduplicates(pncp_simulado):
     db = SessionLocal()
     try:
         # Primeira execução: insere ou atualiza
@@ -92,7 +110,7 @@ def test_sync_procurement_opportunities_executes_and_deduplicates():
         db.close()
 
 
-def test_api_sync_tenders_endpoint():
+def test_api_sync_tenders_endpoint(pncp_simulado):
     resp = client.post("/api/tenders/sync?days_back=2")
     assert resp.status_code == 200
     data = resp.json()
@@ -132,7 +150,7 @@ def test_search_page_displays_operational_badges():
     assert "triggerSyncTenders" in html
 
 
-def test_sync_collector_fetches_at_least_50_opportunities():
+def test_sync_collector_fetches_at_least_50_opportunities(pncp_simulado):
     db = SessionLocal()
     try:
         res = sync_procurement_opportunities(db=db, days_back=2)
@@ -197,7 +215,7 @@ def test_detect_executor_portal_mappings():
     assert detect_executor_portal({"sistemaOrigem": "Desconhecido"}) == "PNCP Geral"
 
 
-def test_api_sync_tenders_large_scale_and_consolidated_stats():
+def test_api_sync_tenders_large_scale_and_consolidated_stats(pncp_simulado):
     # Endpoint aceita parâmetros de profundidade e retorna estatísticas consolidadas
     resp = client.post("/api/tenders/sync?pages=2&limit_per_page=50")
     assert resp.status_code == 200
@@ -221,7 +239,7 @@ def test_api_search_filter_by_portal():
         assert r["source_system"] == "compras_gov" or "Compras.gov" in (r.get("executor_portal") or "")
 
 
-def test_dispensas_eletronicas_multi_modality_collection_and_filters():
+def test_dispensas_eletronicas_multi_modality_collection_and_filters(pncp_simulado):
     # 1. Coleta e sincronização multi-modalidade incluindo Dispensas
     db = SessionLocal()
     try:
@@ -258,3 +276,32 @@ def test_dispensas_eletronicas_multi_modality_collection_and_filters():
     assert "Dispensa" in resp_html.text
 
 
+
+
+def test_sync_sem_resposta_do_pncp_nao_insere_certames_ficticios(pncp_offline):
+    """Sem a API oficial, a sincronização não inventa certames (catálogo 100% real)."""
+    db = SessionLocal()
+    try:
+        antes = db.query(Tender).count()
+        res = sync_procurement_opportunities(db=db, days_back=1)
+        assert res["status"] == "success"
+        assert res["total_processados"] == 0
+        assert res["novos_inseridos"] == 0
+        assert db.query(Tender).count() == antes
+    finally:
+        db.close()
+
+
+def test_sync_grava_datas_oficiais_do_pncp(pncp_simulado):
+    """Publicação, abertura e encerramento vêm dos campos oficiais do PNCP (sem datas estimadas)."""
+    registro = catalogo_simulado()[6][0]
+    db = SessionLocal()
+    try:
+        sync_procurement_opportunities(db=db, days_back=2)
+        tender = db.query(Tender).filter(Tender.external_id == registro["numeroControlePNCP"]).first()
+        assert tender is not None
+        assert tender.publication_date == datetime.fromisoformat(registro["dataPublicacaoPncp"])
+        assert tender.proposal_deadline == datetime.fromisoformat(registro["dataEncerramentoProposta"])
+        assert tender.items == []  # sem item "padrão" inventado
+    finally:
+        db.close()

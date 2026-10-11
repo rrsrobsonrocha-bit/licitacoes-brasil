@@ -160,109 +160,19 @@ if "no_proxy" in os.environ and "[" in os.environ["no_proxy"]:
 
 
 DEFAULT_HEADERS = {
-    "User-Agent": "LicitacoesBrasil-Collector/2.0 (+https://licitacoesbrasil.gov.br; contato@licitacoesbrasil.com.br)",
+    "User-Agent": "licitacoes-brasil-collector/2.0 (+https://licitacoesbrasil.gov.br; contato@licitacoesbrasil.com.br)",
     "Accept": "application/json, text/plain, */*",
     "Accept-Encoding": "gzip, deflate"
 }
 
-# Catálogo resiliente de certames multifonte para contingência e alta disponibilidade
-FALLBACK_MULTISOURCE_CATALOG = [
-    {
-        "external_id": "00394452000103-1-000410/2026",
-        "process_number": "MD-FAB-67100.00192/2026",
-        "notice_number": "PE 410/2026",
-        "title": "Aquisição de peças sobressalentes e aviônica para aeronaves",
-        "object_description": "Registro de preços para fornecimento de componentes eletroeletrônicos e cabeamento aeronáutico para a Força Aérea Brasileira.",
-        "contracting_entity": "Comando da Aeronáutica - GAP-DF",
-        "purchasing_unit": "GAP-DF / Divisão de Aquisições",
-        "state": "DF",
-        "city": "Brasília",
-        "modality": "Pregão Eletrônico",
-        "status": "Divulgada no PNCP",
-        "estimated_total_value": 7890000.00,
-        "fonte_portal": "Compras.gov.br",
-        "link_edital_oficial": "https://cnetmobile.estaleiro.serpro.gov.br/comprasnet-web/public/compras/acompanhamento-compra?compra=16001605004102026",
-        "url_disputa": "https://cnetmobile.estaleiro.serpro.gov.br/comprasnet-web/public/compras/acompanhamento-compra?compra=16001605004102026",
-        "url_pncp": "https://pncp.gov.br/app/editais/00394452000103/2026/410",
-        "source_url": "https://pncp.gov.br/app/editais/00394452000103/2026/410"
-    },
-    {
-        "external_id": "00394460000140-1-000105/2026",
-        "process_number": "MPU-PGR-00219/2026",
-        "notice_number": "PE 105/2026",
-        "title": "Solução de Hiperconvergência e Cibersegurança para Datacenter",
-        "object_description": "Contratação de servidores de alta densidade, licenças de virtualização corporativa e suporte 24x7 para a PGR.",
-        "contracting_entity": "Procuradoria-Geral da República - MPU",
-        "purchasing_unit": "Secretaria de TI",
-        "state": "DF",
-        "city": "Brasília",
-        "modality": "Pregão Eletrônico",
-        "status": "Divulgada no PNCP",
-        "estimated_total_value": 11500000.00,
-        "fonte_portal": "Compras.gov.br",
-        "link_edital_oficial": "https://cnetmobile.estaleiro.serpro.gov.br/comprasnet-web/public/compras/acompanhamento-compra?compra=20001005001052026",
-        "url_disputa": "https://cnetmobile.estaleiro.serpro.gov.br/comprasnet-web/public/compras/acompanhamento-compra?compra=20001005001052026",
-        "url_pncp": "https://pncp.gov.br/app/editais/00394460000140/2026/105",
-        "source_url": "https://pncp.gov.br/app/editais/00394460000140/2026/105"
-    },
-    {
-        "external_id": "76492166000155-1-000088/2026",
-        "process_number": "PCP-PR-881/2026",
-        "notice_number": "PE 088/2026",
-        "title": "Aquisição de Ambulâncias de Suporte Avançado (Tipo D / UTI Móvel)",
-        "object_description": "Fornecimento de veículos tipo furgão adaptados para atendimento pré-hospitalar e transporte de pacientes graves.",
-        "contracting_entity": "Consórcio Intermunicipal de Saúde do Paraná - CISPAR",
-        "purchasing_unit": "Coordenação de Frotas",
-        "state": "PR",
-        "city": "Maringá",
-        "modality": "Pregão Eletrônico",
-        "status": "Divulgada no PNCP",
-        "estimated_total_value": 3450000.00,
-        "fonte_portal": "Portal de Compras Públicas",
-        "link_edital_oficial": "https://www.portaldecompraspublicas.com.br/processos/pr/cispar-ambulancias-881",
-        "url_disputa": "https://www.portaldecompraspublicas.com.br/processos/pr/cispar-ambulancias-881",
-        "url_pncp": "https://pncp.gov.br/app/editais/76492166000155/2026/88",
-        "source_url": "https://www.portaldecompraspublicas.com.br"
-    },
-    {
-        "external_id": "01234567000199-1-000012/2026",
-        "process_number": "BNC-SC-012/2026",
-        "notice_number": "PE 012/2026",
-        "title": "Pavimentação Asfáltica e Obras de Drenagem Pluvial Urbana",
-        "object_description": "Execução de pavimentação em concreto betuminoso usinado a quente (CBUQ), meio-fio e bocas de lobo.",
-        "contracting_entity": "Prefeitura Municipal de Joinville",
-        "purchasing_unit": "Secretaria de Infraestrutura Urbana",
-        "state": "SC",
-        "city": "Joinville",
-        "modality": "Concorrência Eletrônica",
-        "status": "Divulgada no PNCP",
-        "estimated_total_value": 15800000.00,
-        "fonte_portal": "BNC",
-        "link_edital_oficial": "https://bnc.org.br/editais/joinville-infra-012",
-        "url_disputa": "https://bnc.org.br/disputa/joinville-infra-012",
-        "url_pncp": "https://pncp.gov.br/app/editais/01234567000199/2026/12",
-        "source_url": "https://bnc.org.br"
-    },
-    {
-        "external_id": "98765432000110-1-000045/2026",
-        "process_number": "LICITANET-RS-045/2026",
-        "notice_number": "PE 045/2026",
-        "title": "Aquisição de Medicamentos Oncológicos e Imunobiológicos",
-        "object_description": "Fornecimento parcelado de medicamentos hospitalares essenciais para rede pública de saúde.",
-        "contracting_entity": "Secretaria Estadual de Saúde do Rio Grande do Sul",
-        "purchasing_unit": "Departamento de Assistência Farmacêutica",
-        "state": "RS",
-        "city": "Porto Alegre",
-        "modality": "Pregão Eletrônico",
-        "status": "Divulgada no PNCP",
-        "estimated_total_value": 9200000.00,
-        "fonte_portal": "Licitanet",
-        "link_edital_oficial": "https://licitanet.com.br/editais/rs-saude-045",
-        "url_disputa": "https://licitanet.com.br/disputa/rs-saude-045",
-        "url_pncp": "https://pncp.gov.br/app/editais/98765432000110/2026/45",
-        "source_url": "https://licitanet.com.br"
-    }
-]
+def _data_pncp(valor: Any) -> Optional[datetime]:
+    """Data/hora oficial do PNCP (horário de Brasília, ISO) em datetime; None se ausente ou inválida."""
+    if not valor:
+        return None
+    try:
+        return datetime.fromisoformat(str(valor).replace("Z", "").split(".")[0])
+    except (TypeError, ValueError):
+        return None
 
 
 class PortalCollectorService:
@@ -313,23 +223,26 @@ class PortalCollectorService:
                 if resp.status_code == 200:
                     data = resp.json()
                     items = data.get("data") if isinstance(data, dict) else (data if isinstance(data, list) else [])
-                    for it in items or []:
+                    for it in (items or [])[:target_limit]:
                         raw_ext_id = it.get("numeroControlePNCP") or f"PNCP-{it.get('sequencialCompra')}"
                         canon_url = build_canonical_pncp_url(raw_record=it, numero_controle_pncp=raw_ext_id)
                         orgao = it.get("orgaoEntidade", {})
                         results.append({
                             "external_id": raw_ext_id,
-                            "process_number": it.get("numeroProcesso"),
+                            "process_number": it.get("processo") or it.get("numeroProcesso"),
                             "notice_number": it.get("numeroCompra"),
-                            "title": it.get("objeto") or "Contratação Pública PNCP",
-                            "object_description": it.get("objeto") or "",
+                            "title": (it.get("objetoCompra") or it.get("objeto") or "Contratação Pública PNCP")[:500],
+                            "object_description": it.get("objetoCompra") or it.get("objeto") or "",
                             "contracting_entity": orgao.get("razaoSocial") or "Órgão Licitante",
                             "purchasing_unit": it.get("unidadeOrgao", {}).get("nomeUnidade") or "Unidade Geral",
                             "state": (it.get("unidadeOrgao", {}).get("ufSigla") or uf or "BR").upper(),
                             "city": it.get("unidadeOrgao", {}).get("municipioNome") or "Não informado",
                             "modality": "Pregão Eletrônico",
-                            "status": "Divulgada no PNCP",
+                            "status": it.get("situacaoCompraNome") or "Divulgada no PNCP",
                             "estimated_total_value": float(it.get("valorTotalEstimado") or 0.0),
+                            "publication_date": _data_pncp(it.get("dataPublicacaoPncp")),
+                            "opening_date": _data_pncp(it.get("dataAberturaProposta")),
+                            "proposal_deadline": _data_pncp(it.get("dataEncerramentoProposta")),
                             "fonte_portal": "PNCP",
                             "link_edital_oficial": canon_url,
                             "url_disputa": canon_url,
@@ -337,41 +250,23 @@ class PortalCollectorService:
                             "source_url": canon_url
                         })
         except Exception as e:
-            logger.warning(f"Coletor PNCP: falha na requisição externa ({e}). Recorrendo ao catálogo base.")
+            logger.warning(f"Coletor PNCP: falha na requisição externa ({e}). Nenhum certame inserido.")
 
         return results
 
     async def fetch_compras_gov(self, uasg: Optional[str] = None, keywords: Optional[str] = None, max_results: int = 10) -> List[Dict[str, Any]]:
-        """Consulta compras diretas e pregões do Compras.gov.br."""
-        portal_matches = [
-            it for it in FALLBACK_MULTISOURCE_CATALOG
-            if it.get("fonte_portal") == "Compras.gov.br"
-        ]
-        filtered = portal_matches
-        if keywords:
-            kw_low = keywords.lower()
-            by_kw = [it for it in filtered if kw_low in it["title"].lower() or kw_low in it["object_description"].lower()]
-            if by_kw:
-                filtered = by_kw
-        return (filtered or portal_matches)[:max_results]
+        """
+        Compras.gov.br: as contratações publicadas chegam pelo PNCP (fetch_pncp). Sem integração
+        direta própria, não devolve registros — nunca certames fictícios.
+        """
+        return []
 
     async def fetch_state_and_private_portals(self, portal_name: str, uf: Optional[str] = None, keywords: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Mapeia oportunidades de portais estaduais e privados credenciados (BNC, Portal de Compras Públicas, Licitanet)."""
-        portal_matches = [
-            it for it in FALLBACK_MULTISOURCE_CATALOG
-            if portal_name.lower() in it.get("fonte_portal", "").lower()
-        ]
-        filtered = portal_matches
-        if uf:
-            by_uf = [it for it in filtered if it.get("state") == uf.upper()]
-            if by_uf:
-                filtered = by_uf
-        if keywords:
-            kw_low = keywords.lower()
-            by_kw = [it for it in filtered if kw_low in it["title"].lower() or kw_low in it["object_description"].lower()]
-            if by_kw:
-                filtered = by_kw
-        return filtered or portal_matches
+        """
+        Portais estaduais/privados (BNC, Portal de Compras Públicas, Licitanet, BEC-SP): sem API
+        oficial integrada, não devolvem registros — nunca certames fictícios.
+        """
+        return []
 
     async def sync_pipeline(
         self,
@@ -380,7 +275,7 @@ class PortalCollectorService:
         keywords: Optional[str] = None,
         rate_limit_delay: float = 0.1,
         db_session: Optional[Any] = None,
-        use_fallback: bool = True
+        use_fallback: bool = False
     ) -> Dict[str, Any]:
         """
         Fila assíncrona de sincronização multifonte com controle estrito de rate-limit,
@@ -407,12 +302,7 @@ class PortalCollectorService:
                 else:
                     portal_items = await self.fetch_state_and_private_portals(portal, keywords=keywords)
 
-                # Se falhar ou estiver vazio na consulta online, mescla com itens correspondentes do catálogo
-                if not portal_items and use_fallback:
-                    portal_items = [
-                        it for it in FALLBACK_MULTISOURCE_CATALOG
-                        if portal.lower() in it.get("fonte_portal", "").lower()
-                    ]
+                # ``use_fallback`` é mantido só por compatibilidade: não existe mais catálogo fictício.
 
                 for item in portal_items:
                     ext_id = item.get("external_id")
@@ -425,13 +315,6 @@ class PortalCollectorService:
                 logger.error(err_msg)
                 errors.append(err_msg)
 
-        # Se tudo estiver vazio por ausência de rede, assegura os itens do catálogo completo
-        if not collected_map and use_fallback:
-            for item in FALLBACK_MULTISOURCE_CATALOG:
-                collected_map[item["external_id"]] = item
-                p_name = item.get("fonte_portal", "PNCP")
-                by_portal_stats[p_name] = by_portal_stats.get(p_name, 0) + 1
-
         persisted_count = 0
         if db_session:
             try:
@@ -440,7 +323,7 @@ class PortalCollectorService:
                 default_source = db_session.query(Source).filter(Source.official_domain == "licitacoesbrasil.gov.br").first()
                 if not default_source:
                     default_source = Source(
-                        name="Hub Multifonte LicitaçõesBrasil",
+                        name="Hub Multifonte Licitações Brasil",
                         base_url="https://licitacoesbrasil.gov.br",
                         official_domain="licitacoesbrasil.gov.br",
                         source_type="AGREGADOR_MULTIFONTE",
@@ -468,6 +351,9 @@ class PortalCollectorService:
                             modality=item.get("modality", "Pregão Eletrônico"),
                             status=item.get("status", "Divulgada no PNCP"),
                             estimated_total_value=item.get("estimated_total_value", 0.0),
+                            publication_date=item.get("publication_date"),
+                            opening_date=item.get("opening_date"),
+                            proposal_deadline=item.get("proposal_deadline"),
                             source_url=item.get("source_url", "https://pncp.gov.br"),
                             fonte_portal=item.get("fonte_portal", "PNCP"),
                             link_edital_oficial=item.get("link_edital_oficial"),
@@ -485,6 +371,9 @@ class PortalCollectorService:
                             existing.link_edital_oficial = item.get("link_edital_oficial")
                         if not existing.url_disputa and item.get("url_disputa"):
                             existing.url_disputa = item.get("url_disputa")
+                        for campo in ("publication_date", "opening_date", "proposal_deadline"):
+                            if item.get(campo):
+                                setattr(existing, campo, item[campo])
                         persisted_count += 1
                 db_session.commit()
             except Exception as dberr:

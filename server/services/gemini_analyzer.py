@@ -236,7 +236,7 @@ async def resumo_executivo_oportunidade(dados_licitacao: Dict[str, Any]) -> Dict
     client = get_genai_client()
     if client:
         candidate_models = ["gemini-3.8-flash", "gemini-3.0-flash", "gemini-2.5-flash", "gemini-2.0-flash"]
-        prompt = f"""Você é o analista-chefe de inteligência em licitações da plataforma LicitaçõesBrasil.
+        prompt = f"""Você é o analista-chefe de inteligência em licitações da plataforma Licitações Brasil.
 Gere um Resumo Executivo Direto ao Ponto para os diretores da empresa decidirem a participação neste certame:
 
 DADOS DO CERTAME:

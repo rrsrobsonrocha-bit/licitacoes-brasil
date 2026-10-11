@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from server.config import settings
-from server.database import get_db, engine, Base
+from server.database import get_db, engine, Base, SessionLocal
 from server.models import (
     User, Source, Tender, TenderItem, TenderDocument,
     Favorite, UserNote, SavedSearch, Alert, AlertDelivery,
@@ -52,7 +52,7 @@ from server.security import (
     tentativas_recentes, registrar_tentativa, limpar_tentativas
 )
 from server.search_engine import (
-    filtro_vigentes,
+    filtro_publicacao, filtro_vigentes,
     search_tenders, CATEGORIES, UFS_BRASIL, NATUREZAS_FILTRO, normalizar_natureza, normalizar_uf
 )
 from server.ai_engine import analyze_tender_document_with_ai
@@ -330,35 +330,7 @@ async def on_startup():
     # Inicializa monitoramento assíncrono multi-pregão
     await dispute_monitor.start()
 
-    # Popula lotes de demonstração se estiver vazio
-    if not dispute_monitor.get_active_snapshot():
-        dispute_monitor.track_item({
-            "id_pregao": "PE 042/2025",
-            "numero_item": 1,
-            "descricao": "Servidores de Rede e Armazenamento SAN de Alta Densidade",
-            "valor_referencia": 180000.0,
-            "melhor_lance": 172500.0,
-            "meu_lance": 172500.0,
-            "fase": "ABERTO"
-        })
-        dispute_monitor.track_item({
-            "id_pregao": "PE 018/2025",
-            "numero_item": 3,
-            "descricao": "Sistema de Ultrassonografia Digital Portátil com Doppler Colorido",
-            "valor_referencia": 85000.0,
-            "melhor_lance": 79200.0,
-            "meu_lance": 81000.0,
-            "fase": "IMINENCIA"
-        })
-        dispute_monitor.track_item({
-            "id_pregao": "PE 009/2025",
-            "numero_item": 1,
-            "descricao": "Licenciamento de Software Corporativo e Nuvem Governamental",
-            "valor_referencia": 340000.0,
-            "melhor_lance": 325000.0,
-            "meu_lance": 328000.0,
-            "fase": "IMINENCIA"
-        })
+    # A Sala de Disputa inicia vazia: só exibe lotes reais cadastrados por cada usuário.
 
 @app.on_event("shutdown")
 async def on_shutdown():
@@ -455,12 +427,16 @@ def page_search(
     results = search_tenders(db, params, user_id=user.id if user else None)
     total_db_tenders = db.query(Tender).count()
     total_vigentes = db.query(func.count(Tender.id)).filter(filtro_vigentes()).scalar() or 0
+    hoje = hoje_sao_paulo()
     return templates.TemplateResponse(request, "search.html", {
         "params": params,
         "results": results,
         "categories": CATEGORIES,
         "total_db_tenders": total_db_tenders,
-        "total_vigentes": total_vigentes
+        "total_vigentes": total_vigentes,
+        # Atalhos de período de publicação no fuso oficial (America/Sao_Paulo)
+        "hoje_iso": hoje.isoformat(),
+        "sete_dias_iso": (hoje - timedelta(days=6)).isoformat()
     })
 
 @app.get("/tenders/{tender_id}", response_class=HTMLResponse)
@@ -1041,15 +1017,19 @@ def api_dispute_degrau(id_pregao: str = Query(...), numero_item: int = Query(1),
 
 
 @app.post("/api/disputes/track")
-async def api_track_dispute_item(payload: Dict[str, Any] = Body(...), db: Session = Depends(get_db)):
-    """Registra ou atualiza um certame/lote na matriz de monitoramento multi-pregão."""
+async def api_track_dispute_item(
+    payload: Dict[str, Any] = Body(...),
+    user: User = Depends(require_auth),
+    db: Session = Depends(get_db)
+):
+    """Registra ou atualiza um certame/lote na Sala de Disputa do usuário autenticado."""
     try:
         # Sem degrau informado pelo usuário, usa o do edital (PNCP/Compras.gov); 0,01 só como fallback
         if normalizar_degrau(payload.get("degrau_minimo")) is None:
             degrau_edital = degrau_minimo_do_edital(db, payload.get("id_pregao"), payload.get("numero_item", 1))
             if degrau_edital is not None:
                 payload = {**payload, "degrau_minimo": degrau_edital, "degrau_origem": "edital"}
-        item = dispute_monitor.track_item(payload)
+        item = dispute_monitor.track_item(payload, owner_id=user.id)
         return {
             "status": "success",
             "item": item.to_dict()
@@ -1059,9 +1039,9 @@ async def api_track_dispute_item(payload: Dict[str, Any] = Body(...), db: Sessio
 
 
 @app.get("/api/disputes/active")
-def api_get_active_disputes():
-    """Consulta snapshot consolidado de todos os lotes e pregões em acompanhamento."""
-    items = dispute_monitor.get_active_snapshot()
+def api_get_active_disputes(user: Optional[User] = Depends(get_current_user)):
+    """Lotes em acompanhamento do usuário autenticado (visitante: lista vazia)."""
+    items = dispute_monitor.get_active_snapshot(owner_id=user.id) if user else []
     return {
         "status": "success",
         "total": len(items),
@@ -1069,19 +1049,32 @@ def api_get_active_disputes():
     }
 
 
-@app.post("/api/disputes/pulse")
-def api_dispute_simulate_pulse(item_key: Optional[str] = Query(None)):
-    """Método de contingência/mock para certames de teste que gera atualizações e iminência."""
-    updated = dispute_monitor.simulate_pulse(item_key)
-    return {
-        "status": "success",
-        "total_updated": len(updated),
-        "items": updated
-    }
+@app.post("/api/disputes/melhor-lance/{item_id:path}")
+async def api_disputes_registrar_melhor_lance(
+    item_id: str,
+    payload: Dict[str, Any] = Body(...),
+    user: User = Depends(require_auth)
+):
+    """Registra o melhor lance atual visto no portal; o robô do lote reage se estiver ativo."""
+    try:
+        item = dispute_monitor.registrar_melhor_lance(item_id, payload.get("valor"), owner_id=user.id)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    if not item:
+        raise HTTPException(status_code=404, detail="Item de disputa não encontrado.")
+    return {"status": "success", "item": item}
+
+
+@app.delete("/api/disputes/{item_id:path}")
+def api_disputes_remover_item(item_id: str, user: User = Depends(require_auth)):
+    """Remove um lote da Sala de Disputa do usuário."""
+    if not dispute_monitor.remove_item(item_id, owner_id=user.id):
+        raise HTTPException(status_code=404, detail="Item de disputa não encontrado.")
+    return {"status": "success", "item_key": item_id}
 
 
 @app.post("/api/disputes/configure/{item_id:path}")
-async def api_disputes_configure_item(item_id: str, payload: Dict[str, Any] = Body(...)):
+async def api_disputes_configure_item(item_id: str, payload: Dict[str, Any] = Body(...), user: User = Depends(require_auth)):
     """Persiste parâmetros individuais (degrau_minimo, valor_minimo_limite, posicao_alvo, auto_lance_ativo)."""
     degrau = payload.get("degrau_minimo")
     piso = payload.get("valor_minimo_limite")
@@ -1093,7 +1086,8 @@ async def api_disputes_configure_item(item_id: str, payload: Dict[str, Any] = Bo
         degrau_minimo=degrau,
         valor_minimo_limite=piso,
         posicao_alvo=pos,
-        auto_lance_ativo=auto
+        auto_lance_ativo=auto,
+        owner_id=user.id
     )
     if not item:
         raise HTTPException(status_code=404, detail="Item de disputa não encontrado.")
@@ -1104,10 +1098,10 @@ async def api_disputes_configure_item(item_id: str, payload: Dict[str, Any] = Bo
 
 
 @app.post("/api/disputes/toggle-global")
-async def api_disputes_toggle_global(payload: Dict[str, Any] = Body(...)):
-    """Liga/desliga o interruptor mestre global de automação de lances."""
+async def api_disputes_toggle_global(payload: Dict[str, Any] = Body(...), user: User = Depends(require_auth)):
+    """Liga/desliga o interruptor mestre de automação de lances dos lotes do usuário."""
     status_val = bool(payload.get("status", False))
-    items = dispute_monitor.toggle_all_autobid(status_val)
+    items = dispute_monitor.toggle_all_autobid(status_val, owner_id=user.id)
     return {
         "status": "success",
         "global_status": status_val,
@@ -1117,10 +1111,14 @@ async def api_disputes_toggle_global(payload: Dict[str, Any] = Body(...)):
 
 
 @app.post("/api/disputes/bid/{item_id:path}")
-async def api_disputes_bid_action(item_id: str, payload: Dict[str, Any] = Body(default={})):
+async def api_disputes_bid_action(
+    item_id: str,
+    payload: Dict[str, Any] = Body(default={}),
+    user: User = Depends(require_auth)
+):
     """Cobre lance manual ou dispara execução imediata do robô para o lote."""
     valor = payload.get("valor")
-    item = dispute_monitor._find_item(item_id)
+    item = dispute_monitor._find_item(item_id, owner_id=user.id)
     if not item:
         raise HTTPException(status_code=404, detail="Item de disputa não encontrado.")
     if valor is not None:
@@ -1132,7 +1130,7 @@ async def api_disputes_bid_action(item_id: str, payload: Dict[str, Any] = Body(d
         dispute_monitor.broadcast_sync(event)
         return {"status": "success", "item": item.to_dict()}
     else:
-        res = dispute_monitor.executar_lance_automatico(item_id)
+        res = dispute_monitor.executar_lance_automatico(item_id, owner_id=user.id)
         return {"status": "success", "item": res or item.to_dict()}
 
 
@@ -1140,15 +1138,24 @@ async def api_disputes_bid_action(item_id: str, payload: Dict[str, Any] = Body(d
 async def api_disputes_sse_events(request: Request):
     """
     Endpoint Server-Sent Events (SSE) transmitindo deltas de variação
-    de melhor lance e status de iminência em tempo real.
+    de melhor lance e status de iminência em tempo real (somente lotes da própria conta).
     """
-    queue = dispute_monitor.subscribe()
+    # Sessão curta só para identificar a conta: a conexão SSE é longa e não deve segurar o banco
+    db = SessionLocal()
+    try:
+        user = get_current_user(request, db)
+    finally:
+        db.close()
+    owner_id = user.id if user else None
+    queue = dispute_monitor.subscribe(owner_id) if user else None
 
     async def event_generator():
         try:
             # Envia evento de confirmação de conexão e snapshot inicial logo na abertura da conexão SSE
             yield f"data: {json.dumps({'type': 'CONNECTED', 'timestamp': datetime.now().isoformat()})}\n\n"
-            initial_snapshot = dispute_monitor.get_active_snapshot()
+            if queue is None:
+                return  # visitante: sem lotes privados para transmitir
+            initial_snapshot = dispute_monitor.get_active_snapshot(owner_id)
             for it in initial_snapshot:
                 payload = json.dumps({"type": "ITEM_TRACKED", "item": it})
                 yield f"data: {payload}\n\n"
@@ -1164,7 +1171,8 @@ async def api_disputes_sse_events(request: Request):
         except asyncio.CancelledError:
             pass
         finally:
-            dispute_monitor.unsubscribe(queue)
+            if queue is not None:
+                dispute_monitor.unsubscribe(queue)
 
     return StreamingResponse(
         event_generator(),
@@ -1192,7 +1200,7 @@ def api_health():
     }
 
 @app.get("/api/health/metrics", response_model=HealthMetricsResponse)
-def api_health_metrics(db: Session = Depends(get_db)):
+def api_health_metrics(request: Request, db: Session = Depends(get_db)):
     uptime_seconds = round((datetime.utcnow() - APP_START_TIME).total_seconds(), 2)
     hours = int(uptime_seconds // 3600)
     minutes = int((uptime_seconds % 3600) // 60)
@@ -1205,12 +1213,15 @@ def api_health_metrics(db: Session = Depends(get_db)):
     except Exception:
         db_status = "unhealthy"
 
+    # Métricas de disparo restritas aos webhooks visíveis para a conta (visitante: nenhum)
     since_24h = datetime.utcnow() - timedelta(hours=24)
-    total_24h = db.query(WebhookDispatchLog).filter(WebhookDispatchLog.criado_em >= since_24h).count()
-    success_24h = db.query(WebhookDispatchLog).filter(
-        WebhookDispatchLog.criado_em >= since_24h,
-        WebhookDispatchLog.sucesso == True
-    ).count()
+    user = get_current_user(request, db)
+    if user:
+        logs_24h = _webhook_logs_visiveis(db, user).filter(WebhookDispatchLog.criado_em >= since_24h)
+        total_24h = logs_24h.count()
+        success_24h = logs_24h.filter(WebhookDispatchLog.sucesso == True).count()
+    else:
+        total_24h = success_24h = 0
     failed_24h = total_24h - success_24h
     taxa_sucesso_pct = round((success_24h / total_24h * 100), 2) if total_24h > 0 else 100.0
 
@@ -2293,7 +2304,7 @@ class GerarPeticaoPDFRequest(BaseModel):
 @app.post("/api/juridico/gerar-pdf")
 def api_juridico_gerar_pdf(payload: GerarPeticaoPDFRequest, db: Session = Depends(get_db)):
     """
-    Compila a petição em PDF timbrado LicitaçõesBrasil.
+    Compila a petição em PDF timbrado Licitações Brasil.
     O texto vem de `corpo` (editado no modal) ou do modelo `template_id`; os dados do
     certame podem ser informados diretamente ou herdados de `tender_id`.
     """
@@ -2912,6 +2923,18 @@ def api_get_alerts_feed(
 
 # ----------------- Webhooks Audit & Logs API -----------------
 
+def _webhook_logs_visiveis(db: Session, user: User):
+    """
+    Logs de webhooks isolados por conta: cada usuário vê os disparos das próprias regras de alerta.
+    Administradores veem todos (inclusive disparos de sistema sem regra associada).
+    """
+    query = db.query(WebhookDispatchLog)
+    if user.role == "ADMIN":
+        return query
+    regras_do_usuario = db.query(Alert.id).filter(Alert.user_id == user.id)
+    return query.filter(WebhookDispatchLog.rule_id.in_(regras_do_usuario))
+
+
 @app.get("/api/alerts/webhooks/logs", response_model=WebhookDispatchLogsListResponse)
 def api_get_webhook_logs(
     status: Optional[str] = Query(None, description="Filtro por status: SUCESSO ou FALHA"),
@@ -2921,9 +2944,10 @@ def api_get_webhook_logs(
     canal: Optional[str] = Query(None, description="Filtro por canal (N8N, EVOLUTION_API, ZAPI, GENERIC)"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    user: User = Depends(require_auth),
     db: Session = Depends(get_db)
 ):
-    query = db.query(WebhookDispatchLog)
+    query = _webhook_logs_visiveis(db, user)
 
     if status:
         st_clean = status.strip().upper()
@@ -2982,8 +3006,8 @@ def api_get_webhook_logs(
 
 
 @app.post("/api/alerts/webhooks/{log_id}/retry")
-def api_retry_webhook(log_id: str, db: Session = Depends(get_db)):
-    old_log = db.query(WebhookDispatchLog).filter(WebhookDispatchLog.id == log_id).first()
+def api_retry_webhook(log_id: str, user: User = Depends(require_auth), db: Session = Depends(get_db)):
+    old_log = _webhook_logs_visiveis(db, user).filter(WebhookDispatchLog.id == log_id).first()
     if not old_log:
         raise HTTPException(status_code=404, detail="Log de disparo de webhook não encontrado.")
 
@@ -3023,27 +3047,14 @@ def get_dashboard_summary_data(db: Session, user: Optional[User] = None) -> Dict
     # 2. Empresas identificadas (órgãos compradores únicos ou entidades)
     companies_count = db.query(func.count(func.distinct(Tender.contracting_entity))).scalar() or 0
 
-    # 3. Total de licitações publicadas/sincronizadas hoje e total de itens
-    now = datetime.utcnow()
-    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-
-    tenders_today_query = db.query(Tender).filter(
-        (Tender.publication_date >= today_start) |
-        (Tender.last_synced_at >= today_start) |
-        (Tender.created_at >= today_start)
-    )
-    tenders_today_count = tenders_today_query.count()
-    if tenders_today_count == 0:
-        tenders_today_count = db.query(Tender).count()
+    # 3. Licitações publicadas HOJE: data oficial de publicação no PNCP, dia corrente em Brasília
+    #    (o mesmo critério do filtro "Publicadas hoje" da busca; sem contar sincronizações locais)
+    hoje_iso = hoje_sao_paulo().isoformat()
+    publicadas_hoje = filtro_publicacao(hoje_iso, hoje_iso)
+    tenders_today_count = db.query(func.count(Tender.id)).filter(publicadas_hoje).scalar() or 0
 
     total_items_count = db.query(TenderItem).count()
-    items_today_count = db.query(TenderItem).join(Tender).filter(
-        (Tender.publication_date >= today_start) |
-        (Tender.last_synced_at >= today_start) |
-        (Tender.created_at >= today_start)
-    ).count()
-    if items_today_count == 0:
-        items_today_count = total_items_count
+    items_today_count = db.query(TenderItem).join(Tender).filter(publicadas_hoje).count()
 
     # 4. Distribuição por categoria: Serviços, Materiais e Não Classificado
     tenders = db.query(Tender).all()
@@ -3148,7 +3159,7 @@ def get_dashboard_summary_data(db: Session, user: Optional[User] = None) -> Dict
         "upcoming_tenders": upcoming[:5],
         "recent_deliveries": delivs_data,
 
-        # Indicadores Executivos LicitaçõesBrasil
+        # Indicadores Executivos Licitações Brasil
         "active_deals_count": deals_count,
         "deals_count": deals_count,
         "companies_identified_count": companies_count,

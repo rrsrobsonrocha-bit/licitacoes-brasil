@@ -6,38 +6,27 @@ from server.models import (
     DocumentExtraction, AIAnalysis, Alert, SavedSearch,
     LegalDocumentTemplate
 )
+from server.config import settings
 from server.security import hash_password, calculate_sha256
 
+# Contas e certames de exemplo antigos: não são mais criados em produção. Os identificadores
+# ficam registrados para que a migração desative/remova o que já existir no banco.
+EMAILS_CONTAS_DEMONSTRACAO = ("admin@licitacoesbrasil.gov.br", "usuario@empresa.com.br")
+SENHAS_PADRAO_DEMONSTRACAO = {
+    "admin@licitacoesbrasil.gov.br": "AdminSeguro!2025",
+    "usuario@empresa.com.br": "UsuarioSenha@123",
+}
+IDS_CERTAMES_EXEMPLO = (
+    "tnd-al-saude-001", "tnd-sp-ti-002", "tnd-df-equip-003", "tnd-mg-alim-004", "tnd-rs-obras-005",
+)
+
+
 def seed_database(db: Session):
-    """Popula a base com usuários, fontes oficiais e licitações autênticas brasileiras"""
-    # 1. Usuários
-    admin = db.query(User).filter(User.email == "admin@licitacoesbrasil.gov.br").first()
-    if not admin:
-        admin = User(
-            id="usr-admin-01",
-            name="Administrador do Sistema",
-            email="admin@licitacoesbrasil.gov.br",
-            password_hash=hash_password("AdminSeguro!2025"),
-            role="ADMIN",
-            status="ACTIVE"
-        )
-        db.add(admin)
-
-    demo_user = db.query(User).filter(User.email == "usuario@empresa.com.br").first()
-    if not demo_user:
-        demo_user = User(
-            id="usr-user-01",
-            name="Maria Silva Compras",
-            email="usuario@empresa.com.br",
-            password_hash=hash_password("UsuarioSenha@123"),
-            role="USER",
-            status="ACTIVE"
-        )
-        db.add(demo_user)
-
-    db.commit()
-
-    # 2. Fontes Oficiais
+    """
+    Dados essenciais de produção: fontes oficiais (PNCP / Compras.gov.br) e modelos de peças
+    jurídicas. Nenhuma conta, certame, negócio, alerta ou evento de exemplo é criado.
+    """
+    # 1. Fontes Oficiais
     pncp_source = db.query(Source).filter(Source.id == "pncp-source-01").first()
     if not pncp_source:
         pncp_source = Source(
@@ -72,7 +61,219 @@ def seed_database(db: Session):
 
     db.commit()
 
-    # 3. Licitações Modelo e Reais (incluindo o caso clássico de Alagoas / Saúde)
+    # 2. Modelos de peças jurídicas operacionais
+    if db.query(LegalDocumentTemplate).count() == 0:
+        templates_seed = [
+            {
+                "tipo": "impugnacao",
+                "titulo": "Impugnação ao Edital por Exigência Restritiva",
+                "fundamentacao_legal": "Art. 164 da Lei Federal nº 14.133/2021 e Art. 37, XXI da CF/88",
+                "is_nova_lei": True,
+                "corpo": """ILMO. SR. PREGOEIRO / AGENTE DE CONTRATAÇÃO DO(A) {{orgao}}
+
+REF.: EDITAL DE LICITAÇÃO Nº {{numero_edital}}
+OBJETO: {{objeto}}
+
+[NOME DA EMPRESA REQUERENTE], inscrita no CNPJ sob o nº [CNPJ], com sede em [ENDEREÇO], vem, respeitosamente, com fulcro no art. 164 da Lei Federal nº 14.133/2021, apresentar tempestiva
+
+IMPUGNAÇÃO AO EDITAL
+
+em face das exigências restritivas contidas no Instrumento Convocatório, pelos fatos e fundamentos a seguir expostos:
+
+1. DA TEMPESTIVIDADE
+A presente peça é tempestiva, protocolada até 3 (três) dias úteis antes da data de abertura do certame, conforme preconiza expressamente o art. 164 da Lei nº 14.133/2021.
+
+2. DOS FATOS E DO DIRECIONAMENTO
+O Edital nº {{numero_edital}}, cujo objeto é {{objeto}}, inseriu cláusulas técnicas desproporcionais que restringem injustificadamente o universo de competidores, violando os princípios da competitividade e isonomia (art. 5º da Lei 14.133/2021).
+
+3. DOS PEDIDOS
+Diante do exposto, requer-se:
+a) O recebimento e processamento da presente impugnação;
+b) O julgamento PROCEDENTE para fins de retificar o Edital nº {{numero_edital}}, republicando-se o certame com a devida reabertura de prazos.
+
+Nestes termos,
+Pede deferimento.
+[CIDADE - UF], [DATA]."""
+            },
+            {
+                "tipo": "esclarecimento",
+                "titulo": "Pedido de Esclarecimento sobre Especificações Técnicas",
+                "fundamentacao_legal": "Art. 164 da Lei Federal nº 14.133/2021",
+                "is_nova_lei": True,
+                "corpo": """ILMO. SR. AGENTE DE CONTRATAÇÃO DO(A) {{orgao}}
+
+REF.: EDITAL Nº {{numero_edital}}
+OBJETO: {{objeto}}
+
+A empresa [NOME DA EMPRESA], pessoa jurídica de direito privado, inscrita no CNPJ nº [CNPJ], formula o presente
+
+PEDIDO DE ESCLARECIMENTO
+
+com fulcro no art. 164 da Lei nº 14.133/2021:
+
+1. DO OBJETO E DA DÚVIDA SUSCITADA
+Referente ao certame nº {{numero_edital}}, cujo objeto é {{objeto}}, verificou-se divergência pontual entre o Termo de Referência e as planilhas orçamentárias.
+
+2. DO QUESTIONAMENTO OBJETIVO
+Indaga-se a esta d. Administração se a especificação técnica admitirá soluções similares ou equivalentes comprovadas em catálogo, em respeito ao art. 41, I da Lei 14.133/2021.
+
+Termos em que,
+Aguarda tempestiva resposta e publicação das notas de esclarecimento."""
+            },
+            {
+                "tipo": "intencao_recurso",
+                "titulo": "Manifestação Motivada de Intenção Recursal em Sessão",
+                "fundamentacao_legal": "Art. 165, § 1º, I da Lei Federal nº 14.133/2021",
+                "is_nova_lei": True,
+                "corpo": """AO ILMO. PREGOEIRO DO(A) {{orgao}}
+SESSÃO PÚBLICA DO EDITAL Nº {{numero_edital}}
+OBJETO: {{objeto}}
+
+MANIFESTAÇÃO MOTIVADA DE INTENÇÃO DE RECURSO
+
+A licitante [NOME DA EMPRESA] manifesta tempestivamente nesta sessão sua INTENÇÃO DE RECORRER em face da decisão de julgamento e habilitação do certame.
+
+MOTIVAÇÃO SUCINTA:
+A proposta declarada vencedora para o certame {{numero_edital}} ({{objeto}}) descumpriu exigências mandatórias do instrumento convocatório quanto à qualificação técnica e demonstração de exequibilidade, violando o princípio da vinculação ao edital e o art. 59 da Lei 14.133/2021. As razões recursais completas serão acostadas no prazo legal de 3 (três) dias úteis."""
+            },
+            {
+                "tipo": "recurso",
+                "titulo": "Razões de Recurso Administrativo contra Julgamento",
+                "fundamentacao_legal": "Art. 165, I, 'a' e 'b' da Lei Federal nº 14.133/2021",
+                "is_nova_lei": True,
+                "corpo": """ILMO. SR. AGENTE DE CONTRATAÇÃO / AUTORIDADE COMPETENTE DO(A) {{orgao}}
+
+PROCESSO LICITATÓRIO: EDITAL Nº {{numero_edital}}
+OBJETO: {{objeto}}
+
+[RECORRENTE], já devidamente qualificada nos autos do certame nº {{numero_edital}}, vem apresentar tempestivas
+
+RAZÕES DE RECURSO ADMINISTRATIVO
+
+1. DA TEMPESTIVIDADE
+Apresentadas dentro do tríduo legal estipulado pelo art. 165, § 1º da Lei 14.133/2021.
+
+2. DAS RAZÕES DE REFORMA
+A decisão proferida no certame nº {{numero_edital}} concernente a {{objeto}} merece integral reforma, posto que desconsiderou vício formal insanável na documentação de habilitação da licitante concorrente.
+
+3. DOS PEDIDOS
+Requer-se o conhecimento do recurso e reconsideração da decisão, ou encaminhamento à autoridade superior para provimento integral, declarando-se a recorrente vencedora."""
+            },
+            {
+                "tipo": "contrarbenzoes",
+                "titulo": "Contrarrazões ao Recurso Administrativo da Concorrente",
+                "fundamentacao_legal": "Art. 165, § 2º da Lei Federal nº 14.133/2021",
+                "is_nova_lei": True,
+                "corpo": """ILMO. SR. PREGOEIRO / AGENTE DE CONTRATAÇÃO DO(A) {{orgao}}
+
+REF.: EDITAL Nº {{numero_edital}}
+OBJETO: {{objeto}}
+
+[RECORRIDA], vencedora legítima do certame, vem apresentar tempestivas
+
+CONTRARRAZÕES DE RECURSO ADMINISTRATIVO
+
+em face do recurso infundado interposto pela licitante inconformada.
+
+1. DA MANUTENÇÃO DA DECISÃO
+A decisão que declarou vencedora a peticionária no certame nº {{numero_edital}} relativo a {{objeto}} observou rigorosamente os princípios da legalidade e vantajocidade da Lei 14.133/2021.
+
+2. DO PEDIDO
+Requer-se a manutenção da decisão recorrida, negando-se provimento ao recurso da concorrente e adjudicando-se o objeto."""
+            },
+            {
+                "tipo": "impugnacao",
+                "titulo": "Impugnação ao Edital (Regime Lei 8.666/1993 - Legado)",
+                "fundamentacao_legal": "Art. 41 da Lei Federal nº 8.666/1993",
+                "is_nova_lei": False,
+                "corpo": """ILMO. SR. PRESIDENTE DA COMISSÃO PERMANENTE DE LICITAÇÃO DO(A) {{orgao}}
+
+REF.: EDITAL Nº {{numero_edital}}
+OBJETO: {{objeto}}
+
+A empresa requerente apresenta IMPUGNAÇÃO AO EDITAL com base no art. 41 da Lei Federal nº 8.666/1993, apontando obscuridades e exigências descabidas na contratação de {{objeto}}.
+
+Requer a retificação do edital."""
+            }
+        ]
+
+        for t_data in templates_seed:
+            t_obj = LegalDocumentTemplate(
+                tipo=t_data["tipo"],
+                titulo=t_data["titulo"],
+                fundamentacao_legal=t_data["fundamentacao_legal"],
+                corpo=t_data["corpo"],
+                is_nova_lei=t_data["is_nova_lei"],
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow()
+            )
+            db.add(t_obj)
+        db.commit()
+
+    # 3. Administrador inicial opcional, definido por variáveis de ambiente
+    garantir_admin_inicial(db)
+
+
+def garantir_admin_inicial(db: Session) -> None:
+    """
+    Se ADMIN_EMAIL estiver configurado: promove a conta existente a ADMIN ou, com ADMIN_PASSWORD,
+    cria a conta. Sem as variáveis, não cria nenhuma conta padrão.
+    """
+    email = (settings.ADMIN_EMAIL or "").strip().lower()
+    if not email:
+        return
+    user = db.query(User).filter(User.email == email).first()
+    if user:
+        if user.role != "ADMIN":
+            user.role = "ADMIN"
+            db.commit()
+        return
+    senha = settings.ADMIN_PASSWORD or ""
+    if len(senha) < 8:
+        return
+    db.add(User(
+        name=settings.ADMIN_NAME or "Administrador",
+        email=email,
+        password_hash=hash_password(senha),
+        role="ADMIN",
+        status="ACTIVE",
+    ))
+    db.commit()
+
+
+def seed_dados_de_teste(db: Session):
+    """
+    SOMENTE PARA A SUÍTE DE TESTES (tests/conftest.py): contas e certames de exemplo com
+    itens, documento e alerta. Nunca é chamado pela aplicação.
+    """
+    # 1. Usuários
+    admin = db.query(User).filter(User.email == "admin@licitacoesbrasil.gov.br").first()
+    if not admin:
+        admin = User(
+            id="usr-admin-01",
+            name="Administrador do Sistema",
+            email="admin@licitacoesbrasil.gov.br",
+            password_hash=hash_password("AdminSeguro!2025"),
+            role="ADMIN",
+            status="ACTIVE"
+        )
+        db.add(admin)
+
+    demo_user = db.query(User).filter(User.email == "usuario@empresa.com.br").first()
+    if not demo_user:
+        demo_user = User(
+            id="usr-user-01",
+            name="Maria Silva Compras",
+            email="usuario@empresa.com.br",
+            password_hash=hash_password("UsuarioSenha@123"),
+            role="USER",
+            status="ACTIVE"
+        )
+        db.add(demo_user)
+
+    db.commit()
+
+    # 2. Certames de exemplo com itens e documento (Alagoas / Saúde, SP, DF, MG, RS)
     now = datetime.utcnow()
 
     sample_tenders = [
@@ -451,7 +652,7 @@ Garantia Contratual: 5% do valor do contrato nos termos da Lei 14.133/2021."""
             )
             db.add(extraction)
 
-    # 4. Criar Alerta padrão para o usuário de demonstração (Alagoas / Saúde)
+    # 3. Alerta de exemplo do usuário de teste (Alagoas / Saúde)
     sample_alert = db.query(Alert).filter(Alert.user_id == demo_user.id).first()
     if not sample_alert:
         sample_alert = Alert(
@@ -466,156 +667,4 @@ Garantia Contratual: 5% do valor do contrato nos termos da Lei 14.133/2021."""
         )
         db.add(sample_alert)
 
-    # 5. Funil Kanban: nenhum negócio é criado automaticamente. Cada conta começa com o
-    #    funil e a agenda zerados e só vê o que o próprio usuário adicionar.
-
-    # 6. Criar peças jurídicas operacionais modelo
-    if db.query(LegalDocumentTemplate).count() == 0:
-        templates_seed = [
-            {
-                "tipo": "impugnacao",
-                "titulo": "Impugnação ao Edital por Exigência Restritiva",
-                "fundamentacao_legal": "Art. 164 da Lei Federal nº 14.133/2021 e Art. 37, XXI da CF/88",
-                "is_nova_lei": True,
-                "corpo": """ILMO. SR. PREGOEIRO / AGENTE DE CONTRATAÇÃO DO(A) {{orgao}}
-
-REF.: EDITAL DE LICITAÇÃO Nº {{numero_edital}}
-OBJETO: {{objeto}}
-
-[NOME DA EMPRESA REQUERENTE], inscrita no CNPJ sob o nº [CNPJ], com sede em [ENDEREÇO], vem, respeitosamente, com fulcro no art. 164 da Lei Federal nº 14.133/2021, apresentar tempestiva
-
-IMPUGNAÇÃO AO EDITAL
-
-em face das exigências restritivas contidas no Instrumento Convocatório, pelos fatos e fundamentos a seguir expostos:
-
-1. DA TEMPESTIVIDADE
-A presente peça é tempestiva, protocolada até 3 (três) dias úteis antes da data de abertura do certame, conforme preconiza expressamente o art. 164 da Lei nº 14.133/2021.
-
-2. DOS FATOS E DO DIRECIONAMENTO
-O Edital nº {{numero_edital}}, cujo objeto é {{objeto}}, inseriu cláusulas técnicas desproporcionais que restringem injustificadamente o universo de competidores, violando os princípios da competitividade e isonomia (art. 5º da Lei 14.133/2021).
-
-3. DOS PEDIDOS
-Diante do exposto, requer-se:
-a) O recebimento e processamento da presente impugnação;
-b) O julgamento PROCEDENTE para fins de retificar o Edital nº {{numero_edital}}, republicando-se o certame com a devida reabertura de prazos.
-
-Nestes termos,
-Pede deferimento.
-[CIDADE - UF], [DATA]."""
-            },
-            {
-                "tipo": "esclarecimento",
-                "titulo": "Pedido de Esclarecimento sobre Especificações Técnicas",
-                "fundamentacao_legal": "Art. 164 da Lei Federal nº 14.133/2021",
-                "is_nova_lei": True,
-                "corpo": """ILMO. SR. AGENTE DE CONTRATAÇÃO DO(A) {{orgao}}
-
-REF.: EDITAL Nº {{numero_edital}}
-OBJETO: {{objeto}}
-
-A empresa [NOME DA EMPRESA], pessoa jurídica de direito privado, inscrita no CNPJ nº [CNPJ], formula o presente
-
-PEDIDO DE ESCLARECIMENTO
-
-com fulcro no art. 164 da Lei nº 14.133/2021:
-
-1. DO OBJETO E DA DÚVIDA SUSCITADA
-Referente ao certame nº {{numero_edital}}, cujo objeto é {{objeto}}, verificou-se divergência pontual entre o Termo de Referência e as planilhas orçamentárias.
-
-2. DO QUESTIONAMENTO OBJETIVO
-Indaga-se a esta d. Administração se a especificação técnica admitirá soluções similares ou equivalentes comprovadas em catálogo, em respeito ao art. 41, I da Lei 14.133/2021.
-
-Termos em que,
-Aguarda tempestiva resposta e publicação das notas de esclarecimento."""
-            },
-            {
-                "tipo": "intencao_recurso",
-                "titulo": "Manifestação Motivada de Intenção Recursal em Sessão",
-                "fundamentacao_legal": "Art. 165, § 1º, I da Lei Federal nº 14.133/2021",
-                "is_nova_lei": True,
-                "corpo": """AO ILMO. PREGOEIRO DO(A) {{orgao}}
-SESSÃO PÚBLICA DO EDITAL Nº {{numero_edital}}
-OBJETO: {{objeto}}
-
-MANIFESTAÇÃO MOTIVADA DE INTENÇÃO DE RECURSO
-
-A licitante [NOME DA EMPRESA] manifesta tempestivamente nesta sessão sua INTENÇÃO DE RECORRER em face da decisão de julgamento e habilitação do certame.
-
-MOTIVAÇÃO SUCINTA:
-A proposta declarada vencedora para o certame {{numero_edital}} ({{objeto}}) descumpriu exigências mandatórias do instrumento convocatório quanto à qualificação técnica e demonstração de exequibilidade, violando o princípio da vinculação ao edital e o art. 59 da Lei 14.133/2021. As razões recursais completas serão acostadas no prazo legal de 3 (três) dias úteis."""
-            },
-            {
-                "tipo": "recurso",
-                "titulo": "Razões de Recurso Administrativo contra Julgamento",
-                "fundamentacao_legal": "Art. 165, I, 'a' e 'b' da Lei Federal nº 14.133/2021",
-                "is_nova_lei": True,
-                "corpo": """ILMO. SR. AGENTE DE CONTRATAÇÃO / AUTORIDADE COMPETENTE DO(A) {{orgao}}
-
-PROCESSO LICITATÓRIO: EDITAL Nº {{numero_edital}}
-OBJETO: {{objeto}}
-
-[RECORRENTE], já devidamente qualificada nos autos do certame nº {{numero_edital}}, vem apresentar tempestivas
-
-RAZÕES DE RECURSO ADMINISTRATIVO
-
-1. DA TEMPESTIVIDADE
-Apresentadas dentro do tríduo legal estipulado pelo art. 165, § 1º da Lei 14.133/2021.
-
-2. DAS RAZÕES DE REFORMA
-A decisão proferida no certame nº {{numero_edital}} concernente a {{objeto}} merece integral reforma, posto que desconsiderou vício formal insanável na documentação de habilitação da licitante concorrente.
-
-3. DOS PEDIDOS
-Requer-se o conhecimento do recurso e reconsideração da decisão, ou encaminhamento à autoridade superior para provimento integral, declarando-se a recorrente vencedora."""
-            },
-            {
-                "tipo": "contrarbenzoes",
-                "titulo": "Contrarrazões ao Recurso Administrativo da Concorrente",
-                "fundamentacao_legal": "Art. 165, § 2º da Lei Federal nº 14.133/2021",
-                "is_nova_lei": True,
-                "corpo": """ILMO. SR. PREGOEIRO / AGENTE DE CONTRATAÇÃO DO(A) {{orgao}}
-
-REF.: EDITAL Nº {{numero_edital}}
-OBJETO: {{objeto}}
-
-[RECORRIDA], vencedora legítima do certame, vem apresentar tempestivas
-
-CONTRARRAZÕES DE RECURSO ADMINISTRATIVO
-
-em face do recurso infundado interposto pela licitante inconformada.
-
-1. DA MANUTENÇÃO DA DECISÃO
-A decisão que declarou vencedora a peticionária no certame nº {{numero_edital}} relativo a {{objeto}} observou rigorosamente os princípios da legalidade e vantajocidade da Lei 14.133/2021.
-
-2. DO PEDIDO
-Requer-se a manutenção da decisão recorrida, negando-se provimento ao recurso da concorrente e adjudicando-se o objeto."""
-            },
-            {
-                "tipo": "impugnacao",
-                "titulo": "Impugnação ao Edital (Regime Lei 8.666/1993 - Legado)",
-                "fundamentacao_legal": "Art. 41 da Lei Federal nº 8.666/1993",
-                "is_nova_lei": False,
-                "corpo": """ILMO. SR. PRESIDENTE DA COMISSÃO PERMANENTE DE LICITAÇÃO DO(A) {{orgao}}
-
-REF.: EDITAL Nº {{numero_edital}}
-OBJETO: {{objeto}}
-
-A empresa requerente apresenta IMPUGNAÇÃO AO EDITAL com base no art. 41 da Lei Federal nº 8.666/1993, apontando obscuridades e exigências descabidas na contratação de {{objeto}}.
-
-Requer a retificação do edital."""
-            }
-        ]
-
-        for t_data in templates_seed:
-            t_obj = LegalDocumentTemplate(
-                tipo=t_data["tipo"],
-                titulo=t_data["titulo"],
-                fundamentacao_legal=t_data["fundamentacao_legal"],
-                corpo=t_data["corpo"],
-                is_nova_lei=t_data["is_nova_lei"],
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow()
-            )
-            db.add(t_obj)
-        db.commit()
-
-    print("Banco de dados populado com dados autênticos e certames de referência.")
+    db.commit()

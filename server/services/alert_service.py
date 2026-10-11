@@ -2,7 +2,7 @@ import logging
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Union
 from sqlalchemy.orm import Session
-from server.models import SavedSearch, Alert, AlertDelivery, Tender, User, generate_uuid
+from server.models import SavedSearch, Alert, AlertDelivery, Tender, generate_uuid
 from server.search_engine import parse_search_query, normalize_text
 
 logger = logging.getLogger(__name__)
@@ -78,10 +78,10 @@ def check_and_deliver_tender_alerts(db: Session, tender: Tender) -> List[AlertDe
             # Assegura que o registro correspondente em Alert exista para satisfazer FK
             alert_rec = db.query(Alert).filter(Alert.id == saved.id).first()
             if not alert_rec:
+                # Alertas são privados: busca salva sem dono não gera entrega para nenhuma conta
                 target_uid = saved.user_id
                 if not target_uid:
-                    u = db.query(User).first()
-                    target_uid = u.id if u else "usr-user-01"
+                    continue
                 alert_rec = Alert(
                     id=saved.id,
                     user_id=target_uid,

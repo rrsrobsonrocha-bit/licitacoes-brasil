@@ -464,7 +464,7 @@ class HistoricoDisputa(Base):
     tipo_evento = Column(String(50), nullable=False, index=True) # AUTO_BID, MANUAL_BID, STOP_LOSS, COMPETITOR_BID
     valor_ofertado = Column(Float, nullable=False)
     posicao = Column(Integer, default=1)
-    autor = Column(String(100), default="Robô LicitaçõesBrasil")
+    autor = Column(String(100), default="Robô Licitações Brasil")
     detalhes = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 

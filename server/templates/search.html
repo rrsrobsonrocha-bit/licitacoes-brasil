@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 
-{% block title %}Pesquisa de Editais e Oportunidades - LicitaçõesBrasil{% endblock %}
+{% block title %}Pesquisa de Editais e Oportunidades - Licitações Brasil{% endblock %}
 
 {% block content %}
 <div class="bg-[#0b0f19] text-slate-100 min-h-screen">
-  <!-- Top Hero Bar (Dark LicitaçõesBrasil) -->
+  <!-- Top Hero Bar (Dark Licitações Brasil) -->
   <div class="bg-[#0f172a] py-6 border-b border-slate-800">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -196,6 +196,44 @@
             </select>
           </div>
 
+          <!-- Período de publicação (data oficial do PNCP, fuso de Brasília) -->
+          {% set qs_periodo = {} %}
+          {% for chave, valor in qs_uf_base.items() if chave not in ('date_from', 'date_to', 'vigentes', 'page') %}{% set _ = qs_periodo.update({chave: valor}) %}{% endfor %}
+          {% if uf_ativa %}{% set _ = qs_periodo.update({'uf': uf_ativa}) %}{% endif %}
+          {% set periodo_hoje = params.date_from == hoje_iso and params.date_to == hoje_iso %}
+          {% set periodo_7d = params.date_from == sete_dias_iso and params.date_to == hoje_iso %}
+          {% set periodo_vigentes = params.vigentes and not params.date_from and not params.date_to %}
+          {% set atalho = 'flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-xs font-semibold border transition' %}
+          {% set atalho_on = 'bg-sky-500/15 text-sky-200 border-sky-500/50' %}
+          {% set atalho_off = 'bg-slate-900 text-slate-300 border-slate-700 hover:border-sky-500/40 hover:text-white' %}
+          <div id="filtro-periodo-publicacao" class="space-y-2">
+            <label class="block text-xs font-semibold text-slate-300">Período de publicação</label>
+            <div class="grid grid-cols-1 gap-1.5">
+              <a id="atalho-publicadas-hoje" href="/search?{{ dict(qs_periodo, date_from=hoje_iso, date_to=hoje_iso)|urlencode }}" class="{{ atalho }} {{ atalho_on if periodo_hoje else atalho_off }}">
+                <span><i class="fa-regular fa-calendar-check mr-1.5 text-sky-400"></i>Publicadas hoje</span>
+                <span class="text-[10px] font-mono text-slate-400">{{ hoje_iso[8:10] }}/{{ hoje_iso[5:7] }}</span>
+              </a>
+              <a id="atalho-ultimos-7-dias" href="/search?{{ dict(qs_periodo, date_from=sete_dias_iso, date_to=hoje_iso)|urlencode }}" class="{{ atalho }} {{ atalho_on if periodo_7d else atalho_off }}">
+                <span><i class="fa-regular fa-calendar-days mr-1.5 text-sky-400"></i>Últimos 7 dias</span>
+              </a>
+              <a id="atalho-todas-vigentes" href="/search?{{ dict(qs_periodo, vigentes='true')|urlencode }}" class="{{ atalho }} {{ atalho_on if periodo_vigentes else atalho_off }}">
+                <span><i class="fa-solid fa-gavel mr-1.5 text-emerald-400"></i>Todas as vigentes/abertas</span>
+                <span class="text-[10px] font-mono text-slate-400">{{ total_vigentes }}</span>
+              </a>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label for="filtro-date-from" class="block text-[10px] font-semibold text-slate-400 mb-0.5">De</label>
+                <input type="date" id="filtro-date-from" name="date_from" value="{{ params.date_from or '' }}" max="{{ hoje_iso }}" class="w-full text-xs p-2 bg-slate-900 border border-slate-700 text-slate-100 rounded-lg focus:ring-2 focus:ring-sky-500 [color-scheme:dark]" />
+              </div>
+              <div>
+                <label for="filtro-date-to" class="block text-[10px] font-semibold text-slate-400 mb-0.5">Até</label>
+                <input type="date" id="filtro-date-to" name="date_to" value="{{ params.date_to or '' }}" max="{{ hoje_iso }}" class="w-full text-xs p-2 bg-slate-900 border border-slate-700 text-slate-100 rounded-lg focus:ring-2 focus:ring-sky-500 [color-scheme:dark]" />
+              </div>
+            </div>
+            <p class="text-[10px] text-slate-500">Data oficial de publicação no PNCP (horário de Brasília).</p>
+          </div>
+
           <!-- Faixa de Valor Estimado -->
           <div>
             <label class="block text-xs font-semibold text-slate-300 mb-1">Valor Estimado (R$)</label>
@@ -341,7 +379,7 @@
           </div>
         </div>
 
-        <!-- Result Cards List (Dark LicitaçõesBrasil Design) -->
+        <!-- Result Cards List (Dark Licitações Brasil Design) -->
         {% if results.results|length == 0 %}
         <div class="bg-[#111827] rounded-2xl border border-slate-800 p-12 text-center shadow-xl">
           <div class="w-16 h-16 bg-slate-800/80 rounded-full flex items-center justify-center mx-auto text-slate-400 text-2xl mb-4">

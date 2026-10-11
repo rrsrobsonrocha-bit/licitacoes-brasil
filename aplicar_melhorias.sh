@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# LicitaçõesBrasil — 4 melhorias prioritárias. Execute na raiz do repositório: bash aplicar_melhorias.sh
+# Licitações Brasil — 4 melhorias prioritárias. Execute na raiz do repositório: bash aplicar_melhorias.sh
 set -euo pipefail
 [ -f server/main.py ] || { echo "Execute na raiz do projeto licitacoes-brasil"; exit 1; }
 
@@ -275,7 +275,7 @@ caixa_mock = _CaixaMock()
 
 
 def _remetente() -> str:
-    return formataddr(("LicitaçõesBrasil", settings.EMAIL_FROM))
+    return formataddr(("Licitações Brasil", settings.EMAIL_FROM))
 
 
 def _enviar_smtp(destinatario: str, assunto: str, texto: str, html: Optional[str]) -> None:
@@ -345,14 +345,14 @@ def montar_email_redefinicao(nome: str, link: str, minutos: int) -> tuple:
     from html import escape
 
     primeiro_nome = (nome or "").split(" ")[0] or "olá"
-    assunto = "Redefinição de senha — LicitaçõesBrasil"
+    assunto = "Redefinição de senha — Licitações Brasil"
     texto = (
         f"Olá, {primeiro_nome}.\n\n"
-        "Recebemos um pedido para redefinir a senha da sua conta na LicitaçõesBrasil.\n"
+        "Recebemos um pedido para redefinir a senha da sua conta na Licitações Brasil.\n"
         f"Para criar uma nova senha, acesse o link abaixo (válido por {minutos} minutos e de uso único):\n\n"
         f"{link}\n\n"
         "Se você não fez este pedido, ignore este e-mail: sua senha atual continua válida.\n\n"
-        "Equipe LicitaçõesBrasil"
+        "Equipe Licitações Brasil"
     )
     html = f"""<!doctype html>
 <html lang="pt-BR"><body style="margin:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a">
@@ -2494,11 +2494,11 @@ mkdir -p server/templates
 cat << 'EOF' > server/templates/search.html
 {% extends "base.html" %}
 
-{% block title %}Pesquisa de Editais e Oportunidades - LicitaçõesBrasil{% endblock %}
+{% block title %}Pesquisa de Editais e Oportunidades - Licitações Brasil{% endblock %}
 
 {% block content %}
 <div class="bg-[#0b0f19] text-slate-100 min-h-screen">
-  <!-- Top Hero Bar (Dark LicitaçõesBrasil) -->
+  <!-- Top Hero Bar (Dark Licitações Brasil) -->
   <div class="bg-[#0f172a] py-6 border-b border-slate-800">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -2792,7 +2792,7 @@ cat << 'EOF' > server/templates/search.html
           </div>
         </div>
 
-        <!-- Result Cards List (Dark LicitaçõesBrasil Design) -->
+        <!-- Result Cards List (Dark Licitações Brasil Design) -->
         {% if results.results|length == 0 %}
         <div class="bg-[#111827] rounded-2xl border border-slate-800 p-12 text-center shadow-xl">
           <div class="w-16 h-16 bg-slate-800/80 rounded-full flex items-center justify-center mx-auto text-slate-400 text-2xl mb-4">
@@ -4935,7 +4935,7 @@ logger = logging.getLogger(__name__)
 
 HOSTS_PERMITIDOS = {"pncp.gov.br", "www.pncp.gov.br", "treina.pncp.gov.br"}
 CABECALHOS = {
-    "User-Agent": "LicitacoesBrasil/2.0 (+https://licitacoesbrasil.gov.br)",
+    "User-Agent": "licitacoes-brasil/2.0 (+https://licitacoesbrasil.gov.br)",
     "Accept": "application/json, */*",
 }
 TIMEOUT_JSON = httpx.Timeout(20.0, connect=10.0)
@@ -7003,7 +7003,7 @@ class HistoricoDisputa(Base):
     tipo_evento = Column(String(50), nullable=False, index=True) # AUTO_BID, MANUAL_BID, STOP_LOSS, COMPETITOR_BID
     valor_ofertado = Column(Float, nullable=False)
     posicao = Column(Integer, default=1)
-    autor = Column(String(100), default="Robô LicitaçõesBrasil")
+    autor = Column(String(100), default="Robô Licitações Brasil")
     detalhes = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
@@ -9602,7 +9602,7 @@ class GerarPeticaoPDFRequest(BaseModel):
 @app.post("/api/juridico/gerar-pdf")
 def api_juridico_gerar_pdf(payload: GerarPeticaoPDFRequest, db: Session = Depends(get_db)):
     """
-    Compila a petição em PDF timbrado LicitaçõesBrasil.
+    Compila a petição em PDF timbrado Licitações Brasil.
     O texto vem de `corpo` (editado no modal) ou do modelo `template_id`; os dados do
     certame podem ser informados diretamente ou herdados de `tender_id`.
     """
@@ -10479,7 +10479,7 @@ def get_dashboard_summary_data(db: Session, user: Optional[User] = None) -> Dict
         "upcoming_tenders": upcoming[:5],
         "recent_deliveries": delivs_data,
 
-        # Indicadores Executivos LicitaçõesBrasil
+        # Indicadores Executivos Licitações Brasil
         "active_deals_count": deals_count,
         "deals_count": deals_count,
         "companies_identified_count": companies_count,

@@ -1,5 +1,5 @@
 """
-Gerador de PDFs jurídicos timbrados "LicitaçõesBrasil" (ReportLab).
+Gerador de PDFs jurídicos timbrados "Licitações Brasil" (ReportLab).
 
 - ``gerar_peticao_pdf``: compila petições (impugnação, esclarecimento, recurso,
   contrarrazões) com cabeçalho oficial, ficha do certame, qualificação da licitante,
@@ -31,7 +31,7 @@ from reportlab.platypus import (
 # ------------------------------------------------------------------------------
 # Identidade visual
 # ------------------------------------------------------------------------------
-MARCA = "LicitaçõesBrasil"
+MARCA = "Licitações Brasil"
 COR_NAVY = colors.HexColor("#082f49")
 COR_SKY = colors.HexColor("#38bdf8")
 COR_SKY_ESCURO = colors.HexColor("#0369a1")
@@ -266,7 +266,7 @@ def renderizar_pdf_timbrado(
     referencia: str = "",
     assunto: str = "",
 ) -> bytes:
-    """Renderiza uma lista de flowables no papel timbrado LicitaçõesBrasil e retorna os bytes do PDF."""
+    """Renderiza uma lista de flowables no papel timbrado Licitações Brasil e retorna os bytes do PDF."""
     buffer = io.BytesIO()
     emitido_em = agora_sao_paulo().strftime("%d/%m/%Y %H:%M")
     doc = SimpleDocTemplate(

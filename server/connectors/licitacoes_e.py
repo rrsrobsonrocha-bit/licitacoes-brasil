@@ -13,7 +13,7 @@ class LicitacoesEConnector(BaseConnector):
     """
     Conector de Integração do Licitações-e (Banco do Brasil).
     Suporta modo de desenvolvimento local via Token Mock e credenciamento oficial OAuth 2.0.
-    Normaliza todos os certames para o modelo canônico de dados do LicitaçõesBrasil.
+    Normaliza todos os certames para o modelo canônico de dados do Licitações Brasil.
     """
 
     def __init__(
@@ -35,8 +35,8 @@ class LicitacoesEConnector(BaseConnector):
 
     @property
     def mock_mode(self) -> bool:
-        """Indica se a execução opera em modo Mock/Simulação para desenvolvimento local"""
-        val = os.getenv("LICITACOES_E_MOCK_MODE", "true").strip().lower()
+        """Modo Mock/Simulação: somente com LICITACOES_E_MOCK_MODE=true explícito (desligado em produção)"""
+        val = os.getenv("LICITACOES_E_MOCK_MODE", "false").strip().lower()
         return val in ("true", "1", "yes", "on")
 
     @property
@@ -65,7 +65,7 @@ class LicitacoesEConnector(BaseConnector):
     def normalize_tender(self, raw: Dict[str, Any]) -> Dict[str, Any]:
         """
         Normaliza o registro bruto retornado pela API ou Mock do Licitações-e
-        para o esquema canônico da plataforma LicitaçõesBrasil / Tender.
+        para o esquema canônico da plataforma Licitações Brasil / Tender.
         """
         now = datetime.utcnow()
         numero_licitacao = str(raw.get("numeroLicitacao") or raw.get("numero") or "1001").strip()

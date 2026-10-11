@@ -223,6 +223,183 @@ def _remover_deals_de_demonstracao() -> None:
         logger.info("Migração: %s negócios de demonstração removidos do funil.", removidos)
 
 
+def _desativar_contas_demonstracao() -> None:
+    """
+    Desativa as antigas contas padrão de demonstração enquanto ainda usam a senha pública
+    documentada (risco de acesso indevido em produção). Para nunca deixar o sistema sem acesso,
+    só age quando já existe uma conta real ativa; antes de desativar, transfere para a conta
+    principal os dados privados criados nelas (negócios, alertas, favoritos). Contas cuja senha
+    foi trocada são mantidas. Nada é apagado. Idempotente.
+    """
+    from server.database import SessionLocal
+    from server.models import Alert, Deal, Favorite, SavedSearch, User
+    from server.security import verify_password
+    from server.seed_data import EMAILS_CONTAS_DEMONSTRACAO, SENHAS_PADRAO_DEMONSTRACAO
+
+    db = SessionLocal()
+    try:
+        demos = [
+            u for u in db.query(User).filter(User.email.in_(EMAILS_CONTAS_DEMONSTRACAO), User.status == "ACTIVE").all()
+            if verify_password(SENHAS_PADRAO_DEMONSTRACAO[u.email], u.password_hash)
+        ]
+        if not demos:
+            return
+        principal = _dono_dos_registros_orfaos(db)
+        if not principal:
+            logger.warning(
+                "Migração: contas de demonstração com senha padrão continuam ativas porque ainda não há "
+                "conta real cadastrada. Cadastre uma conta (ou defina ADMIN_EMAIL/ADMIN_PASSWORD) e reinicie."
+            )
+            return
+        for demo in demos:
+            for modelo in (Deal, SavedSearch, Alert):
+                db.query(modelo).filter(modelo.user_id == demo.id).update(
+                    {modelo.user_id: principal.id}, synchronize_session=False
+                )
+            ja_favoritos = {f.tender_id for f in db.query(Favorite).filter(Favorite.user_id == principal.id)}
+            for fav in db.query(Favorite).filter(Favorite.user_id == demo.id).all():
+                if fav.tender_id in ja_favoritos:
+                    db.delete(fav)
+                else:
+                    fav.user_id = principal.id
+            demo.status = "INACTIVE"
+            logger.warning("Migração: conta de demonstração %s desativada (senha padrão pública); dados "
+                           "transferidos para %s.", demo.email, principal.email)
+        db.commit()
+    finally:
+        db.close()
+
+
+def _remover_certames_de_exemplo() -> None:
+    """
+    Remove do catálogo os certames fictícios do antigo seed (com itens, documentos e análises).
+    Um certame de exemplo que algum usuário tenha posto no funil, favoritado ou anotado é mantido.
+    """
+    from server.database import SessionLocal
+    from server.models import Deal, Favorite, Tender, UserNote
+    from server.seed_data import IDS_CERTAMES_EXEMPLO
+
+    db = SessionLocal()
+    try:
+        removidos = 0
+        for tender in db.query(Tender).filter(Tender.id.in_(IDS_CERTAMES_EXEMPLO)).all():
+            em_uso = (
+                db.query(Deal).filter(Deal.tender_id == tender.id).first()  # inclui negócios legados (demos já saíram)
+                or db.query(Favorite).filter(Favorite.tender_id == tender.id).first()
+                or db.query(UserNote).filter(UserNote.tender_id == tender.id).first()
+            )
+            if em_uso:
+                logger.info("Migração: certame de exemplo %s mantido (em uso por um usuário).", tender.id)
+                continue
+            db.delete(tender)
+            removidos += 1
+        db.commit()
+        if removidos:
+            logger.info("Migração: %s certames de exemplo removidos do catálogo.", removidos)
+    finally:
+        db.close()
+
+
+def _ids_certames_ficticios_legados() -> List[str]:
+    import json
+    from pathlib import Path
+
+    arquivo = Path(__file__).resolve().parent / "data" / "certames_ficticios_legados.json"
+    try:
+        return list(json.loads(arquivo.read_text(encoding="utf-8")).get("external_ids", []))
+    except (OSError, ValueError):
+        logger.warning("Migração: lista de certames fictícios legados indisponível (%s).", arquivo)
+        return []
+
+
+def _remover_certames_ficticios_legados(lote: int = 200) -> None:
+    """
+    Remove do catálogo global os certames inventados que versões antigas do coletor gravavam
+    (catálogo de "fallback"/contingência), identificados pelo external_id. Certames em uso por
+    algum usuário (funil, favorito, anotação) são mantidos. Idempotente.
+    """
+    from server.database import SessionLocal
+    from server.models import Deal, Favorite, Tender, UserNote
+
+    ids = _ids_certames_ficticios_legados()
+    if not ids:
+        return
+    db = SessionLocal()
+    try:
+        removidos = mantidos = 0
+        for inicio in range(0, len(ids), lote):
+            for tender in db.query(Tender).filter(Tender.external_id.in_(ids[inicio:inicio + lote])).all():
+                em_uso = (
+                    db.query(Deal.id).filter(Deal.tender_id == tender.id).first()
+                    or db.query(Favorite.id).filter(Favorite.tender_id == tender.id).first()
+                    or db.query(UserNote.id).filter(UserNote.tender_id == tender.id).first()
+                )
+                if em_uso:
+                    mantidos += 1
+                    continue
+                db.delete(tender)
+                removidos += 1
+            db.commit()
+        if removidos or mantidos:
+            logger.info("Migração: %s certames fictícios legados removidos (%s mantidos por estarem em uso).",
+                        removidos, mantidos)
+    finally:
+        db.close()
+
+
+def _dono_dos_registros_orfaos(db):
+    """
+    Conta que recebe os registros legados sem dono: ORPHAN_OWNER_EMAIL, depois ADMIN_EMAIL;
+    senão a conta real principal (administrador mais recente a entrar, depois o usuário mais
+    recente a entrar, depois o mais antigo). Contas de demonstração nunca são escolhidas.
+    """
+    from server.config import settings
+    from server.models import User
+    from server.seed_data import EMAILS_CONTAS_DEMONSTRACAO
+
+    reais = db.query(User).filter(User.status == "ACTIVE", ~User.email.in_(EMAILS_CONTAS_DEMONSTRACAO))
+    for email in (settings.ORPHAN_OWNER_EMAIL, settings.ADMIN_EMAIL):
+        email = (email or "").strip().lower()
+        if email:
+            user = reais.filter(User.email == email).first()
+            if user:
+                return user
+    return (
+        reais.filter(User.role == "ADMIN", User.last_login_at.isnot(None)).order_by(User.last_login_at.desc()).first()
+        or reais.filter(User.last_login_at.isnot(None)).order_by(User.last_login_at.desc()).first()
+        or reais.order_by(User.created_at.asc()).first()
+    )
+
+
+def _associar_registros_orfaos() -> None:
+    """
+    Atribui à conta principal os negócios e alertas legados sem dono (user_id nulo), para que
+    nenhum dado real cadastrado antes do isolamento por usuário fique invisível. Idempotente:
+    sem órfãos ou sem conta real cadastrada, não faz nada (tenta de novo no próximo boot).
+    """
+    from server.database import SessionLocal
+    from server.models import Alert, Deal, SavedSearch
+
+    db = SessionLocal()
+    try:
+        modelos = (Deal, SavedSearch, Alert)
+        if not any(db.query(m).filter(m.user_id.is_(None)).first() for m in modelos):
+            return
+        dono = _dono_dos_registros_orfaos(db)
+        if not dono:
+            logger.warning("Migração: há registros sem dono, mas nenhuma conta real para recebê-los ainda.")
+            return
+        for modelo in modelos:
+            total = db.query(modelo).filter(modelo.user_id.is_(None)).update(
+                {modelo.user_id: dono.id}, synchronize_session=False
+            )
+            if total:
+                logger.info("Migração: %s registros de %s atribuídos a %s.", total, modelo.__tablename__, dono.email)
+        db.commit()
+    finally:
+        db.close()
+
+
 def _backfill_links_canonicos() -> None:
     """Backfill canônico de URLs do PNCP e links de disputa (idempotente: recalcula os mesmos valores)."""
     from server.connectors.pncp import build_canonical_pncp_url
@@ -282,8 +459,18 @@ def run_db_migrations():
     _adicionar_colunas(COLUNAS_TENDERS)
     _adicionar_colunas(COLUNAS_ITENS_DOCUMENTOS)
     _adicionar_colunas(COLUNAS_DEALS)
+
+    # 1.1 Dados de demonstração antigos e registros órfãos (ordem importa: demos saem antes da atribuição)
     if "deals" in _tabelas_existentes():
         _remover_deals_de_demonstracao()
+    from server.config import settings
+    if "users" in _tabelas_existentes():
+        if settings.REMOVER_DADOS_DEMONSTRACAO:
+            _desativar_contas_demonstracao()
+            _remover_certames_de_exemplo()
+            _remover_certames_ficticios_legados()
+        if "deals" in _tabelas_existentes():
+            _associar_registros_orfaos()
 
     # 2. Tabelas auxiliares (auditoria de disputas, cofre de documentos e recuperação de senha)
     _criar_tabela_do_modelo(HistoricoDisputa)

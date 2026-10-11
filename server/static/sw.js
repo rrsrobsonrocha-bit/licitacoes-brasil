@@ -1,4 +1,4 @@
-// LicitaçõesBrasil PWA Service Worker - Cache Resiliente e Fallback Offline
+// Licitações Brasil PWA Service Worker - Cache Resiliente e Fallback Offline
 const CACHE_NAME = 'licitacoesbrasil-pwa-v2';
 
 // Páginas com dados privados do usuário (funil, agenda, painel, favoritos, alertas):
@@ -66,7 +66,7 @@ self.addEventListener('fetch', (event) => {
           if (event.request.mode === 'navigate') {
             return caches.match('/');
           }
-          return new Response('LicitaçõesBrasil Offline', {
+          return new Response('Licitações Brasil Offline', {
             status: 503,
             statusText: 'Offline',
             headers: { 'Content-Type': 'text/plain; charset=utf-8' }

@@ -1,41 +1,11 @@
 import { PrismaClient } from '@prisma/client';
-import * as crypto from 'crypto';
 
 const prisma = new PrismaClient();
-
-function hashPassword(password: string): string {
-  const salt = crypto.randomBytes(16).toString('hex');
-  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
-  return `scrypt:${salt}:${hash}`;
-}
 
 async function main() {
   console.log('Populando banco de dados com sementes oficiais...');
 
-  // Criar Usuários
-  const admin = await prisma.user.upsert({
-    where: { email: 'admin@licitacoesbrasil.gov.br' },
-    update: {},
-    create: {
-      name: 'Administrador do Sistema',
-      email: 'admin@licitacoesbrasil.gov.br',
-      passwordHash: hashPassword('AdminSeguro!2025'),
-      role: 'ADMIN',
-      status: 'ACTIVE',
-    },
-  });
-
-  const demoUser = await prisma.user.upsert({
-    where: { email: 'usuario@empresa.com.br' },
-    update: {},
-    create: {
-      name: 'Maria Silva Compras',
-      email: 'usuario@empresa.com.br',
-      passwordHash: hashPassword('UsuarioSenha@123'),
-      role: 'USER',
-      status: 'ACTIVE',
-    },
-  });
+  // Nenhuma conta padrão/de demonstração é criada (ambiente de produção).
 
   // Criar Fontes Oficiais
   const pncp = await prisma.source.upsert({

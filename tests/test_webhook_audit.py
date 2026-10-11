@@ -210,8 +210,8 @@ def test_webhook_retry_dispatch_increments_attempts(init_attempt):
 
 # 9. API Webhook Logs - Filtro de Status (4 testes)
 @pytest.mark.parametrize("status_val", ["SUCESSO", "FALHA", "success", "failed"])
-def test_webhook_logs_api_status_filter(status_val):
-    resp = client.get(f"/api/alerts/webhooks/logs?status={status_val}")
+def test_webhook_logs_api_status_filter(status_val, admin_auth):
+    resp = client.get(f"/api/alerts/webhooks/logs?status={status_val}", headers=admin_auth.headers)
     assert resp.status_code == 200
     data = resp.json()
     assert "items" in data
@@ -223,8 +223,8 @@ def test_webhook_logs_api_status_filter(status_val):
 
 # 10. API Webhook Logs - Filtro de Canal (4 testes)
 @pytest.mark.parametrize("canal_filter", ["N8N", "EVOLUTION_API", "ZAPI", "GENERIC"])
-def test_webhook_logs_api_canal_filter(canal_filter):
-    resp = client.get(f"/api/alerts/webhooks/logs?canal={canal_filter}")
+def test_webhook_logs_api_canal_filter(canal_filter, admin_auth):
+    resp = client.get(f"/api/alerts/webhooks/logs?canal={canal_filter}", headers=admin_auth.headers)
     assert resp.status_code == 200
     data = resp.json()
     for item in data["items"]:
@@ -233,8 +233,8 @@ def test_webhook_logs_api_canal_filter(canal_filter):
 
 # 11. API Webhook Logs - Paginação (3 testes)
 @pytest.mark.parametrize("p, ps", [(1, 2), (2, 2), (1, 5)])
-def test_webhook_logs_api_pagination(p, ps):
-    resp = client.get(f"/api/alerts/webhooks/logs?page={p}&page_size={ps}")
+def test_webhook_logs_api_pagination(p, ps, admin_auth):
+    resp = client.get(f"/api/alerts/webhooks/logs?page={p}&page_size={ps}", headers=admin_auth.headers)
     assert resp.status_code == 200
     data = resp.json()
     assert data["page"] == p
@@ -339,7 +339,7 @@ def test_webhook_model_fields_integrity():
 
 
 # 17. Filtro por Certame ID no Endpoint de Logs (1 teste)
-def test_webhook_logs_api_certame_filter():
+def test_webhook_logs_api_certame_filter(admin_auth):
     db = SessionLocal()
     try:
         specific_tender_id = "certame-special-xyz"
@@ -352,7 +352,7 @@ def test_webhook_logs_api_certame_filter():
         db.add(log)
         db.commit()
 
-        resp = client.get(f"/api/alerts/webhooks/logs?certame_id={specific_tender_id}")
+        resp = client.get(f"/api/alerts/webhooks/logs?certame_id={specific_tender_id}", headers=admin_auth.headers)
         assert resp.status_code == 200
         data = resp.json()
         assert data["total"] >= 1
@@ -362,16 +362,16 @@ def test_webhook_logs_api_certame_filter():
 
 
 # 18. Filtro por Data no Endpoint de Logs (1 teste)
-def test_webhook_logs_api_date_filter():
+def test_webhook_logs_api_date_filter(admin_auth):
     today_str = datetime.utcnow().strftime("%Y-%m-%d")
-    resp = client.get(f"/api/alerts/webhooks/logs?data={today_str}")
+    resp = client.get(f"/api/alerts/webhooks/logs?data={today_str}", headers=admin_auth.headers)
     assert resp.status_code == 200
     data = resp.json()
     assert "items" in data
 
 
 # 19. Endpoint de Retry com Sucesso (1 teste)
-def test_webhook_retry_endpoint_success():
+def test_webhook_retry_endpoint_success(admin_auth):
     db = SessionLocal()
     try:
         log = WebhookDispatchLog(
@@ -390,7 +390,7 @@ def test_webhook_retry_endpoint_success():
             mock_client_cls.return_value.__enter__.return_value = mock_inst
             mock_inst.post.return_value = MagicMock(status_code=200, text='{"retried": true}')
 
-            resp = client.post(f"/api/alerts/webhooks/{log.id}/retry")
+            resp = client.post(f"/api/alerts/webhooks/{log.id}/retry", headers=admin_auth.headers)
             assert resp.status_code == 200
             data = resp.json()
             assert "log" in data
@@ -401,8 +401,9 @@ def test_webhook_retry_endpoint_success():
 
 
 # 20. Endpoint de Retry com ID Inexistente (1 teste)
-def test_webhook_retry_endpoint_not_found():
-    resp = client.post("/api/alerts/webhooks/id-totalmente-inexistente-404/retry")
+def test_webhook_retry_endpoint_not_found(admin_auth):
+    assert client.post("/api/alerts/webhooks/qualquer/retry").status_code == 401
+    resp = client.post("/api/alerts/webhooks/id-totalmente-inexistente-404/retry", headers=admin_auth.headers)
     assert resp.status_code == 404
     assert "detail" in resp.json()
 
@@ -436,3 +437,37 @@ def test_health_metrics_success_rate_calculation():
         assert rate == expected
     else:
         assert rate == 100.0
+
+
+# 22. Isolamento dos logs de webhooks por conta (multitenancy)
+def test_webhook_logs_isolados_por_dono_da_regra(criar_usuario):
+    import uuid
+    a, b = criar_usuario("Empresa A"), criar_usuario("Empresa B")
+    db = SessionLocal()
+    try:
+        regra = Alert(id=str(uuid.uuid4()), user_id=a.id, name="Regra A", keywords="x", filters={}, active=True)
+        db.add(regra)
+        db.flush()
+        log = WebhookDispatchLog(rule_id=regra.id, target_url="https://isolamento.test/webhook", canal="N8N", sucesso=False,
+                                 payload_enviado={"isolamento": True})
+        sistema = WebhookDispatchLog(target_url="https://sistema.test/webhook", canal="GENERIC", sucesso=True)
+        db.add_all([log, sistema])
+        db.commit()
+        log_id, sistema_id = log.id, sistema.id
+    finally:
+        db.close()
+
+    assert client.get("/api/alerts/webhooks/logs").status_code == 401
+    ids_a = {i["id"] for i in client.get("/api/alerts/webhooks/logs?page_size=100", headers=a.headers).json()["items"]}
+    ids_b = {i["id"] for i in client.get("/api/alerts/webhooks/logs?page_size=100", headers=b.headers).json()["items"]}
+    assert log_id in ids_a and sistema_id not in ids_a
+    assert log_id not in ids_b and sistema_id not in ids_b
+    assert client.post(f"/api/alerts/webhooks/{log_id}/retry", headers=b.headers).status_code == 404
+
+    db = SessionLocal()
+    try:
+        db.query(WebhookDispatchLog).filter(WebhookDispatchLog.id.in_([log_id, sistema_id])).delete(synchronize_session=False)
+        db.query(Alert).filter(Alert.user_id == a.id).delete(synchronize_session=False)
+        db.commit()
+    finally:
+        db.close()

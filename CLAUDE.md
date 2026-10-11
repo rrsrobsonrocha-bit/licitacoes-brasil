@@ -1,0 +1,35 @@
+# Licitações Brasil
+
+Este projeto se chama **Licitações Brasil**, e esse é o único nome a usar em mensagens, recaps,
+commits, textos de interface, docstrings e documentação. Em identificadores técnicos, use o slug
+`licitacoes-brasil` (pacotes, repositório, URLs) ou `licitacoes_brasil` (nomes Python/SQL).
+Commits são assinados como `Licitações-Brasil`.
+
+## O que é
+
+Plataforma de busca e acompanhamento de licitações públicas brasileiras (PNCP / Compras.gov.br):
+FastAPI + Jinja2 + SQLAlchemy (SQLite em desenvolvimento, PostgreSQL em produção).
+
+- `server/main.py`: rotas HTML e API.
+- `server/models.py`, `server/migrate.py`: modelos e migrações idempotentes, executadas no boot.
+- `server/integrations/opportunity_collector.py`, `server/services/portal_collector.py`: coleta na API oficial do PNCP.
+- `server/services/dispute_monitor.py`: Sala de Disputa (lotes e robô de lances, por usuário).
+- `server/templates/`: páginas (busca, painel, funil, agenda, disputa, jurídico).
+
+## Regras do produto
+
+- **Ambiente de produção, sem dados fictícios.** Nenhum certame, conta, negócio, evento, lote de
+  disputa ou concorrente pode ser inventado. Sem resposta da API oficial, a coleta não insere nada.
+  Dados de exemplo existem apenas na suíte de testes (`seed_dados_de_teste`, `tests/pncp_simulado.py`).
+- **Catálogo global, acompanhamento privado.** Editais sincronizados são compartilhados por todas as
+  contas. Negócios (funil), Favoritos, Agenda, Alertas, logs de webhooks e lotes da Sala de Disputa
+  são isolados por usuário (`user_id` / `owner_id`).
+- **Datas oficiais.** `Tender.publication_date` é a `dataPublicacaoPncp` (horário de Brasília). Filtros
+  por período ("Publicadas hoje", "Últimos 7 dias", De/Até) usam essa data, nunca a data de inserção local.
+- Conta administrativa inicial apenas via `ADMIN_EMAIL` / `ADMIN_PASSWORD`; registros legados sem dono
+  vão para `ORPHAN_OWNER_EMAIL` (ou `ADMIN_EMAIL`, ou a conta real principal).
+
+## Desenvolvimento
+
+- Testes: `.venv/Scripts/python.exe -m pytest -q` (banco SQLite temporário, rede externa bloqueada).
+- Rodar localmente: `python -m uvicorn server.main:app --reload`.

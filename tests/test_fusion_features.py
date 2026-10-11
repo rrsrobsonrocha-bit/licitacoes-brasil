@@ -49,16 +49,24 @@ def sample_tender():
 
 @pytest.mark.asyncio
 async def test_portal_collector_multi_source_collection():
-    """Valida a coleta e normalização em múltiplos portais oficiais (PNCP, Compras.gov, BNC, etc.)."""
+    """Coleta normalizada a partir da API oficial do PNCP; portais sem integração não inventam certames."""
+    from tests.pncp_simulado import catalogo_simulado, resposta_httpx_pncp
     collector = PortalCollectorService()
-    results = await collector.collect_all(uf="DF", keyword="servidores", limit_per_portal=2)
+    registros = catalogo_simulado()[6][:3]
+    with patch("httpx.AsyncClient.get", return_value=resposta_httpx_pncp(registros)):
+        results = await collector.collect_all(uf="DF", keyword="servidores", limit_per_portal=2)
 
     assert isinstance(results, list)
-    assert len(results) > 0
+    assert len(results) == 2  # limit_per_portal aplicado ao PNCP
 
-    # Verifica se os portais são identificados corretamente
+    # Somente a fonte oficial integrada devolve registros
     portals = {item["fonte_portal"] for item in results}
-    assert len(portals) >= 2, f"Esperado múltiplos portais, obtido: {portals}"
+    assert portals == {"PNCP"}
+    assert await collector.fetch_compras_gov(keywords="servidores") == []
+    assert await collector.fetch_state_and_private_portals("BNC", uf="DF") == []
+    ids = {r["numeroControlePNCP"] for r in registros}
+    assert all(item["external_id"] in ids for item in results)
+    assert results[0]["publication_date"] is not None
 
     # Validação dos campos obrigatórios normalizados
     for item in results:
@@ -80,9 +88,9 @@ async def test_portal_collector_network_error_resilience():
         # O coletor deve retornar lista vazia sem propagar erro fatal
         assert pncp_res == []
 
-        # Coletar all com falhas embutidas ainda deve retornar os portais com fallback
+        # Sem rede, a coleta devolve lista vazia: nenhum certame fictício de contingência
         all_res = await collector.collect_all(uf="SP", keyword="saude", limit_per_portal=2)
-        assert isinstance(all_res, list)
+        assert all_res == []
 
 
 def test_api_portals_sync_endpoint():
@@ -344,7 +352,8 @@ def test_classificar_natureza_certame_usa_descricao_quando_titulo_inconclusivo()
 
 @pytest.mark.asyncio
 async def test_collect_all_enriquece_itens_com_natureza():
-    with patch("httpx.AsyncClient.get", side_effect=Exception("offline")):
+    from tests.pncp_simulado import catalogo_simulado, resposta_httpx_pncp
+    with patch("httpx.AsyncClient.get", return_value=resposta_httpx_pncp(catalogo_simulado()[6][:3])):
         itens = await PortalCollectorService().collect_all(uf="DF", limit_per_portal=3)
     assert itens
     assert all(it["natureza_objeto"] in NATUREZAS_OBJETO for it in itens)

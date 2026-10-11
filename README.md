@@ -179,9 +179,10 @@ licitacoes-brasil/
    - **Documentação Interativa Swagger:** [http://localhost:8000/api/docs](http://localhost:8000/api/docs)
    - **Documentação ReDoc:** [http://localhost:8000/api/redoc](http://localhost:8000/api/redoc)
 
-4. **Credenciais Pré-configuradas:**
-   - **Usuário Comum:** `usuario@empresa.com.br` | Senha: `UsuarioSenha@123`
-   - **Administrador:** `admin@licitacoesbrasil.gov.br` | Senha: `AdminSeguro!2025`
+4. **Contas de acesso:**
+   - Nenhuma conta padrão é criada. Cadastre-se em `/register`; cada conta começa com funil, agenda,
+     alertas e Sala de Disputa vazios e acessa todo o catálogo de editais sincronizados.
+   - Administrador inicial (opcional): defina `ADMIN_EMAIL` e `ADMIN_PASSWORD` no ambiente antes de iniciar.
 
 ---
 
