@@ -154,7 +154,7 @@ def test_kanban_html_view_and_cards(usuario_auth):
     assert "avançar →" in html
 
     # Validar elementos do card
-    assert "Valor Estimado:" in html
+    assert "Valor do negócio" in html
     assert "countdown-badge" in html
 
 def test_pipeline_add_endpoint_integration(usuario_auth):

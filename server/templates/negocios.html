@@ -25,8 +25,12 @@
         </div>
 
         <div class="flex flex-wrap items-center gap-2.5">
+          <div class="bg-emerald-500/10 border border-emerald-500/40 rounded-xl px-3 py-1.5 flex items-center gap-2 text-xs">
+            <span class="text-emerald-200 font-semibold">Valor Total em Pipeline:</span>
+            <span id="kanban-total-valor" class="font-black text-emerald-300 font-mono text-sm">{{ valor_pipeline|brl }}</span>
+          </div>
           <div class="bg-slate-800/80 border border-slate-700/70 rounded-xl px-3 py-1.5 flex items-center gap-2 text-xs">
-            <span class="text-slate-400">Total em Aberto:</span>
+            <span class="text-slate-400">Negócios:</span>
             <span id="kanban-total-deals" class="font-bold text-emerald-400 font-mono">{{ total_deals }}</span>
           </div>
 
@@ -106,6 +110,7 @@
             {{ counts.oportunidades }}
           </span>
         </div>
+        <p id="resumo-oportunidades" class="kanban-resumo -mt-1 mb-3 text-[11px] font-mono text-slate-400">{{ counts.oportunidades }} {{ 'negócio' if counts.oportunidades == 1 else 'negócios' }} · <span class="text-emerald-300 font-bold">{{ valores.oportunidades|brl }}</span></p>
         <div id="cards-oportunidades" class="cards-container flex-1 space-y-3 min-h-[350px]">
           {% for deal in grouped_deals.oportunidades %}
             {% include "partials_deal_card.html" %}
@@ -129,6 +134,7 @@
             {{ counts.qualificacao }}
           </span>
         </div>
+        <p id="resumo-qualificacao" class="kanban-resumo -mt-1 mb-3 text-[11px] font-mono text-slate-400">{{ counts.qualificacao }} {{ 'negócio' if counts.qualificacao == 1 else 'negócios' }} · <span class="text-emerald-300 font-bold">{{ valores.qualificacao|brl }}</span></p>
         <div id="cards-qualificacao" class="cards-container flex-1 space-y-3 min-h-[350px]">
           {% for deal in grouped_deals.qualificacao %}
             {% include "partials_deal_card.html" %}
@@ -152,6 +158,7 @@
             {{ counts.disputa }}
           </span>
         </div>
+        <p id="resumo-disputa" class="kanban-resumo -mt-1 mb-3 text-[11px] font-mono text-slate-400">{{ counts.disputa }} {{ 'negócio' if counts.disputa == 1 else 'negócios' }} · <span class="text-emerald-300 font-bold">{{ valores.disputa|brl }}</span></p>
         <div id="cards-disputa" class="cards-container flex-1 space-y-3 min-h-[350px]">
           {% for deal in grouped_deals.disputa %}
             {% include "partials_deal_card.html" %}
@@ -175,6 +182,7 @@
             {{ counts.classificacao }}
           </span>
         </div>
+        <p id="resumo-classificacao" class="kanban-resumo -mt-1 mb-3 text-[11px] font-mono text-slate-400">{{ counts.classificacao }} {{ 'negócio' if counts.classificacao == 1 else 'negócios' }} · <span class="text-emerald-300 font-bold">{{ valores.classificacao|brl }}</span></p>
         <div id="cards-classificacao" class="cards-container flex-1 space-y-3 min-h-[350px]">
           {% for deal in grouped_deals.classificacao %}
             {% include "partials_deal_card.html" %}
@@ -198,6 +206,7 @@
             {{ counts.contrato }}
           </span>
         </div>
+        <p id="resumo-contrato" class="kanban-resumo -mt-1 mb-3 text-[11px] font-mono text-slate-400">{{ counts.contrato }} {{ 'negócio' if counts.contrato == 1 else 'negócios' }} · <span class="text-emerald-300 font-bold">{{ valores.contrato|brl }}</span></p>
         <div id="cards-contrato" class="cards-container flex-1 space-y-3 min-h-[350px]">
           {% for deal in grouped_deals.contrato %}
             {% include "partials_deal_card.html" %}
@@ -331,8 +340,14 @@
     }
   }
 
+  function valorBRL(v) {
+    return (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  }
+
+  // Contagem e valor acumulado por etapa + valor total do pipeline (recalculados a cada movimentação)
   function updateColumnCounts() {
     let total = 0;
+    let valorPipeline = 0;
     STAGES.forEach(st => {
       const colContainer = document.getElementById(`cards-${st}`);
       const cards = colContainer ? colContainer.querySelectorAll('.kanban-card') : [];
@@ -341,6 +356,12 @@
         countEl.textContent = cards.length;
       }
       total += cards.length;
+      const valorEtapa = Array.from(cards).reduce((soma, c) => soma + (parseFloat(c.dataset.valor) || 0), 0);
+      valorPipeline += valorEtapa;
+      const resumoEl = document.getElementById(`resumo-${st}`);
+      if (resumoEl) {
+        resumoEl.innerHTML = `${cards.length} ${cards.length === 1 ? 'negócio' : 'negócios'} · <span class="text-emerald-300 font-bold">${valorBRL(valorEtapa)}</span>`;
+      }
 
       // Se ficou vazio, adicionar placeholder
       if (cards.length === 0 && colContainer && !colContainer.querySelector('.empty-state')) {
@@ -355,6 +376,8 @@
 
     const totalEl = document.getElementById('kanban-total-deals');
     if (totalEl) totalEl.textContent = total;
+    const valorEl = document.getElementById('kanban-total-valor');
+    if (valorEl) valorEl.textContent = valorBRL(valorPipeline);
   }
 
   // Excluir Deal

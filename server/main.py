@@ -251,6 +251,16 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
 templates_dir = os.path.join(os.path.dirname(__file__), "templates")
 templates = Jinja2Templates(directory=templates_dir)
 # Listas compartilhadas por todos os filtros (busca, home e alertas)
+def formatar_brl(valor: Any) -> str:
+    """R$ 45.200,00 (padrão brasileiro); vazio para valor ausente."""
+    try:
+        numero = float(valor)
+    except (TypeError, ValueError):
+        return ""
+    return "R$ " + f"{numero:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+templates.env.filters["brl"] = formatar_brl
 templates.env.globals["UFS_BRASIL"] = UFS_BRASIL
 templates.env.globals["NATUREZAS_FILTRO"] = NATUREZAS_FILTRO
 templates.env.globals["ESFERAS_FILTRO"] = ESFERAS_FILTRO
@@ -762,6 +772,8 @@ def page_negocios(
 
     counts = {stage: len(items) for stage, items in grouped.items()}
     total_deals = len(deals)
+    valores = {stage: round(sum(d["valor_negocio"] or 0 for d in items), 2) for stage, items in grouped.items()}
+    valor_pipeline = round(sum(valores.values()), 2)
 
     return templates.TemplateResponse(
         request,
@@ -772,6 +784,8 @@ def page_negocios(
             "stage_labels": DEAL_STAGE_LABELS,
             "grouped_deals": grouped,
             "counts": counts,
+            "valores": valores,
+            "valor_pipeline": valor_pipeline,
             "total_deals": total_deals,
             "user": user,
             "requires_login": user is None
@@ -2062,6 +2076,21 @@ def _deals_do_usuario(db: Session, user: Optional[User]):
     return db.query(Deal).filter(Deal.user_id == user.id)
 
 
+def valor_efetivo_do_negocio(deal: Deal, tender: Optional[Tender]) -> Optional[float]:
+    """
+    Valor gravado do negócio (soma dos itens ou valor do edital). Negócios anteriores a esse campo:
+    soma dos itens selecionados com valor; sem seleção, o valor estimado do edital.
+    """
+    if deal.valor_negocio is not None:
+        return deal.valor_negocio
+    itens = deal.selected_items if isinstance(deal.selected_items, list) else None
+    if itens:
+        valores = [float(i["estimated_total_value"]) for i in itens
+                   if isinstance(i, dict) and isinstance(i.get("estimated_total_value"), (int, float))]
+        return round(sum(valores), 2) if valores else None
+    return tender.estimated_total_value if tender else None
+
+
 def serialize_deal(deal: Deal, tender: Optional[Tender] = None) -> Dict[str, Any]:
     t = tender or deal.tender
     tender_data = None
@@ -2097,7 +2126,7 @@ def serialize_deal(deal: Deal, tender: Optional[Tender] = None) -> Dict[str, Any
         "notes": deal.notes or "",
         "selected_items": selected_items,
         "selected_items_count": len(selected_items) if selected_items else 0,
-        "valor_negocio": deal.valor_negocio,
+        "valor_negocio": valor_efetivo_do_negocio(deal, t),
         "modo": deal.modo or ("itens" if selected_items else "global"),
         "created_at": deal.created_at.isoformat() if deal.created_at else None,
         "updated_at": deal.updated_at.isoformat() if deal.updated_at else None,
@@ -2259,7 +2288,9 @@ def api_get_deals(
         "grouped": grouped,
         "deals": deals_list,
         "total": len(deals),
-        "counts": {s: len(grouped[s]) for s in DEAL_STAGES}
+        "counts": {s: len(grouped[s]) for s in DEAL_STAGES},
+        "valores": {s: round(sum(d["valor_negocio"] or 0 for d in grouped[s]), 2) for s in DEAL_STAGES},
+        "valor_pipeline": round(sum(d["valor_negocio"] or 0 for d in deals_list), 2),
     }
 
 @app.patch("/api/deals/{deal_id}/stage")
