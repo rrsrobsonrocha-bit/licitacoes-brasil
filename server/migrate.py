@@ -36,7 +36,7 @@ COLUNAS_SAVED_SEARCHES: List[Tuple[str, str, str]] = [
 COLUNAS_TENDERS: List[Tuple[str, str, str]] = [
     ("tenders", "source_system", "VARCHAR(50) DEFAULT 'pncp' NOT NULL"),
     ("tenders", "uasg_code", "VARCHAR(50)"),
-    ("tenders", "sicaf_ready", "BOOLEAN DEFAULT 0 NOT NULL"),
+    ("tenders", "sicaf_ready", "BOOLEAN DEFAULT FALSE NOT NULL"),
     ("tenders", "link_comprasnet", "VARCHAR(1000)"),
     ("tenders", "link_pncp", "VARCHAR(1000)"),
     ("tenders", "url_disputa", "VARCHAR(1000)"),
@@ -209,12 +209,12 @@ def _backfill_identificadores() -> None:
     with engine.begin() as conn:
         conn.execute(text("UPDATE tenders SET link_pncp = source_url WHERE link_pncp IS NULL"))
         conn.execute(text(
-            "UPDATE tenders SET source_system = 'compras_gov', sicaf_ready = 1, uasg_code = '250005', "
+            "UPDATE tenders SET source_system = 'compras_gov', sicaf_ready = TRUE, uasg_code = '250005', "
             "link_comprasnet = 'https://cnetmobile.estaleiro.serpro.gov.br/comprasnet-web/public/compras/acompanhamento-compra?compra=250005' "
             "WHERE administrative_sphere = 'FEDERAL' AND (source_system IS NULL OR source_system = 'pncp')"
         ))
         conn.execute(text(
-            "UPDATE tenders SET source_system = 'pncp', sicaf_ready = 0 "
+            "UPDATE tenders SET source_system = 'pncp', sicaf_ready = FALSE "
             "WHERE administrative_sphere != 'FEDERAL' AND source_system IS NULL"
         ))
 

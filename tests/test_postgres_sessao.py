@@ -149,3 +149,24 @@ def test_deals_tender_id_e_varchar_como_tenders_id():
     from server.models import Deal, Tender
 
     assert str(Deal.__table__.c.tender_id.type) == str(Tender.__table__.c.id.type) == "VARCHAR(36)"
+
+
+def test_sql_bruto_usa_literais_booleanos_do_postgresql():
+    """PostgreSQL recusa "coluna_booleana = 1" (DatatypeMismatch); o SQL bruto usa TRUE/FALSE."""
+    import re
+    from pathlib import Path
+
+    from sqlalchemy import Boolean
+
+    import server.models  # noqa: F401
+    from server.database import Base
+
+    booleanas = {c.name for t in Base.metadata.tables.values() for c in t.columns if isinstance(c.type, Boolean)}
+    padrao = re.compile(r"\b(" + "|".join(sorted(booleanas)) + r")\s*(=|!=|<>|IS)\s*[01]\b|BOOLEAN\s+DEFAULT\s+[01]\b",
+                        re.IGNORECASE)
+    raiz = Path(__file__).resolve().parent.parent / "server"
+    ocorrencias = [f"{arq.relative_to(raiz)}:{n}: {linha.strip()}"
+                   for arq in raiz.rglob("*.py")
+                   for n, linha in enumerate(arq.read_text(encoding="utf-8").splitlines(), 1)
+                   if padrao.search(linha)]
+    assert ocorrencias == []
