@@ -188,12 +188,15 @@ def test_conta_nova_recebe_7_dias_de_degustacao(monkeypatch):
 
 # ---------------- Painel ----------------
 def test_secao_de_gestao_aparece_somente_para_admin(cliente, admin):
-    html_admin = client.get("/dashboard", cookies=admin.cookies).text
+    html_admin = client.get("/gestao", cookies=admin.cookies).text
     assert 'id="admin-assinaturas"' in html_admin and "Gestão de Clientes &amp; Assinaturas" in html_admin
     for rotulo in ("Nome", "E-mail", "Plano atual", "Status", "Dias restantes", "Suspender", "Reativar", "+3 Dias"):
         assert rotulo in html_admin
-    assert 'id="admin-assinaturas"' not in client.get("/dashboard", cookies=cliente.cookies).text
-    assert 'id="admin-assinaturas"' not in client.get("/dashboard").text
+    # O painel (dashboard) não traz mais a gestão de clientes, nem para o ADMIN
+    for cookies in (admin.cookies, cliente.cookies, None):
+        html = client.get("/dashboard", cookies=cookies).text
+        assert 'id="admin-assinaturas"' not in html and "carregarClientes" not in html
+    assert client.get("/gestao", cookies=cliente.cookies, follow_redirects=False).status_code == 303
 
 
 # ---------------- Webhook Hotmart (modo de espera) ----------------

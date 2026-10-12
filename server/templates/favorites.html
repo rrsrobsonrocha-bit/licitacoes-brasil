@@ -3,7 +3,9 @@
 {% block title %}Meus Editais Favoritos - Licitações Brasil{% endblock %}
 
 {% block content %}
-<div class="bg-slate-900 text-white py-8 border-b border-slate-800">
+{% from "partials_cabecalho_mobile.html" import linha_voltar, cabecalho_mobile %}
+{{ cabecalho_mobile('Favoritos', '…', 'favoritos-total', 'amber') }}
+<div class="hidden lg:block bg-slate-900 text-white py-8 border-b border-slate-800">
   <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
       <div>
@@ -19,7 +21,7 @@
   </div>
 </div>
 
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 lg:py-8">
   <div id="favorites-container" class="space-y-4">
     <div class="text-center py-12 text-slate-400 text-xs">Carregando seus editais favoritados...</div>
   </div>
@@ -41,6 +43,8 @@
       });
       const data = await resp.json();
       const container = document.getElementById('favorites-container');
+      const totalFav = document.getElementById('favoritos-total');
+      if (totalFav) totalFav.textContent = Array.isArray(data) ? data.length : 0;
 
       if (data.length === 0) {
         container.innerHTML = `

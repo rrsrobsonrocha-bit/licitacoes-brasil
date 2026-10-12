@@ -188,7 +188,7 @@ def test_plano_trial_pelo_admin(admin, cliente):
 
 
 def test_painel_admin_oferece_todos_os_prazos(admin):
-    html = _get("/dashboard", admin).text
+    html = _get("/gestao", admin).text
     for rotulo in ("+3 Dias", "+7 Dias", "+15 Dias", "+30 Dias (1 Mês)", "+1 Ano", "Acesso Vitalício", "Data personalizada"):
         assert rotulo in html
 

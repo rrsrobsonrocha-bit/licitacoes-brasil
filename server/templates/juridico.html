@@ -3,11 +3,13 @@
 {% block title %}Peças Jurídicas Operacionais - Licitações Brasil{% endblock %}
 
 {% block content %}
+{% from "partials_cabecalho_mobile.html" import linha_voltar, cabecalho_mobile %}
 <div class="bg-[#0b0f19] min-h-screen text-slate-100 font-sans pb-16">
   <!-- Header Jurídico Licitações Brasil -->
-  <div class="border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-md sticky top-16 z-30 py-5">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+  <div class="border-b border-slate-800 lg:border-slate-800/80 bg-slate-900/90 lg:bg-slate-900/60 backdrop-blur-md sticky top-16 z-20 lg:z-30 py-2.5 lg:py-5">
+    <div class="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+      {{ linha_voltar('Peças Jurídicas', counts.total if counts else templates|length, 'templates-total-count-mobile', 'amber') }}
+      <div class="hidden lg:flex flex-row items-center justify-between gap-4">
         <div>
           <div class="flex items-center gap-3">
             <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-600 to-amber-500 flex items-center justify-center text-white shadow-lg shadow-amber-500/20">
@@ -37,15 +39,15 @@
       </div>
 
       <!-- Barra de Busca, Filtros por Categoria e Chave Seletora "Somente Nova Lei" -->
-      <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mt-5 pt-4 border-t border-slate-800/60">
+      <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-2 lg:gap-4 mt-2 pt-2 lg:mt-5 lg:pt-4 border-t border-slate-800/60">
         
         <!-- Categorias Pills -->
-        <div class="flex items-center gap-2 flex-wrap text-xs">
-          <span class="text-slate-400 font-semibold uppercase text-[11px] mr-1">Categoria:</span>
+        <div class="flex items-center overflow-x-auto space-x-2 py-1 scrollbar-none text-xs lg:flex-wrap lg:overflow-visible lg:space-x-0 lg:gap-2 lg:py-0">
+          <span class="hidden lg:inline text-slate-400 font-semibold uppercase text-[11px] mr-1">Categoria:</span>
           
           <button 
             onclick="setCategoryFilter('')" 
-            class="filter-cat-btn px-3 py-1.5 rounded-xl font-semibold transition {% if not tipo %}bg-amber-500/20 text-amber-400 border border-amber-500/40{% else %}bg-slate-900/80 text-slate-400 hover:text-slate-200 border border-slate-800{% endif %}"
+            class="filter-cat-btn shrink-0 whitespace-nowrap px-3 py-1.5 rounded-xl font-semibold transition {% if not tipo %}bg-amber-500/20 text-amber-400 border border-amber-500/40{% else %}bg-slate-900/80 text-slate-400 hover:text-slate-200 border border-slate-800{% endif %}"
             data-cat=""
           >
             Todas
@@ -53,7 +55,7 @@
 
           <button 
             onclick="setCategoryFilter('impugnacao')" 
-            class="filter-cat-btn px-3 py-1.5 rounded-xl font-semibold transition {% if tipo == 'impugnacao' %}bg-rose-500/20 text-rose-400 border border-rose-500/40{% else %}bg-slate-900/80 text-slate-400 hover:text-slate-200 border border-slate-800{% endif %}"
+            class="filter-cat-btn shrink-0 whitespace-nowrap px-3 py-1.5 rounded-xl font-semibold transition {% if tipo == 'impugnacao' %}bg-rose-500/20 text-rose-400 border border-rose-500/40{% else %}bg-slate-900/80 text-slate-400 hover:text-slate-200 border border-slate-800{% endif %}"
             data-cat="impugnacao"
           >
             Impugnação
@@ -61,7 +63,7 @@
 
           <button 
             onclick="setCategoryFilter('esclarecimento')" 
-            class="filter-cat-btn px-3 py-1.5 rounded-xl font-semibold transition {% if tipo == 'esclarecimento' %}bg-sky-500/20 text-sky-400 border border-sky-500/40{% else %}bg-slate-900/80 text-slate-400 hover:text-slate-200 border border-slate-800{% endif %}"
+            class="filter-cat-btn shrink-0 whitespace-nowrap px-3 py-1.5 rounded-xl font-semibold transition {% if tipo == 'esclarecimento' %}bg-sky-500/20 text-sky-400 border border-sky-500/40{% else %}bg-slate-900/80 text-slate-400 hover:text-slate-200 border border-slate-800{% endif %}"
             data-cat="esclarecimento"
           >
             Esclarecimento
@@ -69,7 +71,7 @@
 
           <button 
             onclick="setCategoryFilter('recurso')" 
-            class="filter-cat-btn px-3 py-1.5 rounded-xl font-semibold transition {% if tipo == 'recurso' %}bg-amber-500/20 text-amber-400 border border-amber-500/40{% else %}bg-slate-900/80 text-slate-400 hover:text-slate-200 border border-slate-800{% endif %}"
+            class="filter-cat-btn shrink-0 whitespace-nowrap px-3 py-1.5 rounded-xl font-semibold transition {% if tipo == 'recurso' %}bg-amber-500/20 text-amber-400 border border-amber-500/40{% else %}bg-slate-900/80 text-slate-400 hover:text-slate-200 border border-slate-800{% endif %}"
             data-cat="recurso"
           >
             Recurso
@@ -77,7 +79,7 @@
 
           <button 
             onclick="setCategoryFilter('contrarbenzoes')" 
-            class="filter-cat-btn px-3 py-1.5 rounded-xl font-semibold transition {% if tipo == 'contrarbenzoes' %}bg-emerald-500/20 text-emerald-400 border border-emerald-500/40{% else %}bg-slate-900/80 text-slate-400 hover:text-slate-200 border border-slate-800{% endif %}"
+            class="filter-cat-btn shrink-0 whitespace-nowrap px-3 py-1.5 rounded-xl font-semibold transition {% if tipo == 'contrarbenzoes' %}bg-emerald-500/20 text-emerald-400 border border-emerald-500/40{% else %}bg-slate-900/80 text-slate-400 hover:text-slate-200 border border-slate-800{% endif %}"
             data-cat="contrarbenzoes"
           >
             Contrarrazões
@@ -566,9 +568,9 @@
     document.querySelectorAll('.filter-cat-btn').forEach(btn => {
       const btnCat = btn.getAttribute('data-cat');
       if (btnCat === cat) {
-        btn.className = 'filter-cat-btn px-3 py-1.5 rounded-xl font-semibold transition bg-amber-500/20 text-amber-400 border border-amber-500/40';
+        btn.className = 'filter-cat-btn shrink-0 whitespace-nowrap px-3 py-1.5 rounded-xl font-semibold transition bg-amber-500/20 text-amber-400 border border-amber-500/40';
       } else {
-        btn.className = 'filter-cat-btn px-3 py-1.5 rounded-xl font-semibold transition bg-slate-900/80 text-slate-400 hover:text-slate-200 border border-slate-800';
+        btn.className = 'filter-cat-btn shrink-0 whitespace-nowrap px-3 py-1.5 rounded-xl font-semibold transition bg-slate-900/80 text-slate-400 hover:text-slate-200 border border-slate-800';
       }
     });
     filterTemplates();

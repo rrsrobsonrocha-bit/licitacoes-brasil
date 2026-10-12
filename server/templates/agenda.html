@@ -3,11 +3,13 @@
 {% block title %}Agenda de Prazos & Disputas - Licitações Brasil{% endblock %}
 
 {% block content %}
+{% from "partials_cabecalho_mobile.html" import linha_voltar, cabecalho_mobile %}
 <div class="bg-[#0b0f19] min-h-screen text-slate-100 font-sans pb-16">
   <!-- Header da Agenda -->
-  <div class="border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-md sticky top-16 z-30 py-5">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+  <div class="border-b border-slate-800 lg:border-slate-800/80 bg-slate-900/90 lg:bg-slate-900/60 backdrop-blur-md sticky top-16 z-20 lg:z-30 py-2.5 lg:py-5">
+    <div class="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+      {{ linha_voltar('Agenda', total_scheduled, 'agenda-total-count-mobile', 'rose') }}
+      <div class="hidden lg:flex flex-row items-center justify-between gap-4">
         <div>
           <div class="flex items-center gap-3">
             <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-rose-600 to-amber-500 flex items-center justify-center text-white shadow-lg shadow-rose-500/20">

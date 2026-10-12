@@ -3,12 +3,14 @@
 {% block title %}Cofre de Documentos - Licitações Brasil{% endblock %}
 
 {% block content %}
+{% from "partials_cabecalho_mobile.html" import linha_voltar, cabecalho_mobile %}
 <div class="bg-[#0b0f19] min-h-screen text-slate-100 font-sans pb-16">
   <!-- Cabeçalho do Cofre -->
-  <div class="border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-md sticky top-16 z-30 py-5">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div class="flex items-center gap-3">
+  <div class="border-b border-slate-800 lg:border-slate-800/80 bg-slate-900/90 lg:bg-slate-900/60 backdrop-blur-md sticky top-16 z-20 lg:z-30 py-2.5 lg:py-5">
+    <div class="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+      {{ linha_voltar('Cofre de Documentos', resumo.total, 'resumo-total-mobile') }}
+      <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-1 lg:gap-4 mt-1.5 lg:mt-0">
+        <div class="hidden lg:flex items-center gap-3">
           <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-emerald-500 flex items-center justify-center text-white shadow-lg shadow-emerald-500/20">
             <i class="fa-solid fa-vault text-lg"></i>
           </div>
@@ -23,27 +25,27 @@
         </div>
 
         <!-- Resumo de validade -->
-        <div class="flex flex-wrap items-center gap-2 text-xs" aria-live="polite">
-          <button type="button" data-status-filter="" class="status-pill bg-slate-800/80 border border-slate-700/70 rounded-xl px-3 py-1.5 flex items-center gap-2 cursor-pointer">
+        <div class="flex items-center overflow-x-auto space-x-2 py-1 scrollbar-none text-xs lg:flex-wrap lg:overflow-visible lg:space-x-0 lg:gap-2 lg:py-0" aria-live="polite">
+          <button type="button" data-status-filter="" class="status-pill shrink-0 whitespace-nowrap bg-slate-800/80 border border-slate-700/70 rounded-xl px-3 py-1.5 flex items-center gap-2 cursor-pointer">
             <span class="text-slate-400">Total</span>
             <span id="resumo-total" class="font-bold text-white font-mono">{{ resumo.total }}</span>
           </button>
-          <button type="button" data-status-filter="VALIDO" class="status-pill bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-3 py-1.5 flex items-center gap-2 cursor-pointer">
+          <button type="button" data-status-filter="VALIDO" class="status-pill shrink-0 whitespace-nowrap bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-3 py-1.5 flex items-center gap-2 cursor-pointer">
             <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
             <span class="text-emerald-300">Válidos</span>
             <span id="resumo-validos" class="font-bold text-emerald-300 font-mono">{{ resumo.validos + resumo.sem_validade }}</span>
           </button>
-          <button type="button" data-status-filter="A_VENCER" class="status-pill bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-1.5 flex items-center gap-2 cursor-pointer">
+          <button type="button" data-status-filter="A_VENCER" class="status-pill shrink-0 whitespace-nowrap bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-1.5 flex items-center gap-2 cursor-pointer">
             <span class="w-2 h-2 rounded-full bg-amber-400"></span>
             <span class="text-amber-300">A vencer (≤{{ dias_alerta }}d)</span>
             <span id="resumo-a-vencer" class="font-bold text-amber-300 font-mono">{{ resumo.a_vencer }}</span>
           </button>
-          <button type="button" data-status-filter="VENCIDO" class="status-pill bg-rose-500/10 border border-rose-500/30 rounded-xl px-3 py-1.5 flex items-center gap-2 cursor-pointer">
+          <button type="button" data-status-filter="VENCIDO" class="status-pill shrink-0 whitespace-nowrap bg-rose-500/10 border border-rose-500/30 rounded-xl px-3 py-1.5 flex items-center gap-2 cursor-pointer">
             <span class="w-2 h-2 rounded-full bg-rose-400"></span>
             <span class="text-rose-300">Vencidos</span>
             <span id="resumo-vencidos" class="font-bold text-rose-300 font-mono">{{ resumo.vencidos }}</span>
           </button>
-          <button type="button" data-status-filter="PENDENTE" class="status-pill bg-sky-500/10 border border-sky-500/30 rounded-xl px-3 py-1.5 flex items-center gap-2 cursor-pointer">
+          <button type="button" data-status-filter="PENDENTE" class="status-pill shrink-0 whitespace-nowrap bg-sky-500/10 border border-sky-500/30 rounded-xl px-3 py-1.5 flex items-center gap-2 cursor-pointer">
             <span class="w-2 h-2 rounded-full bg-sky-400"></span>
             <span class="text-sky-300">Pendentes</span>
             <span id="resumo-pendentes" class="font-bold text-sky-300 font-mono">{{ resumo.pendentes }}</span>
@@ -396,6 +398,8 @@
     tbody.innerHTML = linhas.join('');
     document.getElementById('documentos-vazio').classList.toggle('hidden', linhas.length > 0);
     document.getElementById('resumo-total').textContent = resumo.total;
+    const totalMobile = document.getElementById('resumo-total-mobile');
+    if (totalMobile) totalMobile.textContent = resumo.total;
     document.getElementById('resumo-validos').textContent = resumo.validos;
     document.getElementById('resumo-a-vencer').textContent = resumo.a_vencer;
     document.getElementById('resumo-vencidos').textContent = resumo.vencidos;

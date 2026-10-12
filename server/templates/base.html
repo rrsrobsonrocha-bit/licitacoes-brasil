@@ -48,6 +48,9 @@
     .nav-dropdown > summary { list-style: none; }
     .nav-dropdown > summary::-webkit-details-marker { display: none; }
     .safe-area-bottom { padding-bottom: max(0.5rem, env(safe-area-inset-bottom)); }
+    /* Barras horizontais de filtros/pílulas no celular: rolam sem barra visível */
+    .scrollbar-none { scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+    .scrollbar-none::-webkit-scrollbar { display: none; }
   </style>
 </head>
 <body class="flex flex-col min-h-full text-slate-800 antialiased font-sans" data-requires-login="{{ 'true' if requires_login else 'false' }}">
@@ -405,6 +408,11 @@
 
   <!-- Global Application Scripts -->
   <script>
+    // Seta de voltar do cabeçalho mobile: volta no histórico ou cai no painel
+    function voltarPagina() {
+      window.history.length > 1 ? window.history.back() : window.location.href = "/dashboard";
+    }
+
     // Controle Vanilla JS do Drawer Lateral Mobile
     function openMobileMenu() {
       const drawer = document.getElementById('mobile-menu-drawer');

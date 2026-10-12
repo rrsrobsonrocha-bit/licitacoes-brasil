@@ -744,7 +744,7 @@ def page_admin(request: Request, db: Session = Depends(get_db)):
         return _redirecionar_login(request, "login")
     if user.role != "ADMIN":
         return RedirectResponse("/dashboard", status_code=303)
-    return templates.TemplateResponse(request, "admin.html", {"user": user})
+    return templates.TemplateResponse(request, "gestao.html", {"user": user})
 
 AVISOS_LOGIN = {
     "login": MENSAGEM_VITRINE,

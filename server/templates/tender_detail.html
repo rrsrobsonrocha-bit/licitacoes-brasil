@@ -3,12 +3,14 @@
 {% block title %}{{ detail.tender.title }} - Licitações Brasil{% endblock %}
 
 {% block content %}
+{% from "partials_cabecalho_mobile.html" import linha_voltar, cabecalho_mobile %}
+{{ cabecalho_mobile('Detalhes do Edital', cor='sky') }}
 <!-- Top Breadcrumb & Actions Bar -->
-<div class="bg-slate-900 text-white py-6 border-b border-slate-800">
+<div class="bg-slate-900 text-white py-4 lg:py-6 border-b border-slate-800">
   <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
     <div class="flex flex-wrap items-center justify-between gap-4">
       <div>
-        <nav class="flex items-center space-x-2 text-xs text-slate-400 mb-2">
+        <nav class="hidden lg:flex items-center space-x-2 text-xs text-slate-400 mb-2">
           <a href="/" class="hover:text-white">Início</a>
           <span>/</span>
           <a href="/search" class="hover:text-white">Pesquisa</a>

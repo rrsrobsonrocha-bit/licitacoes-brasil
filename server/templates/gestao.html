@@ -1,0 +1,458 @@
+{% extends "base.html" %}
+
+{% block title %}Painel de Administração - Licitações Brasil{% endblock %}
+
+{% block content %}
+{% from "partials_cabecalho_mobile.html" import linha_voltar, cabecalho_mobile %}
+{{ cabecalho_mobile('Gestão', cor='violet') }}
+<div class="bg-slate-900 text-white py-3 lg:py-8 border-b border-slate-800">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div class="hidden lg:block">
+        <h1 class="text-2xl font-bold flex items-center gap-2">
+          <i class="fa-solid fa-shield-halved text-emerald-400"></i> Painel de Controle & Gestão Administrativa
+        </h1>
+        <p class="text-xs text-slate-400 mt-1">Gerenciamento de fontes oficiais, sincronização de dados, auditoria e custos de IA.</p>
+      </div>
+      <div>
+        <button onclick="triggerManualSync()" id="sync-btn" class="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold px-4 py-2 rounded-xl text-xs transition flex items-center gap-2 shadow-sm">
+          <i class="fa-solid fa-arrows-rotate"></i> Disparar Sincronização PNCP
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+  {% if user and user.role == 'ADMIN' %}
+    <!-- GESTÃO DE CLIENTES & ASSINATURAS (somente administradores) -->
+    <section id="admin-assinaturas" data-admin-id="{{ user.id }}" class="bg-slate-900/80 border border-violet-800/50 rounded-2xl p-6 shadow-lg">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+        <div>
+          <h2 class="text-sm font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2">
+            <i class="fa-solid fa-user-shield text-violet-400"></i> Gestão de Clientes &amp; Assinaturas
+          </h2>
+          <p class="text-xs text-slate-400 mt-0.5">Planos, situação e prazo de acesso de cada conta. Visível apenas para administradores.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <span id="admin-assinaturas-msg" class="text-[11px] text-slate-400" role="status" aria-live="polite"></span>
+          <button type="button" onclick="carregarClientes()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-medium px-3 py-1.5 rounded-lg text-xs transition flex items-center gap-1.5">
+            <i class="fa-solid fa-arrows-rotate text-violet-400"></i> Atualizar
+          </button>
+        </div>
+      </div>
+      <div class="overflow-x-auto -mx-2">
+        <table class="min-w-full text-xs">
+          <thead>
+            <tr class="text-left text-[10px] uppercase tracking-wider text-slate-400 border-b border-slate-800">
+              <th class="px-2 py-2 font-semibold">Nome</th>
+              <th class="px-2 py-2 font-semibold">E-mail</th>
+              <th class="px-2 py-2 font-semibold">Plano atual</th>
+              <th class="px-2 py-2 font-semibold">Status</th>
+              <th class="px-2 py-2 font-semibold">Dias restantes</th>
+              <th class="px-2 py-2 font-semibold text-right">Ações</th>
+            </tr>
+          </thead>
+          <tbody id="admin-assinaturas-linhas">
+            <tr><td colspan="6" class="px-2 py-6 text-center text-slate-500">Carregando clientes…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  {% endif %}
+
+  <!-- System Metrics -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+      <span class="text-xs text-slate-500 font-semibold uppercase block">Licitações Catalogadas</span>
+      <span class="text-2xl font-black text-slate-900 mt-1 block" id="admin-tenders-count">--</span>
+    </div>
+    <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+      <span class="text-xs text-slate-500 font-semibold uppercase block">Usuários Ativos</span>
+      <span class="text-2xl font-black text-sky-600 mt-1 block" id="admin-users-count">--</span>
+    </div>
+    <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+      <span class="text-xs text-slate-500 font-semibold uppercase block">Análises de IA Geradas</span>
+      <span class="text-2xl font-black text-emerald-600 mt-1 block" id="admin-ai-count">--</span>
+    </div>
+    <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+      <span class="text-xs text-slate-500 font-semibold uppercase block">Status do Sistema</span>
+      <span class="text-sm font-bold text-emerald-600 mt-2 flex items-center gap-1.5 block">
+        <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span> Operacional
+      </span>
+    </div>
+  </div>
+
+  <!-- Source Management Table -->
+  <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+    <div class="flex justify-between items-center mb-4">
+      <div>
+        <h2 class="text-base font-bold text-slate-900">Catálogo de Conectores e Portais Públicos</h2>
+        <p class="text-xs text-slate-500">Monitoramento de domínios oficiais, tipo de integração e autorizações vigentes</p>
+      </div>
+    </div>
+
+    <div class="overflow-x-auto">
+      <table class="w-full text-left text-xs border-collapse">
+        <thead>
+          <tr class="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+            <th class="p-3">Fonte / Portal</th>
+            <th class="p-3">Domínio Oficial</th>
+            <th class="p-3">Tipo de Integração</th>
+            <th class="p-3">Status</th>
+            <th class="p-3">Última Sincronização</th>
+            <th class="p-3 text-right">Ações</th>
+          </tr>
+        </thead>
+        <tbody id="sources-table-body" class="divide-y divide-slate-100 text-slate-700">
+          <tr><td colspan="6" class="p-4 text-center text-slate-400">Carregando fontes...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- IA Consumption & Log Auditor -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+      <h2 class="text-base font-bold text-slate-900 mb-2">Monitoramento de IA (Gemini 3.8 Flash)</h2>
+      <p class="text-xs text-slate-500 mb-4">Rastreamento de chamadas de LLM, custo estimado e limites de segurança</p>
+      <div class="space-y-3 text-xs">
+        <div class="p-3 bg-slate-50 rounded-xl flex justify-between items-center">
+          <span class="text-slate-600">Provedor Ativo:</span>
+          <span class="font-bold text-slate-900">Google Gemini (Vertex / AI Studio Proxy)</span>
+        </div>
+        <div class="p-3 bg-slate-50 rounded-xl flex justify-between items-center">
+          <span class="text-slate-600">Modelo Padrão:</span>
+          <span class="font-mono text-slate-900">models/gemini-3.8-flash</span>
+        </div>
+        <div class="p-3 bg-slate-50 rounded-xl flex justify-between items-center">
+          <span class="text-slate-600">Proteção contra Prompt Injection:</span>
+          <span class="font-bold text-emerald-600">Ativa (Delimitação & Sanitização)</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+      <h2 class="text-base font-bold text-slate-900 mb-2">Segurança e LGPD (Lei 13.709/2018)</h2>
+      <p class="text-xs text-slate-500 mb-4">Diretrizes de minimização e anonimização de dados pessoais</p>
+      <div class="space-y-2 text-xs text-slate-600">
+        <div class="p-2.5 bg-emerald-50 text-emerald-800 rounded-xl border border-emerald-100 flex items-center gap-2">
+          <i class="fa-solid fa-check text-emerald-600"></i> Senhas armazenadas exclusivamente em hash Bcrypt saltado.
+        </div>
+        <div class="p-2.5 bg-emerald-50 text-emerald-800 rounded-xl border border-emerald-100 flex items-center gap-2">
+          <i class="fa-solid fa-check text-emerald-600"></i> Direito de exclusão e portabilidade implementado na rota `/api/auth/account`.
+        </div>
+        <div class="p-2.5 bg-emerald-50 text-emerald-800 rounded-xl border border-emerald-100 flex items-center gap-2">
+          <i class="fa-solid fa-check text-emerald-600"></i> Logs sanitizados sem retenção de dados sensíveis ou segredos.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  async function loadAdminData() {
+    const token = AppSession.getToken();
+    if (!token) {
+      window.location.href = '/login';
+      return;
+    }
+
+    try {
+      const resp = await fetch('/api/admin/metrics', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (resp.status === 403) {
+        showToast('Acesso restrito a administradores do sistema.', 'error');
+        setTimeout(() => window.location.href = '/dashboard', 1500);
+        return;
+      }
+      if (resp.ok) {
+        const data = await resp.json();
+        document.getElementById('admin-tenders-count').textContent = data.tenders_count;
+        document.getElementById('admin-users-count').textContent = data.users_count;
+        document.getElementById('admin-ai-count').textContent = data.ai_analyses_count;
+
+        // Render sources
+        const tbody = document.getElementById('sources-table-body');
+        tbody.innerHTML = data.sources.map(s => `
+          <tr class="hover:bg-slate-50 transition">
+            <td class="p-3 font-bold text-slate-900">${s.name}</td>
+            <td class="p-3 font-mono text-[11px] text-slate-500">${s.official_domain}</td>
+            <td class="p-3"><span class="px-2 py-0.5 rounded bg-slate-100 text-[10px] font-semibold">${s.integration_type}</span></td>
+            <td class="p-3">
+              <span class="px-2 py-0.5 rounded text-[10px] font-bold ${s.active ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}">
+                ${s.active ? 'ATIVO' : 'DESATIVADO'}
+              </span>
+            </td>
+            <td class="p-3 text-slate-500 text-[11px]">${s.last_sync_at ? formatDate(s.last_sync_at) : 'Pendente'}</td>
+            <td class="p-3 text-right">
+              <button onclick="toggleSource('${s.id}', ${!s.active})" class="text-xs text-sky-600 hover:underline font-semibold">
+                ${s.active ? 'Desativar' : 'Ativar'}
+              </button>
+            </td>
+          </tr>
+        `).join('');
+      }
+    } catch {
+      showToast('Falha ao carregar métricas administrativas.', 'error');
+    }
+  }
+
+  async function triggerManualSync() {
+    const token = AppSession.getToken();
+    const btn = document.getElementById('sync-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-arrows-rotate animate-spin"></i> Sincronizando...';
+
+    try {
+      const resp = await fetch('/api/admin/sync-sources', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await resp.json();
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fa-solid fa-arrows-rotate"></i> Disparar Sincronização PNCP';
+
+      if (resp.ok) {
+        showToast(`Sincronização concluída! ${data.synced_count} certames processados.`, 'success');
+        loadAdminData();
+      } else {
+        showToast(data.detail || 'Erro na sincronização.', 'error');
+      }
+    } catch {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fa-solid fa-arrows-rotate"></i> Disparar Sincronização PNCP';
+      showToast('Erro de rede ao disparar sincronização.', 'error');
+    }
+  }
+
+  async function toggleSource(sourceId, active) {
+    const token = AppSession.getToken();
+    try {
+      const resp = await fetch(`/api/admin/sources/${sourceId}/toggle?active=${active}`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (resp.ok) {
+        showToast('Status da fonte atualizado.', 'success');
+        loadAdminData();
+      }
+    } catch {
+      showToast('Erro ao atualizar fonte.', 'error');
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', loadAdminData);
+</script>
+<script>
+  // Gestão de clientes & assinaturas (exclusiva de ADMIN, somente em /gestao)
+  (function () {
+    const secao = document.getElementById('admin-assinaturas');
+    if (!secao) return;
+    const adminId = secao.dataset.adminId;
+    const corpo = document.getElementById('admin-assinaturas-linhas');
+    const msg = document.getElementById('admin-assinaturas-msg');
+
+    const ROTULO_STATUS = {
+      ACTIVE: ['Ativo', 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'],
+      TRIAL: ['Teste', 'bg-sky-500/10 text-sky-300 border-sky-500/30'],
+      SUSPENDED: ['Suspenso', 'bg-rose-500/10 text-rose-300 border-rose-500/30'],
+      CANCELED: ['Cancelado', 'bg-slate-700/40 text-slate-300 border-slate-600'],
+    };
+    const ROTULO_PLANO = { TRIAL: 'Trial (degustação)', GRATUITO: 'Gratuito', MENSAL: 'Mensal', ANUAL: 'Anual' };
+    const DURACAO_PLANO = { TRIAL: 'dias de degustação', MENSAL: '30 dias de acesso', ANUAL: '365 dias de acesso' };
+    // Extensões de prazo oferecidas ao admin (dias somados ao prazo atual, ou a partir de hoje se vencido)
+    const EXTENSOES = [
+      ['3', '+3 Dias'], ['7', '+7 Dias'], ['15', '+15 Dias'], ['30', '+30 Dias (1 Mês)'], ['365', '+1 Ano'],
+      ['vitalicio', 'Acesso Vitalício'], ['data', 'Data personalizada…'],
+    ];
+
+    function cabecalhos(extra) {
+      const h = Object.assign({}, extra || {});
+      if (typeof AppSession !== 'undefined' && AppSession.getToken()) h['Authorization'] = `Bearer ${AppSession.getToken()}`;
+      return h;
+    }
+
+    function celula(texto, classes) {
+      const td = document.createElement('td');
+      td.className = 'px-2 py-2.5 align-middle ' + (classes || '');
+      if (texto !== undefined && texto !== null) td.textContent = texto;
+      return td;
+    }
+
+    function botao(rotulo, classes, habilitado, acao) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = rotulo;
+      b.disabled = !habilitado;
+      b.className = 'px-2 py-1 rounded-md border text-[11px] font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed ' + classes;
+      b.addEventListener('click', acao);
+      return b;
+    }
+
+    async function executar(url, opcoes, sucesso) {
+      msg.textContent = 'Salvando…';
+      try {
+        const resp = await fetch(url, Object.assign({ method: 'POST' }, opcoes, { headers: cabecalhos((opcoes || {}).headers) }));
+        const dados = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+          msg.textContent = dados.detail || 'Não foi possível concluir a ação.';
+          return;
+        }
+        msg.textContent = sucesso;
+        carregarClientes(true);
+      } catch (e) {
+        msg.textContent = 'Falha de conexão. Tente novamente.';
+      }
+    }
+
+    // Seletor de prazo: +3/+7/+15/+30 dias, +1 ano, acesso vitalício ou data personalizada
+    function seletorPrazo(u) {
+      const caixa = document.createElement('span');
+      caixa.className = 'inline-flex items-center gap-1 align-middle';
+      const sel = document.createElement('select');
+      sel.className = 'prazo-select bg-slate-900 border border-sky-500/40 text-sky-200 rounded-md text-[11px] px-1.5 py-1';
+      sel.setAttribute('aria-label', `Estender o acesso de ${u.name}`);
+      const titulo = document.createElement('option');
+      titulo.value = '';
+      titulo.textContent = 'Prazo…';
+      sel.appendChild(titulo);
+      const vitalicio = u.trial_days_left === null;
+      EXTENSOES.forEach(([valor, rotulo]) => {
+        const op = document.createElement('option');
+        op.value = valor;
+        op.textContent = rotulo;
+        // Acesso vitalício não tem prazo para somar dias: use a data personalizada
+        op.disabled = vitalicio && /^\d+$/.test(valor);
+        sel.appendChild(op);
+      });
+      const data = document.createElement('input');
+      data.type = 'date';
+      data.className = 'hidden bg-slate-900 border border-slate-700 text-slate-100 rounded-md text-[11px] px-1 py-0.5 [color-scheme:dark]';
+      data.min = new Date().toISOString().slice(0, 10);
+      data.setAttribute('aria-label', `Data final de acesso de ${u.name}`);
+      const id = encodeURIComponent(u.id);
+      const json = (corpo) => ({ body: JSON.stringify(corpo), headers: { 'Content-Type': 'application/json' } });
+      sel.addEventListener('change', () => {
+        const valor = sel.value;
+        data.classList.toggle('hidden', valor !== 'data');
+        if (valor === 'data') { data.focus(); return; }
+        if (!valor) return;
+        if (valor === 'vitalicio') {
+          if (confirm(`Dar acesso vitalício (sem data de expiração) a ${u.name}?`)) {
+            executar(`/api/admin/users/${id}/prazo`, json({ vitalicio: true }), `${u.name} com acesso vitalício.`);
+          }
+        } else {
+          const rotulo = EXTENSOES.find(([v]) => v === valor)[1];
+          executar(`/api/admin/users/${id}/estender?dias=${valor}`, {}, `${rotulo} para ${u.name}.`);
+        }
+        sel.value = '';
+      });
+      data.addEventListener('change', () => {
+        if (!data.value) return;
+        const legivel = data.value.split('-').reverse().join('/');
+        if (confirm(`Acesso de ${u.name} até ${legivel} (fim do dia)?`)) {
+          executar(`/api/admin/users/${id}/prazo`, json({ data: data.value }), `Acesso de ${u.name} até ${legivel}.`);
+        }
+      });
+      caixa.append(sel, data);
+      return caixa;
+    }
+
+    function linha(u) {
+      const tr = document.createElement('tr');
+      tr.className = 'border-b border-slate-800/70 hover:bg-slate-800/30';
+      tr.dataset.userId = u.id;
+
+      const nome = celula(u.name, 'text-slate-100 font-semibold');
+      if (u.role === 'ADMIN') {
+        const tag = document.createElement('span');
+        tag.className = 'ml-1.5 text-[9px] uppercase tracking-wide text-violet-300 border border-violet-500/40 rounded px-1 py-0.5';
+        tag.textContent = 'Admin';
+        nome.appendChild(tag);
+      }
+      tr.appendChild(nome);
+      tr.appendChild(celula(u.email, 'text-slate-300 font-mono'));
+
+      // Plano atual: troca manual direta (Gratuito / Mensal / Anual)
+      const tdPlano = celula(null);
+      const sel = document.createElement('select');
+      sel.className = 'plano-select bg-slate-900 border border-slate-700 text-slate-100 rounded-md text-xs px-1.5 py-1';
+      sel.setAttribute('aria-label', `Plano de ${u.name}`);
+      ['TRIAL', 'GRATUITO', 'MENSAL', 'ANUAL'].forEach((p) => {
+        const op = document.createElement('option');
+        op.value = p;
+        op.textContent = ROTULO_PLANO[p];
+        op.selected = u.plan_type === p;
+        sel.appendChild(op);
+      });
+      sel.addEventListener('change', () => {
+        const novo = sel.value;
+        const aviso = novo === 'GRATUITO'
+          ? `Mudar ${u.name} para o plano Gratuito (acesso sem data de expiração)?`
+          : `Mudar ${u.name} para o plano ${ROTULO_PLANO[novo]} (${DURACAO_PLANO[novo]})?`;
+        if (!confirm(aviso)) { sel.value = u.plan_type; return; }
+        executar(`/api/admin/users/${encodeURIComponent(u.id)}/plano`,
+          { body: JSON.stringify({ plan_type: novo }), headers: { 'Content-Type': 'application/json' } },
+          `Plano de ${u.name} alterado para ${ROTULO_PLANO[novo]}.`);
+      });
+      tdPlano.appendChild(sel);
+      tr.appendChild(tdPlano);
+
+      // Status da assinatura (e o motivo, quando o acesso está bloqueado)
+      // Ativo/Teste com o prazo vencido aparece como "Expirado" (o acesso já está bloqueado)
+      const expirado = Boolean(u.motivo_bloqueio) && (u.subscription_status === 'ACTIVE' || u.subscription_status === 'TRIAL');
+      const [rotulo, cor] = expirado
+        ? ['Expirado', 'bg-amber-500/10 text-amber-300 border-amber-500/30']
+        : (ROTULO_STATUS[u.subscription_status] || [u.subscription_status, 'bg-slate-700/40 text-slate-300 border-slate-600']);
+      const tdStatus = celula(null);
+      const badge = document.createElement('span');
+      badge.className = 'inline-block px-2 py-0.5 rounded-full border text-[10px] font-bold ' + cor;
+      badge.textContent = rotulo;
+      if (u.motivo_bloqueio) badge.title = u.motivo_bloqueio;
+      tdStatus.appendChild(badge);
+      tr.appendChild(tdStatus);
+
+      const dias = u.trial_days_left === null ? 'Vitalício' : `${u.trial_days_left} dia${u.trial_days_left === 1 ? '' : 's'}`;
+      tr.appendChild(celula(dias, u.trial_days_left !== null && u.trial_days_left <= 3 ? 'text-amber-300 font-mono' : 'text-slate-300 font-mono'));
+
+      const acoes = celula(null, 'text-right whitespace-nowrap space-x-1');
+      const proprio = u.id === adminId;
+      acoes.appendChild(botao('Suspender', 'border-rose-500/40 text-rose-300 hover:bg-rose-500/10',
+        !proprio && u.subscription_status !== 'SUSPENDED',
+        () => confirm(`Suspender o acesso de ${u.name}? A sessão será encerrada.`) &&
+          executar(`/api/admin/users/${encodeURIComponent(u.id)}/suspender`, {}, `${u.name} suspenso.`)));
+      acoes.appendChild(botao('Reativar', 'border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10',
+        u.subscription_status === 'SUSPENDED' || u.subscription_status === 'CANCELED',
+        () => executar(`/api/admin/users/${encodeURIComponent(u.id)}/reativar`, {}, `${u.name} reativado.`)));
+      acoes.appendChild(seletorPrazo(u));
+      tr.appendChild(acoes);
+      return tr;
+    }
+
+    window.carregarClientes = async function (manterMensagem) {
+      if (!manterMensagem) msg.textContent = '';
+      try {
+        const resp = await fetch('/api/admin/users', { headers: cabecalhos() });
+        if (!resp.ok) {
+          corpo.replaceChildren();
+          const tr = document.createElement('tr');
+          tr.appendChild(celula('Não foi possível carregar os clientes.', 'text-center text-rose-300 py-6'));
+          tr.firstChild.colSpan = 6;
+          corpo.appendChild(tr);
+          return;
+        }
+        const dados = await resp.json();
+        corpo.replaceChildren(...dados.usuarios.map(linha));
+      } catch (e) {
+        msg.textContent = 'Falha de conexão ao carregar os clientes.';
+      }
+    };
+
+    carregarClientes();
+  })();
+</script>
+{% endblock %}
