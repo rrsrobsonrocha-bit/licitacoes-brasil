@@ -322,6 +322,77 @@ def tabela_ficha(linhas: Sequence[Sequence[str]], estilos: Dict[str, ParagraphSt
 # ------------------------------------------------------------------------------
 # Petição
 # ------------------------------------------------------------------------------
+# Marcadores dos modelos de peça -> campo da licitante (empresa ativa) ou do certame.
+# [RECORRENTE] (recurso) e [RECORRIDA] (contrarrazões) são sempre a peticionária, isto é, a empresa da conta.
+MARCADORES_LICITANTE = {
+    "razao_social": r"NOME DA EMPRESA(?: REQUERENTE)?|RAZ[ÃA]O SOCIAL(?: DA LICITANTE)?|RECORRENTE|RECORRIDA|LICITANTE|EMPRESA",
+    "cnpj": r"CNPJ",
+    "endereco": r"ENDERE[ÇC]O(?: COMPLETO)?",
+    "representante": r"(?:NOME DO )?REPRESENTANTE LEGAL",
+    "cargo": r"CARGO",
+    "email": r"E-?MAIL",
+    "telefone": r"TELEFONE",
+}
+MARCADORES_CERTAME = {
+    "numero_certame": r"N[ÚU]MERO DO CERTAME|N[ÚU]MERO DO EDITAL",
+    "orgao": r"[ÓO]RG[ÃA]O COMPRADOR|[ÓO]RG[ÃA]O",
+    "objeto": r"OBJETO DA LICITA[ÇC][ÃA]O|OBJETO",
+}
+_FECHO_LOCAL_DATA = re.compile(r"^\s*\[CIDADE[^\]]*\]\s*,\s*\[DATA\]\.?\s*$", re.IGNORECASE | re.MULTILINE)
+_CIDADE = re.compile(r"\[CIDADE(?:\s*[-/]\s*UF)?\]", re.IGNORECASE)
+_DATA = re.compile(r"\[DATA\]", re.IGNORECASE)
+
+
+def _marcador(padrao: str) -> "re.Pattern[str]":
+    return re.compile(rf"\[(?:{padrao})\]", re.IGNORECASE)
+
+
+def preencher_peca(
+    corpo: str,
+    *,
+    licitante: Optional[Dict[str, Any]] = None,
+    orgao: Optional[str] = None,
+    numero_certame: Optional[str] = None,
+    objeto: Optional[str] = None,
+    cidade: Optional[str] = None,
+    data_documento: Optional[date] = None,
+    remover_fecho: bool = False,
+) -> str:
+    """
+    Preenche o texto de uma peça jurídica: tags {{orgao}}/{{numero_edital}}/{{objeto}}, marcadores da
+    licitante ([RAZÃO SOCIAL DA LICITANTE], [NOME DA EMPRESA REQUERENTE], [CNPJ], [ENDEREÇO COMPLETO],
+    [REPRESENTANTE LEGAL]...) e do certame ([NÚMERO DO CERTAME], [ÓRGÃO COMPRADOR], [OBJETO DA LICITAÇÃO]).
+    Só substitui o que tem valor; o resto continua marcado para preenchimento.
+    ``remover_fecho``: tira a linha "[CIDADE - UF], [DATA]." (o PDF já assina com local e data).
+    """
+    texto = (corpo or "").replace("\r\n", "\n")
+    lic = {k: (str(v).strip() if v is not None else "") for k, v in (licitante or {}).items()}
+    if lic.get("cnpj"):
+        lic["cnpj"] = formatar_cnpj(lic["cnpj"])
+    if lic.get("razao_social"):
+        lic["razao_social"] = lic["razao_social"].upper()
+    certame = {"orgao": (orgao or "").strip(), "numero_certame": (numero_certame or "").strip(),
+               "objeto": (objeto or "").strip()}
+    for tag, chave in (("{{orgao}}", "orgao"), ("{{numero_edital}}", "numero_certame"),
+                       ("{{numero_certame}}", "numero_certame"), ("{{objeto}}", "objeto")):
+        if certame[chave]:
+            texto = texto.replace(tag, certame[chave])
+    for chave, padrao in MARCADORES_CERTAME.items():
+        if certame[chave]:
+            texto = _marcador(padrao).sub(lambda _m, v=certame[chave]: v, texto)
+    for chave, padrao in MARCADORES_LICITANTE.items():
+        if lic.get(chave):
+            texto = _marcador(padrao).sub(lambda _m, v=lic[chave]: v, texto)
+    if remover_fecho:
+        texto = _FECHO_LOCAL_DATA.sub("", texto)
+    else:
+        local = (cidade or lic.get("cidade_uf") or "").strip()
+        if local:
+            texto = _CIDADE.sub(lambda _m: local, texto)
+        texto = _DATA.sub(lambda _m: data_por_extenso(data_documento or agora_sao_paulo().date()), texto)
+    return texto.strip()
+
+
 def montar_corpo_peticao(
     corpo: str,
     *,
@@ -329,16 +400,14 @@ def montar_corpo_peticao(
     numero_certame: str,
     objeto: str,
     razao_social: Optional[str] = None,
+    licitante: Optional[Dict[str, Any]] = None,
 ) -> str:
-    """Substitui as tags dinâmicas do modelo e os marcadores de qualificação da licitante."""
-    texto = (corpo or "").replace("\r\n", "\n")
-    texto = texto.replace("{{orgao}}", orgao)
-    texto = texto.replace("{{numero_edital}}", numero_certame)
-    texto = texto.replace("{{numero_certame}}", numero_certame)
-    texto = texto.replace("{{objeto}}", objeto)
-    if razao_social:
-        texto = _PLACEHOLDERS_LICITANTE.sub(razao_social.upper(), texto)
-    return texto.strip()
+    """Corpo do PDF: tags e marcadores preenchidos (local e data vêm na assinatura do PDF)."""
+    dados = dict(licitante or {})
+    if razao_social and not dados.get("razao_social"):
+        dados["razao_social"] = razao_social
+    return preencher_peca(corpo, licitante=dados, orgao=orgao, numero_certame=numero_certame, objeto=objeto,
+                          remover_fecho=True)
 
 
 def _eh_destaque(linha: str) -> bool:
@@ -430,7 +499,8 @@ def gerar_peticao_pdf(
     story.append(Spacer(1, 6 * mm))
 
     texto = montar_corpo_peticao(
-        corpo, orgao=orgao_txt, numero_certame=numero_txt, objeto=objeto_txt, razao_social=razao or None
+        corpo, orgao=orgao_txt, numero_certame=numero_txt, objeto=objeto_txt, razao_social=razao or None,
+        licitante=lic,
     )
     story.extend(_paragrafos_corpo(texto, est))
 
@@ -469,6 +539,7 @@ __all__ = [
     "formatar_cnpj",
     "gerar_peticao_pdf",
     "montar_corpo_peticao",
+    "preencher_peca",
     "normalizar_lei",
     "renderizar_pdf_timbrado",
     "slug_arquivo",

@@ -122,6 +122,18 @@
 
   <!-- Conteúdo Principal: Lista de Modelos Disponíveis -->
   <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
+    <!-- Sem empresa cadastrada: cadastro rápido do CNPJ (BrasilAPI) -->
+    <div class="mb-5"><div class="aviso-sem-empresa {% if empresa_ativa %}hidden {% endif %}bg-amber-500/10 border border-amber-500/40 rounded-2xl p-4 space-y-2">
+      <p class="text-xs font-semibold text-amber-200"><i class="fa-solid fa-triangle-exclamation mr-1"></i> Cadastre seu CNPJ no Cofre ou Perfil para gerar petições personalizadas.</p>
+      <div class="flex flex-col sm:flex-row gap-2">
+        <label class="sr-only" for="cnpj-rapido-pagina">CNPJ da empresa</label>
+        <input id="cnpj-rapido-pagina" type="text" inputmode="numeric" maxlength="18" placeholder="00.000.000/0000-00" oninput="mascararCnpj(this)" class="cnpj-rapido flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-1.5 text-xs font-mono text-slate-100 focus:outline-none focus:border-amber-500">
+        <button type="button" onclick="cadastrarCnpjRapido('cnpj-rapido-pagina', this)" class="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-3 py-1.5 rounded-xl text-xs transition">Consultar CNPJ e preencher</button>
+      </div>
+      <p class="text-[10px] text-slate-400">Os dados vêm da Receita Federal e passam a valer para petições, minutas e o Cofre.</p>
+    </div></div>
+    <!-- Empresa ativa usada nas peças -->
+    <p id="empresa-pecas" class="{% if not empresa_ativa %}hidden {% endif %}mb-4 text-xs text-slate-400"><i class="fa-solid fa-building text-sky-400 mr-1"></i> Peças geradas em nome de <b id="empresa-pecas-nome" class="text-slate-200">{{ empresa_ativa.razao_social if empresa_ativa else '' }}</b> <span id="empresa-pecas-cnpj" class="font-mono">{{ empresa_ativa.cnpj_formatado if empresa_ativa else '' }}</span></p>
     <!-- Certame vinculado (preenchimento automático via Funil Kanban) -->
     <div id="certame-vinculado-banner" class="{% if not (certame_prefill and (certame_prefill.orgao or certame_prefill.numero_certame or certame_prefill.objeto)) %}hidden {% endif %}mb-5 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
       <div class="flex items-start gap-3 min-w-0">
@@ -439,7 +451,17 @@
     </details>
 
     <!-- Corpo do Texto Formatado -->
-    <div class="p-4 sm:p-6 overflow-y-auto flex-1 bg-slate-950/30">
+    <div class="p-4 sm:p-6 overflow-y-auto flex-1 bg-slate-950/30 space-y-3">
+      <div class="aviso-sem-empresa {% if empresa_ativa %}hidden {% endif %}bg-amber-500/10 border border-amber-500/40 rounded-2xl p-4 space-y-2">
+      <p class="text-xs font-semibold text-amber-200"><i class="fa-solid fa-triangle-exclamation mr-1"></i> Cadastre seu CNPJ no Cofre ou Perfil para gerar petições personalizadas.</p>
+      <div class="flex flex-col sm:flex-row gap-2">
+        <label class="sr-only" for="cnpj-rapido-modal">CNPJ da empresa</label>
+        <input id="cnpj-rapido-modal" type="text" inputmode="numeric" maxlength="18" placeholder="00.000.000/0000-00" oninput="mascararCnpj(this)" class="cnpj-rapido flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-1.5 text-xs font-mono text-slate-100 focus:outline-none focus:border-amber-500">
+        <button type="button" onclick="cadastrarCnpjRapido('cnpj-rapido-modal', this)" class="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-3 py-1.5 rounded-xl text-xs transition">Consultar CNPJ e preencher</button>
+      </div>
+      <p class="text-[10px] text-slate-400">Os dados vêm da Receita Federal e passam a valer para petições, minutas e o Cofre.</p>
+    </div>
+      <p id="modal-pendentes" class="hidden text-[11px] text-amber-300"></p>
       <textarea 
         id="modal-textarea" 
         rows="16" 
@@ -597,6 +619,7 @@
     text = text.replace(/\{\{objeto\}\}/g, objeto);
 
     document.getElementById('modal-textarea').value = text;
+    agendarPreenchimentoServidor();
   }
 
   async function copyTemplateText(id) {
@@ -682,6 +705,89 @@
     applyCustomVariables();
   }
 
+
+  // ---------------- Empresa ativa nas peças ----------------
+  let EMPRESA_ATIVA = {{ empresa_ativa|tojson if empresa_ativa else 'null' }};
+  let LICITANTE_EMPRESA = {{ licitante_empresa|tojson if licitante_empresa else '{}' }};
+  const CAMPO_PAINEL = { razao_social: 'razao_social', cnpj: 'cnpj', endereco: 'endereco', email: 'email',
+                         representante: 'representante', cargo: 'cargo', cidade_uf: 'cidade' };
+
+  function preencherPainelComEmpresa() {
+    if (!EMPRESA_ATIVA) return false;
+    Object.entries(CAMPO_PAINEL).forEach(([origem, destino]) => {
+      const inp = document.querySelector(`.lic-input[data-lic="${destino}"]`);
+      if (inp && LICITANTE_EMPRESA[origem]) {
+        inp.value = LICITANTE_EMPRESA[origem];
+        if (destino === 'cnpj') mascararCnpj(inp);
+      }
+    });
+    document.querySelectorAll('.aviso-sem-empresa').forEach(el => el.classList.add('hidden'));
+    document.getElementById('empresa-pecas').classList.remove('hidden');
+    document.getElementById('empresa-pecas-nome').textContent = EMPRESA_ATIVA.razao_social;
+    document.getElementById('empresa-pecas-cnpj').textContent = EMPRESA_ATIVA.cnpj_formatado;
+    atualizarResumoLicitante();
+    return true;
+  }
+
+  async function cadastrarCnpjRapido(campoId, botao) {
+    const cnpj = document.getElementById(campoId).value.replace(/\D/g, '');
+    if (cnpj.length !== 14) return showToast('Digite os 14 dígitos do CNPJ.', 'error');
+    const original = botao.innerHTML;
+    botao.disabled = true;
+    botao.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Consultando...';
+    try {
+      const resp = await fetch('/api/minhas-empresas', {
+        method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cnpj }),
+      });
+      const corpo = await resp.json().catch(() => ({}));
+      if (resp.status === 401) throw new Error('Entre na sua conta para cadastrar o CNPJ.');
+      if (!resp.ok) throw new Error(typeof corpo.detail === 'string' ? corpo.detail : 'Não foi possível consultar o CNPJ.');
+      EMPRESA_ATIVA = corpo.ativa;
+      const e = EMPRESA_ATIVA;
+      LICITANTE_EMPRESA = {
+        razao_social: e.razao_social, cnpj: e.cnpj, endereco: e.endereco_completo || '', email: e.email || '',
+        representante: e.representante_nome || '', cargo: e.representante_cargo || '',
+        cidade_uf: [e.cidade, e.uf].filter(Boolean).join('/'),
+      };
+      preencherPainelComEmpresa();
+      salvarLicitante();
+      applyCustomVariables();
+      showToast(`${EMPRESA_ATIVA.razao_social} cadastrada: as peças já saem com os dados da empresa.`, 'success');
+    } catch (e) {
+      showToast(e.message, 'error');
+    } finally {
+      botao.disabled = false;
+      botao.innerHTML = original;
+    }
+  }
+
+  // Texto do modal preenchido pelo servidor (empresa ativa, licitante do painel e certame)
+  let preenchimentoSeq = 0;
+  let preenchimentoTimer = null;
+  function agendarPreenchimentoServidor() {
+    clearTimeout(preenchimentoTimer);
+    preenchimentoTimer = setTimeout(preencherNoServidor, 250);
+  }
+
+  async function preencherNoServidor() {
+    if (!currentActiveTemplate) return;
+    const seq = ++preenchimentoSeq;
+    const payload = montarPayloadPdf(currentActiveTemplate.id, null);
+    try {
+      const resp = await fetch('/api/juridico/preencher-peca', {
+        method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!resp.ok || seq !== preenchimentoSeq) return;
+      const dados = await resp.json();
+      document.getElementById('modal-textarea').value = dados.corpo;
+      const pend = document.getElementById('modal-pendentes');
+      pend.textContent = dados.pendentes.length ? `Ainda a preencher: ${dados.pendentes.join(', ')}` : '';
+      pend.classList.toggle('hidden', !dados.pendentes.length);
+    } catch (e) { /* mantém o texto local */ }
+  }
+
   // ---------------- Dados da licitante (memorizados neste navegador) ----------------
   const LICITANTE_STORAGE_KEY = 'lb_licitante_pdf_v1';
 
@@ -701,6 +807,7 @@
   }
 
   function carregarLicitante() {
+    if (preencherPainelComEmpresa()) return;  // empresa ativa da conta prevalece sobre dados antigos do navegador
     try {
       const salvo = JSON.parse(localStorage.getItem(LICITANTE_STORAGE_KEY) || '{}');
       document.querySelectorAll('.lic-input').forEach(inp => {
@@ -801,6 +908,7 @@
     document.querySelectorAll('.lic-input').forEach(inp => inp.addEventListener('input', () => {
       if (inp.dataset.lic === 'cnpj') mascararCnpj(inp);
       salvarLicitante();
+      agendarPreenchimentoServidor();
     }));
   });
 

@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import json
 import csv
@@ -73,6 +74,7 @@ from server.services.dispute_monitor import dispute_monitor, PregaoItem, DEGRAU_
 from server.services.portal_collector import (
     classificar_natureza_certame, NATUREZAS_OBJETO, NATUREZA_LABELS
 )
+from server.services.pdf_generator import preencher_peca
 from server.services.pdf_generator import (
     gerar_peticao_pdf, normalizar_lei, slug_arquivo, PeticaoInvalidaError
 )
@@ -855,10 +857,13 @@ def page_juridico(
         "nova_lei": db.query(LegalDocumentTemplate).filter(LegalDocumentTemplate.is_nova_lei == True).count()
     }
 
+    _empresa_jur = empresas_service.empresa_ativa(db, user.id) if user else None
     return templates.TemplateResponse(
         request,
         "juridico.html",
         {
+            "empresa_ativa": empresas_service.serializar(_empresa_jur) if _empresa_jur else None,
+            "licitante_empresa": empresas_service.dados_licitante(_empresa_jur),
             "templates": serialized,
             "user": user,
             "q": q or "",
@@ -2589,6 +2594,56 @@ class GerarPeticaoPDFRequest(BaseModel):
     licitante: Optional[LicitantePDF] = None
 
 
+def _dados_da_peca(payload: "GerarPeticaoPDFRequest", request: Request, db: Session) -> Dict[str, Any]:
+    """
+    Licitante (empresa ativa da conta; campos enviados no payload prevalecem) e certame (payload ou,
+    com `tender_id`, o edital do banco) para preencher peças jurídicas.
+    """
+    user = get_current_user(request, db)
+    empresa = empresas_service.empresa_ativa(db, user.id) if user else None
+    enviados = {k: v for k, v in (payload.licitante.model_dump() if payload.licitante else {}).items() if v}
+    licitante = {**empresas_service.dados_licitante(empresa), **enviados}
+    orgao, numero, objeto = payload.orgao, payload.numero_certame or payload.numero_edital, payload.objeto
+    if payload.tender_id:
+        t = db.query(Tender).filter((Tender.id == payload.tender_id) | (Tender.external_id == payload.tender_id)).first()
+        if t:
+            orgao = orgao or t.contracting_entity
+            numero = numero or (t.notice_number if t.notice_number and t.notice_number != "Não informado" else t.external_id)
+            objeto = objeto or t.title
+    return {
+        "empresa": empresa, "licitante": licitante, "orgao": orgao, "numero": numero, "objeto": objeto,
+        "cidade": payload.cidade or licitante.get("cidade_uf") or None,
+    }
+
+
+_MARCADOR_PENDENTE = re.compile(r"\[[^\[\]\n]{2,60}\]|\{\{[a-z_]+\}\}")
+
+
+@app.post("/api/juridico/preencher-peca")
+def api_juridico_preencher_peca(payload: GerarPeticaoPDFRequest, request: Request, db: Session = Depends(get_db)):
+    """
+    Texto da peça com os dados da empresa ativa e do certame já preenchidos (pré-visualização do modal,
+    cópia e .txt). Devolve também os marcadores que ainda faltam preencher.
+    """
+    corpo = (payload.corpo or "").strip()
+    if not corpo and payload.template_id is not None:
+        tmpl = db.query(LegalDocumentTemplate).filter(LegalDocumentTemplate.id == payload.template_id).first()
+        if not tmpl:
+            raise HTTPException(status_code=404, detail="Modelo de peça jurídica não encontrado.")
+        corpo = tmpl.corpo or ""
+    if not corpo:
+        raise HTTPException(status_code=422, detail="Informe `template_id` ou o `corpo` da peça.")
+    dados = _dados_da_peca(payload, request, db)
+    texto = preencher_peca(corpo, licitante=dados["licitante"], orgao=dados["orgao"], numero_certame=dados["numero"],
+                           objeto=dados["objeto"], cidade=dados["cidade"])
+    return {
+        "corpo": texto,
+        "pendentes": sorted(set(_MARCADOR_PENDENTE.findall(texto))),
+        "empresa_ativa": empresas_service.serializar(dados["empresa"]) if dados["empresa"] else None,
+        "licitante": dados["licitante"],
+    }
+
+
 @app.post("/api/juridico/gerar-pdf")
 def api_juridico_gerar_pdf(payload: GerarPeticaoPDFRequest, request: Request, db: Session = Depends(get_db)):
     """
@@ -2607,27 +2662,15 @@ def api_juridico_gerar_pdf(payload: GerarPeticaoPDFRequest, request: Request, db
     if not corpo.strip():
         raise HTTPException(status_code=422, detail="Informe `template_id` ou o `corpo` da petição.")
 
-    orgao = payload.orgao
-    numero = payload.numero_certame or payload.numero_edital
-    objeto = payload.objeto
-    if payload.tender_id:
-        t = db.query(Tender).filter(
-            (Tender.id == payload.tender_id) | (Tender.external_id == payload.tender_id)
-        ).first()
-        if t:
-            orgao = orgao or t.contracting_entity
-            numero = numero or t.notice_number or t.external_id
-            objeto = objeto or t.title
+    dados = _dados_da_peca(payload, request, db)
+    orgao, numero, objeto = dados["orgao"], dados["numero"], dados["objeto"]
 
     lei = normalizar_lei(payload.lei) if payload.lei else normalizar_lei(tmpl.is_nova_lei if tmpl else True)
     fundamentacao = payload.fundamentacao or (tmpl.fundamentacao_legal if tmpl else None)
     titulo = payload.titulo or (tmpl.titulo if tmpl else "Petição Administrativa")
     tipo_label = serialize_legal_template(tmpl)["tipo_label"] if tmpl else None
 
-    user = get_current_user(request, db)
-    empresa = empresas_service.empresa_ativa(db, user.id) if user else None
-    licitante = {**empresas_service.dados_licitante(empresa),
-                 **{k: v for k, v in (payload.licitante.model_dump() if payload.licitante else {}).items() if v}}
+    empresa, licitante = dados["empresa"], dados["licitante"]
     try:
         pdf_bytes = gerar_peticao_pdf(
             corpo=corpo,
@@ -2639,7 +2682,7 @@ def api_juridico_gerar_pdf(payload: GerarPeticaoPDFRequest, request: Request, db
             lei=lei,
             fundamentacao=fundamentacao,
             licitante=licitante or None,
-            cidade=payload.cidade or (empresa.cidade if empresa else None),
+            cidade=dados["cidade"],
             empresa=empresas_service.timbre(empresa),
         )
     except PeticaoInvalidaError as exc:
