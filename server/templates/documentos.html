@@ -53,6 +53,20 @@
     </div>
   </div>
 
+  <!-- Upload em lote com classificação automática -->
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
+    <div id="zona-lote" role="button" tabindex="0" aria-describedby="zona-lote-ajuda"
+         class="border-2 border-dashed border-emerald-500/40 hover:border-emerald-400 bg-emerald-500/5 rounded-2xl p-6 text-center cursor-pointer transition"
+         onclick="document.getElementById('lote-arquivos').click()"
+         onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); document.getElementById('lote-arquivos').click(); }">
+      <i class="fa-solid fa-wand-magic-sparkles text-2xl text-emerald-400 mb-2" aria-hidden="true"></i>
+      <p class="text-sm font-bold text-white">Arraste suas Certidões, Balanços, Atestados e Contratos em PDF (Classificação Automática por IA)</p>
+      <p id="zona-lote-ajuda" class="text-[11px] text-slate-400 mt-1">Ou clique para escolher. PDF, PNG ou JPG, até {{ max_mb }} MB cada e 20 por vez. O Gemini identifica o tipo, as datas, o órgão emissor e o código de autenticidade.</p>
+      <input id="lote-arquivos" type="file" multiple accept="application/pdf,.pdf,image/png,image/jpeg,image/webp" class="hidden">
+    </div>
+    <ul id="fila-lote" class="hidden mt-3 bg-slate-900/80 border border-slate-800 rounded-2xl divide-y divide-slate-800 text-xs" aria-live="polite"></ul>
+  </div>
+
   <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
 
     <!-- Formulário de Upload -->
@@ -149,10 +163,15 @@
           </div>
           <div class="relative w-full sm:w-64">
             <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-xs text-slate-500"></i>
-            <input id="busca-documentos" type="search" placeholder="Buscar por nome, categoria ou tag..." class="w-full bg-slate-950 border border-slate-700 rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition">
+            <input id="busca-documentos" data-busca type="search" placeholder="Buscar por nome, categoria ou tag..." class="w-full bg-slate-950 border border-slate-700 rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition">
           </div>
         </div>
 
+        <div id="filtros-categoria" class="px-4 py-2.5 border-b border-slate-800 flex flex-wrap gap-1.5" role="group" aria-label="Filtrar por categoria">
+          {% for chave, rotulo in [('', 'Todas'), ('fiscal', 'Fiscal/Trabalhista'), ('juridica', 'Jurídica'), ('economica', 'Financeira'), ('tecnica', 'Técnica'), ('declaracoes', 'Sanções')] %}
+          <button type="button" data-categoria="{{ chave }}" class="filtro-categoria px-2.5 py-1 rounded-lg text-[11px] font-bold border transition {{ 'bg-emerald-600 text-white border-emerald-500' if not chave else 'bg-slate-950 text-slate-300 border-slate-700 hover:bg-slate-800' }}">{{ rotulo }}</button>
+          {% endfor %}
+        </div>
         <div class="overflow-x-auto">
           <table class="w-full text-xs min-w-[720px]">
             <thead class="bg-slate-950/70 text-[10px] uppercase tracking-wider text-slate-400">
@@ -177,6 +196,26 @@
         </div>
       </div>
     </section>
+  </div>
+</div>
+
+<!-- Detalhes do documento: visualizador + dados extraídos -->
+<div id="modal-detalhes" class="hidden fixed inset-0 z-50 bg-black/75 p-2 sm:p-6" role="dialog" aria-modal="true" aria-labelledby="detalhes-titulo" onclick="if (event.target === this) fecharDetalhes()">
+  <div class="h-full max-w-6xl mx-auto bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl flex flex-col overflow-hidden text-slate-100">
+    <div class="flex items-start justify-between gap-3 px-5 py-3 border-b border-slate-800">
+      <div class="min-w-0">
+        <h2 id="detalhes-titulo" class="text-sm font-bold text-white truncate"></h2>
+        <p id="detalhes-subtitulo" class="text-[11px] text-slate-400"></p>
+      </div>
+      <div class="flex items-center gap-2">
+        <a id="detalhes-baixar" href="#" class="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-slate-800 hover:bg-slate-700 border border-slate-700"><i class="fa-solid fa-download"></i> Baixar</a>
+        <button type="button" onclick="fecharDetalhes()" class="p-1 text-slate-400 hover:text-white cursor-pointer" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+    </div>
+    <div class="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-3">
+      <div id="detalhes-visualizador" class="lg:col-span-2 bg-slate-950 min-h-[50vh] lg:min-h-0"></div>
+      <aside id="detalhes-painel" class="border-t lg:border-t-0 lg:border-l border-slate-800 p-4 overflow-y-auto text-xs space-y-3"></aside>
+    </div>
   </div>
 </div>
 
@@ -214,6 +253,7 @@
   const DIAS_ALERTA = {{ dias_alerta|int }};
   let documentos = {{ documentos|tojson }};
   let filtroStatus = '';
+  let filtroCategoria = '';
 
   function escapeHtml(valor) {
     return String(valor ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
@@ -253,8 +293,8 @@
 
   const BADGES = {
     VALIDO: { cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40', dot: 'bg-emerald-400', label: 'Válido' },
-    SEM_VALIDADE: { cls: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30', dot: 'bg-emerald-400', label: 'Sem vencimento' },
-    A_VENCER: { cls: 'bg-amber-500/15 text-amber-300 border-amber-500/40', dot: 'bg-amber-400 animate-pulse', label: 'A vencer' },
+    SEM_VALIDADE: { cls: 'bg-blue-500/15 text-blue-300 border-blue-500/40', dot: 'bg-blue-400', label: 'Indeterminado' },
+    A_VENCER: { cls: 'bg-amber-500/15 text-amber-300 border-amber-500/40', dot: 'bg-amber-400 animate-pulse', label: 'Vence em breve' },
     VENCIDO: { cls: 'bg-rose-500/15 text-rose-300 border-rose-500/40', dot: 'bg-rose-400', label: 'Vencido' },
     PENDENTE: { cls: 'bg-sky-500/15 text-sky-300 border-sky-500/40', dot: 'bg-sky-400', label: 'Pendente de emissão' }
   };
@@ -298,7 +338,9 @@
 
       const statusFiltro = status === 'SEM_VALIDADE' ? 'VALIDO' : status;
       if (filtroStatus && statusFiltro !== filtroStatus) return;
-      const alvo = `${doc.nome} ${doc.categoria_label} ${doc.tags_habilitacao || ''}`.toLowerCase();
+      if (filtroCategoria && doc.categoria !== filtroCategoria) return;
+      const ia = doc.metadados_ia || {};
+      const alvo = `${doc.nome} ${doc.categoria_label} ${doc.tags_habilitacao || ''} ${ia.orgao_emissor || ''}`.toLowerCase();
       if (termo && !alvo.includes(termo)) return;
 
       const badge = BADGES[status];
@@ -308,13 +350,15 @@
         : '';
       const anexar = `<button type="button" onclick="abrirAnexar(${doc.id})" class="p-1.5 rounded-lg text-emerald-300 hover:text-white hover:bg-slate-800 transition cursor-pointer" title="Anexar o PDF emitido"><i class="fa-solid fa-paperclip"></i></button>`;
       const arquivo = doc.arquivo_disponivel
-        ? `<a href="${doc.arquivo_url}" target="_blank" rel="noopener" class="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition" title="Abrir PDF"><i class="fa-regular fa-file-pdf"></i></a>`
+        ? `<button type="button" onclick="abrirDetalhes(${doc.id})" class="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition cursor-pointer" title="Ver documento e dados extraídos"><i class="fa-regular fa-file-lines"></i></button>`
         : (doc.pendente ? anexar : `<span class="p-1.5 text-rose-400" title="Arquivo físico ausente"><i class="fa-solid fa-triangle-exclamation"></i></span>`);
 
       linhas.push(`
         <tr class="hover:bg-slate-800/30 transition" data-doc-id="${doc.id}" data-status="${status}">
           <td class="px-4 py-3 align-top">
-            <div class="font-semibold text-slate-100">${escapeHtml(doc.nome)}</div>
+            <button type="button" onclick="abrirDetalhes(${doc.id})" class="font-semibold text-slate-100 hover:text-emerald-300 text-left transition cursor-pointer">${escapeHtml(doc.nome)}</button>
+            ${ia.metodo ? `<span class="ml-1 text-[9px] font-bold uppercase px-1 py-0.5 rounded ${ia.metodo === 'gemini' ? 'bg-violet-500/15 text-violet-300 border border-violet-500/30' : 'bg-slate-800 text-slate-400 border border-slate-700'}" title="${ia.metodo === 'gemini' ? 'Dados extraídos pelo Gemini Flash' : 'Classificado por regras (IA indisponível)'}">${ia.metodo === 'gemini' ? 'IA' : 'Regras'}</span>` : ''}
+            ${(doc.alertas || []).length ? `<div class="mt-1 text-[10px] text-amber-300"><i class="fa-solid fa-triangle-exclamation"></i> ${escapeHtml(doc.alertas.join(' · '))}</div>` : ''}
             <div class="flex flex-wrap gap-1 mt-1">${tags}</div>
           </td>
           <td class="px-3 py-3 align-top text-slate-300">${escapeHtml(doc.categoria_label)}</td>
@@ -326,7 +370,7 @@
           </td>
           <td class="px-3 py-3 align-top">
             <span class="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase px-2 py-1 rounded-md border ${badge.cls}">
-              <span class="w-1.5 h-1.5 rounded-full ${badge.dot}"></span>${badge.label}
+              <span class="w-1.5 h-1.5 rounded-full ${badge.dot}"></span>${status === 'VALIDO' && dias !== null ? `Válido · vence em ${dias} dias` : badge.label}
             </span>
           </td>
           <td class="px-4 py-3 align-top text-right whitespace-nowrap">
@@ -436,6 +480,142 @@
       showToast(e.message, 'error');
     }
   }
+
+  // ---------- Upload em lote com classificação automática ----------
+  const LOTE_SIMULTANEOS = 2;
+  const ROTULOS_CATEGORIA_IA = {
+    fiscal_trabalhista: 'Fiscal/Trabalhista', juridica: 'Jurídica', financeira: 'Financeira',
+    tecnica: 'Técnica', sancoes_declaracoes: 'Sanções/Declarações', outro: 'Outro',
+  };
+
+  function linhaFila(id, nome) {
+    return `<li id="fila-${id}" class="flex items-center gap-3 px-4 py-2.5">
+      <i class="fa-solid fa-spinner fa-spin text-violet-300 w-4" aria-hidden="true"></i>
+      <span class="flex-1 min-w-0 truncate text-slate-200">${escapeHtml(nome)}</span>
+      <span class="fila-status text-violet-300 shrink-0">Analisando com Gemini...</span></li>`;
+  }
+
+  function atualizarFila(id, ok, texto, detalhe) {
+    const li = document.getElementById(`fila-${id}`);
+    if (!li) return;
+    li.querySelector('i').className = `fa-solid ${ok ? 'fa-circle-check text-emerald-400' : 'fa-circle-xmark text-rose-400'} w-4`;
+    const st = li.querySelector('.fila-status');
+    st.className = `fila-status shrink-0 ${ok ? 'text-emerald-300' : 'text-rose-300'}`;
+    st.innerHTML = `${escapeHtml(texto)}${detalhe ? ` <span class="text-slate-400">· ${escapeHtml(detalhe)}</span>` : ''}`;
+  }
+
+  async function enviarUmDoLote(id, arquivo) {
+    const dados = new FormData();
+    dados.append('arquivos', arquivo);
+    try {
+      const resp = await fetch('/api/documents/processar-lote', { method: 'POST', body: dados, credentials: 'same-origin' });
+      const corpo = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(typeof corpo.detail === 'string' ? corpo.detail : 'Falha no envio.');
+      const r = (corpo.resultados || [])[0] || {};
+      if (r.status !== 'concluido') throw new Error(r.erro || 'Falha no processamento.');
+      const ia = r.metadados || {};
+      const partes = [ROTULOS_CATEGORIA_IA[ia.categoria] || '', ia.data_validade ? `validade ${formatarDataBR(ia.data_validade)}` : 'sem validade definida',
+                      r.acao === 'atualizado' ? 'slot atualizado' : 'novo no cofre'];
+      if ((r.alertas || []).length) partes.push(`⚠ ${r.alertas.join(' / ')}`);
+      atualizarFila(id, true, `Concluído: ${r.documento.nome}`, partes.filter(Boolean).join(' · '));
+      return true;
+    } catch (e) {
+      atualizarFila(id, false, 'Erro', e.message);
+      return false;
+    }
+  }
+
+  async function processarLote(lista) {
+    const arquivos = Array.from(lista || []);
+    if (!arquivos.length) return;
+    if (arquivos.length > 20) return showToast('Envie no máximo 20 arquivos por vez.', 'error');
+    const fila = document.getElementById('fila-lote');
+    const base = Date.now();
+    fila.innerHTML = arquivos.map((a, i) => linhaFila(`${base}-${i}`, a.name)).join('') + fila.innerHTML;
+    fila.classList.remove('hidden');
+    let proximo = 0, concluidos = 0;
+    async function trabalhador() {
+      while (proximo < arquivos.length) {
+        const i = proximo++;
+        if (await enviarUmDoLote(`${base}-${i}`, arquivos[i])) concluidos++;
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(LOTE_SIMULTANEOS, arquivos.length) }, trabalhador));
+    await recarregarDocumentos();
+    showToast(`${concluidos} de ${arquivos.length} documento(s) classificados e guardados no cofre.`, concluidos ? 'success' : 'error');
+  }
+
+  // ---------- Detalhes: visualizador + dados extraídos ----------
+  function campoDetalhe(rotulo, valor) {
+    return valor ? `<div><div class="text-[10px] font-bold uppercase text-slate-500">${rotulo}</div><div class="text-slate-200 break-words">${valor}</div></div>` : '';
+  }
+
+  function abrirDetalhes(id) {
+    const doc = documentos.find(d => d.id === id);
+    if (!doc) return;
+    const ia = doc.metadados_ia || {};
+    document.getElementById('detalhes-titulo').textContent = doc.nome;
+    document.getElementById('detalhes-subtitulo').textContent = [doc.categoria_label, ia.arquivo_original].filter(Boolean).join(' · ');
+    const visualizador = document.getElementById('detalhes-visualizador');
+    const baixar = document.getElementById('detalhes-baixar');
+    if (doc.arquivo_disponivel) {
+      const url = `${doc.arquivo_url}?inline=1`;
+      const ehImagem = /\.(png|jpe?g|webp)$/i.test(ia.arquivo_original || '');
+      visualizador.innerHTML = ehImagem
+        ? `<img src="${url}" alt="${escapeHtml(doc.nome)}" class="w-full h-full object-contain">`
+        : `<iframe src="${url}" title="${escapeHtml(doc.nome)}" class="w-full h-full min-h-[50vh]"></iframe>`;
+      baixar.href = doc.arquivo_url;
+      baixar.classList.remove('hidden');
+    } else {
+      visualizador.innerHTML = '<div class="h-full flex items-center justify-center text-slate-500 p-6 text-center">Sem arquivo anexado.</div>';
+      baixar.classList.add('hidden');
+    }
+    const indices = (ia.dados_especificos || {}).indices_contabeis || {};
+    const fmtIndice = (v) => (v === null || v === undefined) ? '—' : Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
+    const temIndices = ['lg', 'sg', 'lc'].some(k => indices[k] !== null && indices[k] !== undefined);
+    const esp = ia.dados_especificos || {};
+    const cnpj = ia.cnpj_cpf_identificado;
+    const cnpjFmt = cnpj && cnpj.length === 14 ? cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5') : cnpj;
+    const badge = BADGES[doc.status] || BADGES.SEM_VALIDADE;
+    document.getElementById('detalhes-painel').innerHTML = `
+      <span class="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase px-2 py-1 rounded-md border ${badge.cls}"><span class="w-1.5 h-1.5 rounded-full ${badge.dot}"></span>${doc.status === 'VALIDO' && doc.dias_restantes !== null ? `Válido · vence em ${doc.dias_restantes} dias` : badge.label}</span>
+      ${ia.metodo ? `<p class="text-[10px] ${ia.metodo === 'gemini' ? 'text-violet-300' : 'text-slate-400'}">${ia.metodo === 'gemini' ? '<i class="fa-solid fa-wand-magic-sparkles"></i> Dados extraídos pelo Gemini Flash' : 'Classificado por regras (IA indisponível): confira os dados'}</p>` : ''}
+      ${(doc.alertas || []).map(a => `<p class="text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg px-2 py-1"><i class="fa-solid fa-triangle-exclamation"></i> ${escapeHtml(a)}</p>`).join('')}
+      ${campoDetalhe('Órgão emissor', escapeHtml(ia.orgao_emissor))}
+      ${campoDetalhe('Titular', escapeHtml([ia.razao_social_identificada, cnpjFmt].filter(Boolean).join(' · ')))}
+      ${campoDetalhe('Emissão', ia.data_emissao ? formatarDataBR(ia.data_emissao) : (doc.data_emissao ? formatarDataBR(doc.data_emissao) : ''))}
+      ${campoDetalhe('Validade', doc.data_validade ? formatarDataBR(doc.data_validade) : 'Indeterminada')}
+      ${campoDetalhe('Código de autenticidade', ia.codigo_autenticidade ? `<span class="font-mono">${escapeHtml(ia.codigo_autenticidade)}</span>` : '')}
+      ${temIndices ? `<div><div class="text-[10px] font-bold uppercase text-slate-500 mb-1">Índices contábeis</div>
+        <div class="grid grid-cols-3 gap-2 text-center">${['lg', 'sg', 'lc'].map(k => `<div class="bg-slate-950 border border-slate-800 rounded-lg py-1.5"><div class="text-[10px] text-slate-500 uppercase">${k}</div><div class="font-mono font-bold ${Number(indices[k]) >= 1 ? 'text-emerald-300' : 'text-rose-300'}">${fmtIndice(indices[k])}</div></div>`).join('')}</div></div>` : ''}
+      ${campoDetalhe('Exercício', esp.exercicio_ano ? String(esp.exercicio_ano) : '')}
+      ${campoDetalhe('Objeto atestado', escapeHtml(esp.objeto_atestado))}
+      ${campoDetalhe('Resumo', escapeHtml(ia.resumo_ia))}`;
+    document.getElementById('modal-detalhes').classList.remove('hidden');
+  }
+
+  function fecharDetalhes() {
+    document.getElementById('modal-detalhes').classList.add('hidden');
+    document.getElementById('detalhes-visualizador').innerHTML = '';
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const zona = document.getElementById('zona-lote');
+    const entrada = document.getElementById('lote-arquivos');
+    entrada.addEventListener('change', () => { processarLote(entrada.files); entrada.value = ''; });
+    ['dragenter', 'dragover'].forEach(ev => zona.addEventListener(ev, (e) => { e.preventDefault(); zona.classList.add('border-emerald-300', 'bg-emerald-500/10'); }));
+    ['dragleave', 'drop'].forEach(ev => zona.addEventListener(ev, (e) => { e.preventDefault(); zona.classList.remove('border-emerald-300', 'bg-emerald-500/10'); }));
+    zona.addEventListener('drop', (e) => processarLote(e.dataTransfer.files));
+    document.querySelectorAll('.filtro-categoria').forEach(btn => btn.addEventListener('click', () => {
+      filtroCategoria = btn.dataset.categoria;
+      document.querySelectorAll('.filtro-categoria').forEach(b => {
+        const ativo = b === btn;
+        b.className = `filtro-categoria px-2.5 py-1 rounded-lg text-[11px] font-bold border transition ${ativo ? 'bg-emerald-600 text-white border-emerald-500' : 'bg-slate-950 text-slate-300 border-slate-700 hover:bg-slate-800'}`;
+      });
+      renderizar();
+    }));
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') fecharDetalhes(); });
+  });
 
   // ---------- Preenchimento rápido por CNPJ ----------
   function mascararCnpj(valor) {

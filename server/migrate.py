@@ -72,6 +72,8 @@ COLUNAS_DOCUMENTOS_EMPRESA: List[Tuple[str, str, str]] = [
     ("documentos_empresa", "link_oficial", "VARCHAR(500)"),
     ("documentos_empresa", "validade_padrao_dias", "INTEGER"),
     ("documentos_empresa", "pendente", "BOOLEAN DEFAULT FALSE NOT NULL"),
+    ("documentos_empresa", "tipo_documento", "VARCHAR(50)"),
+    ("documentos_empresa", "metadados_ia", "JSONB" if engine.dialect.name == "postgresql" else "JSON"),
 ]
 
 COLUNAS_USERS: List[Tuple[str, str, str]] = [
@@ -537,6 +539,19 @@ def _backfill_links_canonicos() -> None:
         logger.info("Migração: %s licitações atualizadas com links canônicos do PNCP e disputa.", updated_count)
 
 
+def _backfill_tipo_documento_certidoes() -> None:
+    """Certidões criadas pela importação por CNPJ antes do campo tipo_documento recebem o tipo canônico."""
+    if "tipo_documento" not in _colunas_existentes("documentos_empresa"):
+        return
+    from server.services.certidoes import CERTIDOES
+    with engine.begin() as conn:
+        for definicao in CERTIDOES:
+            conn.execute(text(
+                "UPDATE documentos_empresa SET tipo_documento = :tipo "
+                "WHERE tipo_documento IS NULL AND origem = 'CNPJ' AND nome = :nome"
+            ), {"tipo": definicao["chave"], "nome": definicao["nome"]})
+
+
 def _migrar_etapas_legadas_do_funil() -> None:
     """Negócios nas etapas antigas 'classificacao' e 'contrato' passam a 'homologado' (idempotente)."""
     from server.models import ETAPAS_LEGADAS
@@ -568,7 +583,8 @@ def run_db_migrations():
         return
 
     from server.models import (
-        AdminBid, DocumentoEmpresa, DossieFornecedor, HistoricoDisputa, PasswordResetToken, SyncProgresso,
+        AdminBid, ArquivoCofre, DocumentoEmpresa, DossieFornecedor, HistoricoDisputa, PasswordResetToken,
+        SyncProgresso,
     )
 
     # 1. Colunas novas em tabelas existentes
@@ -602,6 +618,8 @@ def run_db_migrations():
     _criar_tabela_do_modelo(DocumentoEmpresa)
     _criar_tabela_do_modelo(SyncProgresso)
     _criar_tabela_do_modelo(DossieFornecedor)
+    _criar_tabela_do_modelo(ArquivoCofre)
+    _backfill_tipo_documento_certidoes()
     _criar_tabela_do_modelo(AdminBid)  # NUMERIC(14,2), TIMESTAMP WITH TIME ZONE e VARCHAR no PostgreSQL
     if "users" in _tabelas_existentes():
         _criar_tabela_do_modelo(PasswordResetToken)

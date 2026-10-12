@@ -2673,8 +2673,8 @@ async def api_upload_documento(
     finally:
         await arquivo.close()
 
-    caminho = document_vault.salvar_pdf_no_cofre(conteudo, meta["nome"])
     user = get_current_user(request, db)
+    caminho = document_vault.salvar_arquivo_no_banco(db, conteudo, meta["nome"], user.id if user else None)
     doc = DocumentoEmpresa(
         user_id=user.id if user else None,
         origem="MANUAL",
@@ -2692,26 +2692,26 @@ async def api_upload_documento(
         db.commit()
         db.refresh(doc)
     except Exception:
-        db.rollback()
-        document_vault.remover_arquivo_documento(caminho)
+        db.rollback()  # o arquivo no banco é desfeito junto com o documento
         raise HTTPException(status_code=500, detail="Falha ao registrar o documento no cofre.")
     return document_vault.serializar_documento(doc)
 
 
 @app.get("/api/documentos/{documento_id}/arquivo")
-def api_baixar_documento(documento_id: int, request: Request, db: Session = Depends(get_db)):
+def api_baixar_documento(documento_id: int, request: Request, inline: bool = Query(False),
+                         db: Session = Depends(get_db)):
     user = get_current_user(request, db)
     doc = document_vault.consulta_do_cofre(db, user.id if user else None).filter(DocumentoEmpresa.id == documento_id).first()
     if not doc:
         raise HTTPException(status_code=404, detail="Documento não encontrado.")
-    caminho = document_vault.resolver_caminho_documento(doc.caminho_arquivo)
-    if not caminho or not caminho.is_file():
+    arquivo = document_vault.ler_arquivo_documento(db, doc)
+    if not arquivo:
         raise HTTPException(status_code=404, detail="Arquivo físico não localizado no cofre.")
-    return FileResponse(
-        str(caminho),
-        media_type="application/pdf",
-        filename=f"{document_vault.slugify(doc.nome, 80)}.pdf"
-    )
+    conteudo, mime = arquivo
+    nome = f"{document_vault.slugify(doc.nome, 80)}{document_vault.EXTENSOES.get(mime, '.pdf')}"
+    disposicao = "inline" if inline else "attachment"
+    return Response(content=conteudo, media_type=mime, headers={
+        "Content-Disposition": f'{disposicao}; filename="{nome}"', "Cache-Control": "private, no-store"})
 
 
 @app.delete("/api/documentos/{documento_id}")
@@ -2722,8 +2722,8 @@ def api_excluir_documento(documento_id: int, request: Request, db: Session = Dep
         raise HTTPException(status_code=404, detail="Documento não encontrado.")
     caminho = doc.caminho_arquivo
     db.delete(doc)
+    arquivo_removido = document_vault.remover_arquivo_documento(caminho, db)
     db.commit()
-    arquivo_removido = document_vault.remover_arquivo_documento(caminho)
     return {"status": "success", "id": documento_id, "arquivo_removido": arquivo_removido}
 
 # ----------------- Itens e Arquivos do Certame (API de integração do PNCP) -----------------

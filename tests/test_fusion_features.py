@@ -534,7 +534,15 @@ def test_api_upload_listagem_e_exclusao_de_documento(cofre_isolado):
     assert doc["dias_restantes"] == 5
     assert doc["tags"] == ["CND", "Receita Federal"]
     assert doc["arquivo_disponivel"] is True
-    assert list((cofre_isolado / "documentos").glob("*.pdf"))
+    # Arquivo persistido no banco (sobrevive a deploys), não no disco efêmero
+    assert not list((cofre_isolado / "documentos").glob("*.pdf"))
+    from server.models import ArquivoCofre
+    db = SessionLocal()
+    registro = db.get(DocumentoEmpresa, doc["id"])
+    assert registro.caminho_arquivo.startswith("db:")
+    arquivo_id = int(registro.caminho_arquivo[3:])
+    assert db.get(ArquivoCofre, arquivo_id).conteudo.startswith(b"%PDF-")
+    db.close()
 
     lista = client.get("/api/documentos").json()
     assert any(i["id"] == doc["id"] for i in lista["items"])
@@ -552,7 +560,9 @@ def test_api_upload_listagem_e_exclusao_de_documento(cofre_isolado):
     excluir = client.delete(f"/api/documentos/{doc['id']}")
     assert excluir.status_code == 200
     assert excluir.json()["arquivo_removido"] is True
-    assert not list((cofre_isolado / "documentos").glob("*.pdf"))
+    db = SessionLocal()
+    assert db.get(ArquivoCofre, arquivo_id) is None
+    db.close()
 
 
 def test_api_upload_rejeita_arquivo_nao_pdf_e_datas_invalidas(cofre_isolado):

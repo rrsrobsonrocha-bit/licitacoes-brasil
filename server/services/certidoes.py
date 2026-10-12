@@ -158,7 +158,6 @@ def importar_por_cnpj(
     ativa = receita.get("situacao") == "ATIVA"
 
     resultados: List[Dict[str, Any]] = []
-    arquivos_gravados: List[str] = []
     try:
         for definicao in CERTIDOES:
             nome, link = definicao["nome"], definicao["link"].format(cnpj=cnpj)
@@ -196,10 +195,10 @@ def importar_por_cnpj(
                 link_oficial=link,
                 validade_padrao_dias=definicao["validade_dias"],
                 pendente=pdf is None,
+                tipo_documento=definicao["chave"],
             )
             if pdf:
-                doc.caminho_arquivo = document_vault.salvar_pdf_no_cofre(pdf, nome)
-                arquivos_gravados.append(doc.caminho_arquivo)
+                doc.caminho_arquivo = document_vault.salvar_arquivo_no_banco(db, pdf, nome, user_id)
             db.add(doc)
             db.flush()
             com_restricao = (definicao["chave"] == "cartao_cnpj" and not ativa) or (
@@ -209,9 +208,7 @@ def importar_por_cnpj(
                                "documento_id": doc.id, "link_oficial": link, "detalhe": detalhe})
         db.commit()
     except Exception:
-        db.rollback()
-        for caminho in arquivos_gravados:
-            document_vault.remover_arquivo_documento(caminho)
+        db.rollback()  # arquivos no banco são desfeitos junto
         raise
 
     return {

@@ -36,6 +36,12 @@ FastAPI + Jinja2 + SQLAlchemy (SQLite em desenvolvimento, PostgreSQL em produç�
   Cofre. Só entra válido o que foi consultado de fato (situação cadastral via BrasilAPI; CEIS/CNEP com
   `PORTAL_TRANSPARENCIA_API_KEY`); CND, CRF e CNDT entram PENDENTES com link oficial até o PDF ser anexado
   (`POST /api/documentos/{id}/anexar`). O Cofre é privado por conta (`DocumentoEmpresa.user_id`).
+- `server/services/document_ai.py` + `POST /api/documents/processar-lote`: upload em lote no Cofre com classificação
+  pelo Gemini Flash (JSON Schema estrito; taxonomia da Lei 14.133 em `TIPOS`). Prazos/situação são recalculados no
+  servidor; sem chave ou com o Gemini fora do ar, classificador por regras (`metodo` = "regras"). Encaixe em slot
+  (`tipo_documento` de slot único: pendente, vencido ou versão anterior) ou documento novo; CNPJ conferido com o da
+  importação por CNPJ. Resultado em `DocumentoEmpresa.metadados_ia` (JSONB). Arquivos do Cofre ficam no banco
+  (`arquivos_cofre`, `caminho_arquivo` = "db:<id>"), não no disco efêmero do Render.
 - `server/services/dossie.py` + `GET /api/fornecedores/dossie/{cnpj}`: Dossiê 360° (Receita/QSA, contratos do
   PNCP filtrados por `fornecedor_ni`, sanções, selo de aptidão), cache de 24 h em `dossies_fornecedor`.
 - `server/routes/webhooks.py`: webhook da Hotmart (modo de espera: registra eventos, não altera contas).

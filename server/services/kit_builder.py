@@ -23,7 +23,9 @@ from server.models import (
     Tender,
     hoje_sao_paulo,
 )
-from server.services.document_vault import consulta_do_cofre, resolver_caminho_documento, slugify
+from server.services.document_vault import (
+    EXTENSOES, arquivo_disponivel, consulta_do_cofre, ler_arquivo_documento, slugify,
+)
 from server.services.pdf_generator import (
     COR_BORDA,
     COR_NAVY,
@@ -119,8 +121,7 @@ def selecionar_documentos(db: Session, tender: Tender, hoje: date, user_id: Opti
             item.motivo_exclusao = "Pendente de emissão no site oficial"
             resultado.excluidos.append(item)
             continue
-        caminho = resolver_caminho_documento(doc.caminho_arquivo)
-        if not caminho or not caminho.is_file():
+        if not arquivo_disponivel(doc):
             item.motivo_exclusao = "Arquivo não localizado no cofre"
             resultado.excluidos.append(item)
             continue
@@ -289,8 +290,12 @@ def montar_kit_habilitacao_zip(
         with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as zf:
             zf.writestr(NOME_RELATORIO, relatorio)
             for item in resultado.incluidos:
-                caminho = resolver_caminho_documento(item.documento.caminho_arquivo)
-                zf.write(str(caminho), arcname=item.nome_no_zip)
+                arquivo = ler_arquivo_documento(sessao, item.documento)
+                if not arquivo:
+                    continue
+                conteudo, mime = arquivo
+                nome = item.nome_no_zip[:-4] + EXTENSOES.get(mime, ".pdf") if item.nome_no_zip.endswith(".pdf") else item.nome_no_zip
+                zf.writestr(nome, conteudo)
         return buffer.getvalue()
     finally:
         if sessao_propria:

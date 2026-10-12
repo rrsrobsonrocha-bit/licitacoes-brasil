@@ -4,8 +4,9 @@ from datetime import datetime, date, timedelta, timezone
 from typing import List, Optional
 from sqlalchemy import (
     Column, String, Text, Integer, Float, Boolean, DateTime, Date,
-    ForeignKey, UniqueConstraint, Index, JSON, Numeric, func
+    ForeignKey, UniqueConstraint, Index, JSON, Numeric, func, LargeBinary
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from server.database import Base
 
@@ -561,7 +562,7 @@ DOCUMENTO_CATEGORIAS = {
     "fiscal": "Regularidade Fiscal, Social e Trabalhista",
     "economica": "Qualificação Econômico-Financeira",
     "tecnica": "Qualificação Técnica",
-    "declaracoes": "Declarações",
+    "declaracoes": "Sanções e Declarações",
     "outros": "Outros",
 }
 
@@ -602,6 +603,10 @@ class DocumentoEmpresa(Base):
     link_oficial = Column(String(500), nullable=True)  # onde emitir/conferir a certidão
     validade_padrao_dias = Column(Integer, nullable=True)  # sugestão de validade ao anexar o PDF
     pendente = Column(Boolean, default=False, nullable=False)
+    # Tipo canônico (cnd_federal, crf_fgts, cndt, balanco_patrimonial, act...): base do encaixe em slots
+    tipo_documento = Column(String(50), nullable=True, index=True)
+    # Extração estruturada do documento (Gemini ou regras): JSONB no PostgreSQL
+    metadados_ia = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -637,6 +642,23 @@ class DocumentoEmpresa(Base):
 
     def is_valido(self, hoje: Optional[date] = None) -> bool:
         return self.status_validade(hoje) not in (DOCUMENTO_STATUS_VENCIDO, DOCUMENTO_STATUS_PENDENTE)
+
+
+class ArquivoCofre(Base):
+    """
+    Conteúdo binário dos arquivos do Cofre, persistido no banco (o disco do Render é apagado a cada
+    deploy). ``DocumentoEmpresa.caminho_arquivo`` aponta para cá como "db:<id>".
+    """
+    __tablename__ = "arquivos_cofre"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    nome_original = Column(String(255), nullable=False)
+    mime_type = Column(String(100), nullable=False, default="application/pdf")
+    tamanho = Column(Integer, nullable=False)
+    sha256 = Column(String(64), nullable=False, index=True)
+    conteudo = Column(LargeBinary, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
 class DossieFornecedor(Base):
