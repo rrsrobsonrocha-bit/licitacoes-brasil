@@ -13,6 +13,8 @@ _TEST_DB_DIR = tempfile.mkdtemp(prefix="licitacoes_tests_")
 os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL") or f"sqlite:///{os.path.join(_TEST_DB_DIR, 'test.db')}"
 # Sem chaves reais: serviços de IA usam o fallback local, a menos que o teste faça mock
 os.environ["GEMINI_API_KEY"] = ""
+os.environ["GEMINI_API_KEYS"] = ""
+os.environ["GOOGLE_API_KEY"] = ""
 os.environ["AI_API_KEY"] = ""
 os.environ["EMAIL_PROVIDER"] = "MOCK"
 # A suíte usa contas/certames de exemplo próprios (seed_dados_de_teste): a migração não deve apagá-los

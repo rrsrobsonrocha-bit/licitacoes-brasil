@@ -63,7 +63,7 @@ from server.search_engine import (
     PAGE_SIZE_PADRAO, SEM_COLUNAS_PESADAS,
 )
 from server.services import minutas
-from server.services import cache_metricas
+from server.services import cache_metricas, gemini_chaves
 from server.services import empresas as empresas_service
 from server.ai_engine import analyze_tender_document_with_ai
 from server.services.ai_service import analyze_tender_summary, ask_tender_question
@@ -1045,8 +1045,7 @@ ORGAOS_POR_PAGINA = 100
 
 
 def get_fornecedores_data(db: Session) -> Dict[str, Any]:
-    gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("AI_API_KEY") or ""
-    gemini_configured = bool(gemini_key and gemini_key.strip())
+    gemini_configured = gemini_chaves.tem_chaves()
     # Varredura do catálogo inteiro (milhares de órgãos): cache de 15 min, descartado após cada coleta
     return {"gemini_configured": gemini_configured,
             **cache_metricas.obter("fornecedores", lambda: _agregar_fornecedores(db))}

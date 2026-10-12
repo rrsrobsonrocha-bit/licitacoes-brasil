@@ -159,8 +159,10 @@ Retorne a resposta estritamente no esquema JSON solicitado."""
     candidate_models = [model_name, "gemini-3.5-flash-lite", "gemini-3.8-flash"]
     # Tentativa de chamada via Google GenAI (Gemini)
     try:
-        import google.genai as genai
-        client = genai.Client()
+        from server.services import gemini_chaves
+        client = gemini_chaves.cliente_rotativo()  # troca de chave quando a cota esgota
+        if client is None:
+            raise RuntimeError("Nenhuma chave do Gemini configurada (GEMINI_API_KEYS / GEMINI_API_KEY).")
         
         last_exception = None
         for cand_model in candidate_models:

@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from server.config import settings
+from server.services import gemini_chaves
 from server.database import SessionLocal
 from server.models import Tender, TenderItem, TenderDocument, AIAnalysis
 from server.security import calculate_sha256
@@ -58,13 +59,14 @@ DIRETRIZES:
 
 
 def _get_api_key() -> str:
-    """Recupera a chave da API do Gemini ativa nas configurações"""
-    return (
-        settings.GEMINI_API_KEY
-        or settings.AI_API_KEY
-        or os.getenv("GEMINI_API_KEY", "")
-        or os.getenv("AI_API_KEY", "")
-    )
+    """Primeira chave do Gemini configurada (GEMINI_API_KEYS ou GEMINI_API_KEY); vazia = fallback local."""
+    chaves = gemini_chaves.chaves_configuradas()
+    return chaves[0] if chaves else ""
+
+
+def _cliente_gemini(api_key: str) -> "gemini_chaves.ClienteRotativo":
+    """Cliente com rotação entre todas as chaves configuradas (troca de chave quando a cota esgota)."""
+    return gemini_chaves.ClienteRotativo(gemini_chaves.chaves_configuradas() or [api_key])
 
 
 def _normalize_model_name(name: str) -> str:
@@ -320,8 +322,7 @@ async def analyze_tender_summary(
 
         if api_key:
             try:
-                import google.genai as genai
-                client = genai.Client(api_key=api_key)
+                client = _cliente_gemini(api_key)
 
                 candidate_models = list(dict.fromkeys([model_name, "gemini-3.0-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite"]))
                 for candidate in candidate_models:
@@ -445,8 +446,7 @@ Pergunta do licitante:
 
         if api_key:
             try:
-                import google.genai as genai
-                client = genai.Client(api_key=api_key)
+                client = _cliente_gemini(api_key)
 
                 candidate_models = list(dict.fromkeys([model_name, "gemini-3.0-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite"]))
                 for candidate in candidate_models:

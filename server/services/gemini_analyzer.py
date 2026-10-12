@@ -6,6 +6,8 @@ import asyncio
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 
+from server.services import gemini_chaves
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -21,35 +23,16 @@ if "no_proxy" in os.environ and "[" in os.environ["no_proxy"]:
 
 
 def get_gemini_api_key() -> Optional[str]:
-    """Obtém a chave da API Gemini de variáveis de ambiente ou configurações."""
-    for key_name in ["GEMINI_API_KEY", "GOOGLE_API_KEY", "AI_API_KEY"]:
-        val = os.getenv(key_name)
-        if val and val.strip():
-            return val.strip()
-    try:
-        from server.config import settings
-        for attr in ["GEMINI_API_KEY", "AI_API_KEY"]:
-            val = getattr(settings, attr, None)
-            if val and str(val).strip():
-                return str(val).strip()
-    except Exception:
-        pass
-    return None
+    """Primeira chave configurada (GEMINI_API_KEYS ou, na falta dela, GEMINI_API_KEY e apelidos)."""
+    chaves = gemini_chaves.chaves_configuradas()
+    return chaves[0] if chaves else None
 
 
 def get_genai_client():
-    """Instancia o cliente oficial google-genai se a API Key estiver configurada."""
-    api_key = get_gemini_api_key()
-    if not api_key:
+    """Cliente do Gemini com rotação de chaves por cota (None sem chave ou sem o SDK google-genai)."""
+    if genai is None:
         return None
-    try:
-        global genai
-        if genai is None:
-            import google.genai as genai
-        return genai.Client(api_key=api_key)
-    except Exception as e:
-        logger.warning(f"Falha ao instanciar google.genai.Client: {e}")
-        return None
+    return gemini_chaves.cliente_rotativo()
 
 
 def _clean_json_response(raw_text: str) -> Dict[str, Any]:

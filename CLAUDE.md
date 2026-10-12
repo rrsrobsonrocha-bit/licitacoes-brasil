@@ -50,6 +50,10 @@ FastAPI + Jinja2 + SQLAlchemy (SQLite em desenvolvimento, PostgreSQL em produç�
   (`tipo_documento` de slot único: pendente, vencido ou versão anterior) ou documento novo; CNPJ conferido com o da
   importação por CNPJ. Resultado em `DocumentoEmpresa.metadados_ia` (JSONB). Arquivos do Cofre ficam no banco
   (`arquivos_cofre`, `caminho_arquivo` = "db:<id>"), não no disco efêmero do Render.
+- `server/services/gemini_chaves.py`: todas as chamadas ao Gemini (resumo, chat, análise de edital, Cofre) passam
+  pelo `ClienteRotativo`: chaves em `GEMINI_API_KEYS` (vírgulas; sem ela, `GEMINI_API_KEY`), round-robin por pedido,
+  e em erro de cota (429/RESOURCE_EXHAUSTED) a chave fica em espera (`retryDelay` ou 60 s) e o pedido é refeito com a
+  próxima. Só sobe erro (`CotaGeminiEsgotada`) quando todas falham no mesmo ciclo.
 - `server/services/dossie.py` + `GET /api/fornecedores/dossie/{cnpj}`: Dossiê 360° (Receita/QSA, contratos do
   PNCP filtrados por `fornecedor_ni`, sanções, selo de aptidão), cache de 24 h em `dossies_fornecedor`.
 - `server/routes/webhooks.py`: webhook da Hotmart (modo de espera: registra eventos, não altera contas).
