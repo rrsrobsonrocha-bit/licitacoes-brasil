@@ -2146,7 +2146,9 @@ def serialize_deal(deal: Deal, tender: Optional[Tender] = None) -> Dict[str, Any
             "link_pncp": getattr(t, "url_pncp", None) or t.link_pncp or t.source_url,
             "url_disputa": getattr(t, "url_disputa", None) or t.link_comprasnet or t.official_notice_url or (getattr(t, "url_pncp", None) or t.link_pncp or t.source_url),
             "url_pncp": getattr(t, "url_pncp", None) or t.link_pncp or t.source_url,
-            "source_url": t.source_url
+            "source_url": t.source_url,
+            "compras_gov": pncp_compras.origem_compras_gov(t),
+            "portal_nome": (portal_de_disputa(getattr(t, "url_disputa", None) or t.link_comprasnet) or {}).get("nome"),
         }
     selected_items = deal.selected_items if isinstance(deal.selected_items, list) else None
     return {

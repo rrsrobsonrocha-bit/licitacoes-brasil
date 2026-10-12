@@ -84,3 +84,45 @@ def test_kanban_atualiza_totais_ao_mover_cartoes():
     for marcador in ("function updateColumnCounts", "resumo-${st}", "dataset.valor", "kanban-total-valor",
                      'id="resumo-homologado"'):
         assert marcador in html, marcador
+
+
+def test_kanban_compacto_com_colunas_rolaveis_e_rodape_de_acoes(certames, usuario_auth):
+    import re as _re
+
+    h = usuario_auth.headers
+    a, b, _ = certames["ids"]
+    db = SessionLocal()
+    t = db.get(Tender, b)
+    t.url_disputa = "https://bnccompras.com/Process/ProcessView?param1=x"
+    t.modality = "Pregão - Eletrônico"
+    db.commit()
+    db.close()
+    client.post("/api/deals", headers=h, json={"tender_id": a, "modo": "global"})
+    client.post("/api/deals", headers=h, json={"tender_id": b, "modo": "global", "stage": "proposta"})
+    html = client.get("/negocios?view=quadros", headers=h).text
+
+    # Topo: "+ Buscar Oportunidades" sem símbolo duplicado; pílulas e botões na mesma altura
+    assert "+ Buscar Oportunidades" not in html and '<i class="fa-solid fa-plus"></i> Buscar Oportunidades' in html
+    topo = html[html.index('class="kanban-topo'):html.index("refreshKanban()") + 200]
+    assert topo.count("h-9 ") == 4
+
+    # Tabuleiro na altura útil da janela; colunas com cabeçalho fixo e lista própria rolável
+    assert "lg:h-[calc(100vh-230px)]" in html
+    assert html.count("kanban-col-header shrink-0") == 5
+    assert html.count("cards-container flex-1 min-h-0 overflow-y-auto pr-1 space-y-2.5 custom-scrollbar") == 5
+    assert "empty-state h-full min-h-[160px] flex flex-col items-center justify-center" in html
+
+    # Cartão em proposta: portal parceiro no topo, modalidade compacta, título em 2 linhas, órgão · UF
+    cartao = html.split('data-current-stage="proposta"', 1)[1].split('class="kanban-card', 1)[0]
+    assert "Bolsa Nacional de Compras (BNC)</span>" in cartao and ">PNCP</span>" in cartao
+    assert "text-[11px] font-semibold uppercase" in cartao and "line-clamp-2" in cartao
+    assert _re.search(r'<span class="truncate">Órgão Kanban 2</span>\s*<span class="shrink-0 text-slate-500">· DF</span>', cartao)
+    assert "text-emerald-400 font-bold text-sm" in cartao and "🌐 Edital Global" in cartao
+    assert "flex flex-wrap items-center justify-between" in cartao  # data e contagem quebram, não cortam
+    # Rodapé uniforme: ← Voltar | Jurídico | Avançar → (mesma altura)
+    rodape = cartao[cartao.index('class="deal-acoes'):]
+    assert [rotulo in rodape for rotulo in (">← Voltar</button>", "</i> Jurídico</a>", ">Avançar →</button>")] == [True] * 3
+    assert rodape.count("flex-1 h-7 ") == 3 and "btn-prev-stage flex-1 h-7 inline-flex" in rodape
+    # Primeira etapa: sem "Voltar"
+    primeira = html.split('data-current-stage="oportunidades"', 1)[1]
+    assert _re.search(r'btn-prev-stage[^"]*hidden', primeira.split("btn-next-stage", 1)[0])

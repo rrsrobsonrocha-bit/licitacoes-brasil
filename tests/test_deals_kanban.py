@@ -159,8 +159,8 @@ def test_kanban_html_view_and_cards(usuario_auth):
     assert 'const STAGES = ["oportunidades", "qualificacao", "proposta", "disputa", "homologado"];' in html
 
     # Validar botões de movimentação
-    assert "← voltar" in html
-    assert "avançar →" in html
+    assert ">← Voltar</button>" in html
+    assert ">Avançar →</button>" in html
 
     # Validar elementos do card
     assert "Valor do negócio" in html

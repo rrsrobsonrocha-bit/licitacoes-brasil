@@ -3,10 +3,10 @@
 {% block title %}Funil de Negócios & Kanban - Licitações Brasil{% endblock %}
 
 {% block content %}
-<div class="bg-[#0b0f19] min-h-screen text-slate-100 font-sans pb-16">
+<div class="bg-[#0b0f19] min-h-screen text-slate-100 font-sans pb-6">
   <!-- Header de Gestão Comercial -->
-  <div class="border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-md sticky top-16 z-30 py-5">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+  <div class="border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-md sticky top-16 z-30 py-4">
+    <div class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8">
       <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div class="flex items-center gap-3">
@@ -24,28 +24,28 @@
           </div>
         </div>
 
-        <div class="flex flex-wrap items-center gap-2.5">
-          <div class="bg-emerald-500/10 border border-emerald-500/40 rounded-xl px-3 py-1.5 flex items-center gap-2 text-xs">
+        <div class="kanban-topo flex flex-wrap items-center gap-2">
+          <div class="h-9 bg-emerald-500/10 border border-emerald-500/40 rounded-xl px-3 flex items-center gap-2 text-xs whitespace-nowrap">
             <span class="text-emerald-200 font-semibold">Valor Total em Pipeline:</span>
             <span id="kanban-total-valor" class="font-black text-emerald-300 font-mono text-sm">{{ valor_pipeline|brl }}</span>
           </div>
-          <div class="bg-slate-800/80 border border-slate-700/70 rounded-xl px-3 py-1.5 flex items-center gap-2 text-xs">
+          <div class="h-9 bg-slate-800/80 border border-slate-700/70 rounded-xl px-3 flex items-center gap-2 text-xs whitespace-nowrap">
             <span class="text-slate-400">Negócios:</span>
             <span id="kanban-total-deals" class="font-bold text-emerald-400 font-mono">{{ total_deals }}</span>
           </div>
 
-          <a href="/search" class="bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-semibold px-4 py-2 rounded-xl text-xs transition shadow-sm flex items-center gap-2">
-            <i class="fa-solid fa-plus"></i> + Buscar Oportunidades
+          <a href="/search" class="h-9 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-semibold px-4 rounded-xl text-xs transition shadow-sm flex items-center gap-2 whitespace-nowrap">
+            <i class="fa-solid fa-plus"></i> Buscar Oportunidades
           </a>
 
-          <button onclick="refreshKanban()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-medium px-3.5 py-2 rounded-xl text-xs transition flex items-center gap-1.5 cursor-pointer" title="Recarregar Quadro">
+          <button onclick="refreshKanban()" class="h-9 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-medium px-3.5 rounded-xl text-xs transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap" title="Recarregar Quadro">
             <i class="fa-solid fa-arrows-rotate" id="refresh-icon"></i> Atualizar
           </button>
         </div>
       </div>
 
       <!-- Barra de Filtros Rápidos e Visualização -->
-      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mt-4 pt-3 border-t border-slate-800/60">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mt-3 pt-3 border-t border-slate-800/60">
         <div class="flex items-center gap-2">
           <span class="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
             <i class="fa-solid fa-eye text-emerald-400"></i> Visualização:
@@ -77,7 +77,7 @@
 
   {% if user and total_deals == 0 %}
   <!-- Funil vazio: convite para explorar o catálogo global de editais abertos -->
-  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
+  <div class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 mt-4">
     <div id="funil-vazio-cta" class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-emerald-500/5 border border-dashed border-emerald-500/30 rounded-2xl p-5">
       <div class="flex items-start gap-3">
         <div class="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center shrink-0">
@@ -96,14 +96,14 @@
   {% endif %}
 
   <!-- Quadro Kanban (5 Colunas) -->
-  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+  <div class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 mt-4">
+    <div id="kanban-board" class="kanban-board grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3 lg:h-[calc(100vh-230px)] lg:min-h-[420px]">
       
       {% for etapa in ETAPAS_FUNIL %}
       {% set st = etapa.chave %}
       <!-- {{ loop.index }}. {{ etapa.rotulo|upper }} -->
-      <div class="kanban-column flex flex-col bg-slate-900/50 border border-slate-800 rounded-2xl p-3 shadow-lg" data-stage="{{ st }}" ondragover="allowDrop(event)" ondrop="handleDrop(event, '{{ st }}')">
-        <div class="flex items-center justify-between pb-3 mb-3 border-b border-slate-800">
+      <div class="kanban-column flex flex-col min-h-0 max-h-[75vh] lg:max-h-none lg:h-full bg-slate-900/50 border border-slate-800 rounded-2xl p-2.5 shadow-lg" data-stage="{{ st }}" ondragover="allowDrop(event)" ondrop="handleDrop(event, '{{ st }}')">
+        <div class="kanban-col-header shrink-0 flex items-center justify-between px-0.5 pb-2 border-b border-slate-800">
           <div class="flex items-center gap-2 min-w-0">
             <span class="w-2.5 h-2.5 shrink-0 rounded-full bg-{{ etapa.cor }}-400 ring-4 ring-{{ etapa.cor }}-400/20"></span>
             <h2 class="text-xs font-black tracking-wider uppercase text-{{ etapa.cor }}-400 truncate" title="{{ etapa.descricao }}">{{ etapa.rotulo }}</h2>
@@ -112,14 +112,14 @@
             {{ counts[st] }}
           </span>
         </div>
-        <p id="resumo-{{ st }}" class="kanban-resumo -mt-1 mb-3 text-[11px] font-mono text-slate-400">{{ counts[st] }} {{ 'negócio' if counts[st] == 1 else 'negócios' }} · <span class="text-emerald-300 font-bold">{{ valores[st]|brl }}</span></p>
-        <div id="cards-{{ st }}" class="cards-container flex-1 space-y-3 min-h-[350px]">
+        <p id="resumo-{{ st }}" class="kanban-resumo shrink-0 px-0.5 pt-1.5 pb-2 text-[11px] font-mono text-slate-400 truncate">{{ counts[st] }} {{ 'negócio' if counts[st] == 1 else 'negócios' }} · <span class="text-emerald-300 font-bold">{{ valores[st]|brl }}</span></p>
+        <div id="cards-{{ st }}" class="cards-container flex-1 min-h-0 overflow-y-auto pr-1 space-y-2.5 custom-scrollbar" data-vazio-icone="{{ etapa.icone }}" data-vazio-texto="{{ etapa.vazio }}">
           {% for deal in grouped_deals[st] %}
             {% include "partials_deal_card.html" %}
           {% else %}
-            <div class="empty-state text-center py-10 px-2 text-slate-500 text-xs border border-dashed border-slate-800 rounded-xl">
-              <i class="fa-solid {{ etapa.icone }} text-xl text-slate-600 block mb-2"></i>
-              {{ etapa.vazio }}
+            <div class="empty-state h-full min-h-[160px] flex flex-col items-center justify-center gap-2 text-center px-3 text-slate-500 text-xs border border-dashed border-slate-800 rounded-xl bg-slate-900/30">
+              <span class="w-9 h-9 rounded-full bg-slate-800/80 border border-slate-700/60 flex items-center justify-center"><i class="fa-solid {{ etapa.icone }} text-slate-500"></i></span>
+              <span class="leading-snug">{{ etapa.vazio }}</span>
             </div>
           {% endfor %}
         </div>
@@ -167,13 +167,13 @@
         const cd = calculateCountdown(dateStr);
         el.textContent = cd.text;
         if (cd.isUrgent) {
-          el.className = 'countdown-badge text-[11px] font-mono px-2 py-0.5 rounded-md font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20';
+          el.className = 'countdown-badge shrink-0 text-[10px] font-mono px-1.5 py-0.5 rounded font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20';
         }
       }
     });
   }
 
-  // Movimentação do Deal entre colunas ("← voltar" / "avançar →")
+  // Movimentação do Deal entre colunas ("← Voltar" / "Avançar →")
   async function moveDealStage(dealId, direction) {
     const card = document.getElementById(`deal-card-${dealId}`);
     if (!card) return;
@@ -272,12 +272,16 @@
 
       // Se ficou vazio, adicionar placeholder
       if (cards.length === 0 && colContainer && !colContainer.querySelector('.empty-state')) {
-        colContainer.innerHTML = `
-          <div class="empty-state text-center py-10 px-2 text-slate-500 text-xs border border-dashed border-slate-800 rounded-xl">
-            <i class="fa-solid fa-inbox text-xl text-slate-600 block mb-2"></i>
-            Nenhum certame neste estágio
-          </div>
-        `;
+        const vazio = document.createElement('div');
+        vazio.className = 'empty-state h-full min-h-[160px] flex flex-col items-center justify-center gap-2 text-center px-3 text-slate-500 text-xs border border-dashed border-slate-800 rounded-xl bg-slate-900/30';
+        const icone = document.createElement('span');
+        icone.className = 'w-9 h-9 rounded-full bg-slate-800/80 border border-slate-700/60 flex items-center justify-center';
+        icone.innerHTML = `<i class="fa-solid ${colContainer.dataset.vazioIcone || 'fa-inbox'} text-slate-500"></i>`;
+        const texto = document.createElement('span');
+        texto.className = 'leading-snug';
+        texto.textContent = colContainer.dataset.vazioTexto || 'Nenhum certame neste estágio';
+        vazio.append(icone, texto);
+        colContainer.replaceChildren(vazio);
       }
     });
 
@@ -311,7 +315,7 @@
     document.querySelectorAll('.kanban-card').forEach(card => {
       const text = card.textContent.toLowerCase();
       if (!query || text.includes(query)) {
-        card.style.display = 'block';
+        card.style.display = '';
       } else {
         card.style.display = 'none';
       }
