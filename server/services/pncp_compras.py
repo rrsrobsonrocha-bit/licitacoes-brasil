@@ -398,21 +398,69 @@ def compras_fora_do_ar() -> bool:
     return time.time() < _compras_fora_ate
 
 
-async def buscar_itens_compras_gov(numero_controle: str) -> Optional[List[Dict[str, Any]]]:
+# Sala de disputa no Compras.gov.br (federal ou órgão estadual/municipal que usa o SIASG)
+_HOSTS_COMPRAS_GOV = ("compras.gov.br", "comprasnet.gov.br", "estaleiro.serpro.gov.br")
+# idCompra do SIASG = UASG (6) + modalidade SIASG (2) + número da compra (5) + ano (4); o link da sala o traz pronto
+_RE_ID_COMPRA = re.compile(r"[?&]compra=(\d{17})(?!\d)")
+# Modalidade no PNCP -> código SIASG do idCompra (conferido na API de Dados Abertos)
+_MODALIDADE_SIASG = (("pregão", "05"), ("pregao", "05"), ("concorrência", "03"), ("concorrencia", "03"),
+                     ("dispensa", "06"), ("inexigibilidade", "07"))
+
+
+def _campo(tender: Any, nome: str) -> Any:
+    return tender.get(nome) if isinstance(tender, dict) else getattr(tender, nome, None)
+
+
+def _links_da_sala(tender: Any) -> List[str]:
+    return [str(v) for v in (_campo(tender, "url_disputa"), _campo(tender, "link_comprasnet"),
+                             _campo(tender, "official_notice_url")) if v]
+
+
+def origem_compras_gov(tender: Any) -> bool:
+    """O certame é disputado no Compras.gov.br (pelo link oficial da sala)."""
+    for link in _links_da_sala(tender):
+        try:
+            host = (urlparse(link).hostname or "").lower()
+        except ValueError:
+            continue
+        if any(host == h or host.endswith("." + h) for h in _HOSTS_COMPRAS_GOV) or "gov.br/compras" in link.lower():
+            return True
+    return False
+
+
+def id_compra_siasg(tender: Any, ident: Optional[IdentificadorCompra] = None) -> Optional[str]:
     """
-    Itens da compra na API de Dados Abertos do Compras.gov.br (consulta por numeroControlePNCP).
-    Cobre as compras do SIASG (federais e órgãos que usam o Compras.gov.br). None = sem resposta
-    ou compra fora da base; lista = itens normalizados como os do PNCP.
+    idCompra do Compras.gov.br: do link da sala (``acompanhamento-compra?compra=...``) ou montado da UASG
+    (``uasg_code`` de 6 dígitos), da modalidade e do número/ano do aviso. None se faltar algum dado.
     """
+    for link in _links_da_sala(tender):
+        m = _RE_ID_COMPRA.search(link)
+        if m:
+            return m.group(1)
+    uasg = re.sub(r"\D", "", str(_campo(tender, "uasg_code") or ""))
+    if len(uasg) != 6:
+        return None
+    modalidade = (_campo(tender, "modality") or "").lower()
+    codigo_mod = next((c for nome, c in _MODALIDADE_SIASG if nome in modalidade), None)
+    aviso = str(_campo(tender, "notice_number") or "")
+    m = re.match(r"\D*(\d{1,5})(?:\s*/\s*(\d{4}))?", aviso)
+    ano = (m.group(2) if m else None) or (ident.ano if ident else None)
+    if not (codigo_mod and m and ano):
+        return None
+    return f"{uasg}{codigo_mod}{int(m.group(1)):05d}{ano}"
+
+
+async def _consultar_itens_compras(tipo: str, codigo: str) -> Optional[List[Dict[str, Any]]]:
+    """Uma consulta à API de itens do Compras.gov.br; None = sem resposta (rede/HTTP), lista = resultado."""
     global _compras_fora_ate
     url = f"{settings.COMPRAS_DADOS_ABERTOS_URL}/{COMPRAS_ITENS_PATH}"
     try:
         async with _cliente(TIMEOUT_COMPRAS) as cliente:
-            resp = await cliente.get(url, params={"tipo": "numeroControlePNCPCompra", "codigo": numero_controle})
+            resp = await cliente.get(url, params={"tipo": tipo, "codigo": codigo})
     except httpx.HTTPError as exc:
         if isinstance(exc, (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError)):
             _compras_fora_ate = time.time() + PAUSA_PNCP_FORA_SEGUNDOS
-        logger.info("Compras.gov.br indisponível para %s: %s", numero_controle, exc.__class__.__name__)
+        logger.info("Compras.gov.br indisponível para %s=%s: %s", tipo, codigo, exc.__class__.__name__)
         return None
     if resp.status_code != 200:
         return None
@@ -422,12 +470,32 @@ async def buscar_itens_compras_gov(numero_controle: str) -> Optional[List[Dict[s
     except ValueError:
         return None
     brutos = dados.get("resultado") if isinstance(dados, dict) else None
-    if not isinstance(brutos, list) or not brutos:
+    return [b for b in brutos if isinstance(b, dict)] if isinstance(brutos, list) else None
+
+
+async def buscar_itens_compras_gov(numero_controle: Optional[str], id_compra: Optional[str] = None,
+                                   cnpj: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:
+    """
+    Itens da compra na API de Dados Abertos do Compras.gov.br. Cobre todas as compras do SIASG:
+    federais e órgãos estaduais/municipais que usam o Compras.gov.br. Consulta pelo idCompra (UASG)
+    e, sem resultado, pelo numeroControlePNCP. Itens de outra compra (idCompra montado da UASG que
+    não confere com o certame) são descartados. None = nada encontrado; lista = itens normalizados.
+    """
+    consultas = [("idCompra", id_compra), ("numeroControlePNCPCompra", numero_controle)]
+    brutos: List[Dict[str, Any]] = []
+    for tipo, codigo in consultas:
+        if not codigo:
+            continue
+        resultado = await _consultar_itens_compras(tipo, codigo) or []
+        brutos = [r for r in resultado
+                  if (not numero_controle or r.get("idContratacaoPNCP") in (None, numero_controle))
+                  and (not cnpj or r.get("orgaoEntidadeCnpj") in (None, cnpj))]
+        if brutos:
+            break
+    if not brutos:
         return None
     itens: Dict[int, Dict[str, Any]] = {}
     for raw in brutos:
-        if not isinstance(raw, dict):
-            continue
         descricao = " — ".join(t for t in (_texto(raw.get("descricaoResumida")), _texto(raw.get("descricaodetalhada"))) if t)
         convertido = {
             **raw,
@@ -478,6 +546,8 @@ async def sincronizar_itens(db: Session, tender: Tender, forcar: bool = False, i
     O que vier de uma fonte oficial é gravado em lote. Em falha das duas, devolve os itens locais
     com ``status`` = "indisponivel" (ou "nao_encontrado" se o PNCP disser que a compra não existe).
     ``interativo`` (telas): timeouts curtos e, com a fonte fora do ar há pouco, nem tenta a consulta.
+    Compra do Compras.gov.br (link da sala ou UASG) com o PNCP sob o disjuntor vai direto aos Dados
+    Abertos. ``forcar`` (botão da tela, ``?forcar=true``) ignora cache, falhas recentes e disjuntores.
     """
     existentes = _itens_do_banco(db, tender.id)
     origem_atual = next((i.origem for i in existentes if i.origem in ORIGENS_OFICIAIS), None)
@@ -492,6 +562,7 @@ async def sincronizar_itens(db: Session, tender: Tender, forcar: bool = False, i
             "total": len(itens),
             "valor_total_estimado": round(sum(i.estimated_total_value or 0 for i in itens), 2),
             "pncp_url": ident.url_publica if ident else None,
+            "compras_gov": origem_compras_gov(tender) or bool(id_compra_siasg(tender, ident)),
             "itens": [serializar_item(i) for i in itens],
         }
 
@@ -507,10 +578,33 @@ async def sincronizar_itens(db: Session, tender: Tender, forcar: bool = False, i
 
     tender_id = tender.id
     numero_controle = numero_controle_pncp(tender, ident)
+    id_compra = id_compra_siasg(tender, ident)
+    via_compras = bool(id_compra) or origem_compras_gov(tender)
     db.commit()  # devolve a conexão ao pool enquanto espera a rede (sem segurar o banco)
+    compras_consultado = False
+
+    async def tentar_compras(falha: Optional[str]) -> Optional[Dict[str, Any]]:
+        nonlocal compras_consultado
+        if compras_consultado or not fallback_compras or not (numero_controle or id_compra):
+            return None
+        if interativo and not forcar and compras_fora_do_ar():
+            return None
+        compras_consultado = True
+        itens_compras = await buscar_itens_compras_gov(numero_controle, id_compra=id_compra, cnpj=ident.cnpj)
+        if not itens_compras:
+            return None
+        _gravar_itens(db, tender, itens_compras, "COMPRAS")
+        _falhas_recentes.pop(f"itens:{tender_id}", None)
+        return resposta("sincronizado", f"{falha}. Itens obtidos no Compras.gov.br.", "COMPRAS")
 
     falha_pncp: Optional[str] = None
-    if interativo and not forcar and pncp_fora_do_ar():
+    pncp_em_pausa = interativo and pncp_fora_do_ar()
+    if pncp_em_pausa and via_compras:
+        # Compra do Compras.gov.br com o PNCP sob o disjuntor: Dados Abertos na hora, sem esperar o PNCP
+        pronto = await tentar_compras(MENSAGEM_PNCP_FORA)
+        if pronto:
+            return pronto
+    if pncp_em_pausa and not forcar:
         falha_pncp = MENSAGEM_PNCP_FORA
     else:
         try:
@@ -528,15 +622,13 @@ async def sincronizar_itens(db: Session, tender: Tender, forcar: bool = False, i
             _falhas_recentes.pop(f"itens:{tender_id}", None)
             return resposta("sincronizado", None, "PNCP")
 
-    # Camada 3: Compras.gov.br (só quando o PNCP falhou)
-    if fallback_compras and numero_controle and (forcar or not (interativo and compras_fora_do_ar())):
-        itens_compras = await buscar_itens_compras_gov(numero_controle)
-        if itens_compras:
-            _gravar_itens(db, tender, itens_compras, "COMPRAS")
-            _falhas_recentes.pop(f"itens:{tender_id}", None)
-            return resposta("sincronizado", f"{falha_pncp}. Itens obtidos no Compras.gov.br.", "COMPRAS")
+    # Camada 3: Compras.gov.br (só quando o PNCP falhou), por idCompra/UASG e numeroControlePNCP
+    pronto = await tentar_compras(falha_pncp)
+    if pronto:
+        return pronto
 
-    msg = f"{falha_pncp}. Exibindo itens da base local."
+    complemento = " O Compras.gov.br ainda não tem os itens desta compra nos Dados Abertos." if compras_consultado else ""
+    msg = f"{falha_pncp}.{complemento} Exibindo itens da base local."
     if not interativo:  # na tela, o botão "Atualizar do PNCP" pode tentar de novo logo
         _registrar_falha(f"itens:{tender_id}", msg)
     return resposta("indisponivel", msg)

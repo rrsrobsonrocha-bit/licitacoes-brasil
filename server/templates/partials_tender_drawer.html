@@ -75,7 +75,7 @@
     <!-- Objeto detalhado -->
     <section class="bg-[#111827] p-4 rounded-2xl border border-slate-800">
       <h3 class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2 flex items-center gap-2"><i class="fa-solid fa-align-left text-sky-400" aria-hidden="true"></i> Objeto da Licitação</h3>
-      <p id="drawer-objeto" class="text-xs text-slate-300 leading-relaxed whitespace-pre-line">—</p>
+      <p id="drawer-objeto" class="text-xs text-slate-300 leading-relaxed whitespace-pre-line max-h-48 overflow-y-auto pr-2 custom-scrollbar break-words" tabindex="0">—</p>
     </section>
 
     <!-- Resumo com IA (recolhido até ser pedido) -->
@@ -112,23 +112,23 @@
           <div id="drawer-ai-summary-content" class="hidden space-y-3 text-xs">
             <div class="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800">
               <div class="text-[10px] uppercase font-bold tracking-wider text-indigo-400 mb-1">Objeto em linguagem clara</div>
-              <p class="text-slate-200 leading-relaxed" id="ai-summary-objeto">-</p>
+              <p class="text-slate-200 leading-relaxed whitespace-pre-line max-h-48 overflow-y-auto pr-2 custom-scrollbar break-words" id="ai-summary-objeto" tabindex="0">-</p>
             </div>
             <div class="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800">
               <div class="text-[10px] uppercase font-bold tracking-wider text-amber-400 mb-1.5">Habilitação técnica crítica</div>
-              <ul class="space-y-1.5 text-slate-300 list-disc list-inside" id="ai-summary-habilitacao"></ul>
+              <ul class="space-y-1.5 text-slate-300 list-disc list-inside max-h-48 overflow-y-auto pr-2 custom-scrollbar break-words" id="ai-summary-habilitacao" tabindex="0"></ul>
             </div>
             <div class="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800">
               <div class="text-[10px] uppercase font-bold tracking-wider text-sky-400 mb-1">Prazos de entrega / execução</div>
-              <p class="text-slate-200 leading-relaxed" id="ai-summary-prazos">-</p>
+              <p class="text-slate-200 leading-relaxed whitespace-pre-line max-h-48 overflow-y-auto pr-2 custom-scrollbar break-words" id="ai-summary-prazos" tabindex="0">-</p>
             </div>
             <div class="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800">
               <div class="text-[10px] uppercase font-bold tracking-wider text-rose-400 mb-1">Pagamento e sanções</div>
-              <p class="text-slate-200 leading-relaxed" id="ai-summary-pagamento">-</p>
+              <p class="text-slate-200 leading-relaxed whitespace-pre-line max-h-48 overflow-y-auto pr-2 custom-scrollbar break-words" id="ai-summary-pagamento" tabindex="0">-</p>
             </div>
             <div id="ai-summary-pontos-box" class="p-3.5 rounded-xl bg-indigo-950/30 border border-indigo-800/40 hidden">
               <div class="text-[10px] uppercase font-bold tracking-wider text-indigo-300 mb-1">Pontos de atenção</div>
-              <ul class="space-y-1 text-slate-300 list-disc list-inside" id="ai-summary-pontos"></ul>
+              <ul class="space-y-1 text-slate-300 list-disc list-inside max-h-48 overflow-y-auto pr-2 custom-scrollbar break-words" id="ai-summary-pontos" tabindex="0"></ul>
             </div>
           </div>
         </div>
@@ -180,7 +180,7 @@
         </div>
         <div class="flex items-center justify-between mt-2">
           <span id="drawer-itens-total" class="text-[11px] text-slate-400 font-mono"></span>
-          <button type="button" id="drawer-itens-atualizar" onclick="atualizarItensDoPncp()" class="text-[11px] text-sky-400 hover:text-sky-300 font-semibold cursor-pointer"><i class="fa-solid fa-rotate-right mr-1" aria-hidden="true"></i>Atualizar do PNCP</button>
+          <button type="button" id="drawer-itens-atualizar" onclick="atualizarItensDoPncp()" class="text-[11px] text-sky-400 hover:text-sky-300 font-semibold cursor-pointer disabled:opacity-60 disabled:cursor-wait"><i class="fa-solid fa-rotate-right mr-1" aria-hidden="true"></i><span id="drawer-itens-atualizar-texto">Atualizar do PNCP</span></button>
         </div>
       </div>
     </details>
@@ -478,7 +478,7 @@
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), DRAWER_PNCP_TIMEOUT_MS);
       try {
-        const resp = await fetch(`/api/tenders/${encodeURIComponent(tenderId)}/drawer${atualizar ? '?atualizar=true' : ''}`, { signal: controller.signal });
+        const resp = await fetch(`/api/tenders/${encodeURIComponent(tenderId)}/drawer${atualizar ? '?forcar=true' : ''}`, { signal: controller.signal });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const dados = await resp.json();
         if (requestSeq !== drawerRequestSeq) return currentDrawerItems;
@@ -498,21 +498,30 @@
     return drawerItemsPromise;
   }
 
-  function atualizarDrawerDoPncp() {
+  const MSG_CONSULTANDO = 'Consultando portal oficial...';
+
+  // Compra disputada no Compras.gov.br (ou com UASG): o botão consulta Compras.gov.br e PNCP
+  function rotuloSincronizar() {
+    return currentDrawerTender && currentDrawerTender.compras_gov ? 'Sincronizar Itens (Compras.gov.br / PNCP)' : 'Atualizar do PNCP';
+  }
+
+  function atualizarDrawerDoPncp(botao) {
     if (!currentDrawerTender) return;
-    document.getElementById('drawer-itens-tbody').innerHTML = linhaMensagemItens('Consultando itens no PNCP...', 'carregando');
-    document.getElementById('drawer-arquivos-lista').innerHTML = itemMensagemArquivos('Consultando anexos no PNCP...', 'carregando');
+    if (botao) { botao.disabled = true; botao.innerHTML = `<i class="fa-solid fa-spinner animate-spin" aria-hidden="true"></i> ${MSG_CONSULTANDO}`; }
+    document.getElementById('drawer-itens-tbody').innerHTML = linhaMensagemItens(MSG_CONSULTANDO, 'carregando');
+    document.getElementById('drawer-arquivos-lista').innerHTML = itemMensagemArquivos(MSG_CONSULTANDO, 'carregando');
     return carregarPncpDoDrawer(currentDrawerTender.id, drawerRequestSeq, true);
   }
 
   function botaoAtualizarPncp() {
-    return '<button type="button" onclick="atualizarDrawerDoPncp()" class="ml-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-sky-600 hover:bg-sky-500 text-white transition"><i class="fa-solid fa-rotate" aria-hidden="true"></i> Atualizar do PNCP</button>';
+    return `<button type="button" onclick="atualizarDrawerDoPncp(this)" class="ml-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-sky-600 hover:bg-sky-500 text-white transition disabled:opacity-60 disabled:cursor-wait"><i class="fa-solid fa-rotate" aria-hidden="true"></i> ${rotuloSincronizar()}</button>`;
   }
 
   function preencherDrawer(dados) {
     const t = dados.tender;
     // Aliases usados pelo modal de itens e pelas ações do funil
     currentDrawerTender = Object.assign({}, t, { notice_number: t.numero_ano, title: t.titulo });
+    definirTexto('drawer-itens-atualizar-texto', rotuloSincronizar());
 
     definirTexto('drawer-modalidade', (t.modalidade || 'Modalidade não informada').toUpperCase());
     mostrarChip('drawer-esfera', t.esfera_rotulo);
@@ -699,11 +708,14 @@
     const tenderId = currentDrawerTender.id;
     const seq = drawerRequestSeq;
     const btn = document.getElementById('drawer-itens-atualizar');
+    const texto = document.getElementById('drawer-itens-atualizar-texto');
     btn.disabled = true;
-    document.getElementById('drawer-itens-tbody').innerHTML = linhaMensagemItens('Consultando itens no PNCP...', 'carregando');
+    texto.textContent = MSG_CONSULTANDO;
+    btn.querySelector('i').className = 'fa-solid fa-spinner animate-spin mr-1';
+    document.getElementById('drawer-itens-tbody').innerHTML = linhaMensagemItens(MSG_CONSULTANDO, 'carregando');
     drawerItemsPromise = (async () => {
       try {
-        const resp = await fetch(`/api/tenders/${encodeURIComponent(tenderId)}/itens?atualizar=true`);
+        const resp = await fetch(`/api/tenders/${encodeURIComponent(tenderId)}/itens?forcar=true`);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const dados = await resp.json();
         if (seq === drawerRequestSeq) renderItensDrawer(dados);
@@ -713,6 +725,8 @@
         return currentDrawerItems;
       } finally {
         btn.disabled = false;
+        texto.textContent = rotuloSincronizar();
+        btn.querySelector('i').className = 'fa-solid fa-rotate-right mr-1';
       }
     })();
     return drawerItemsPromise;
@@ -917,7 +931,7 @@
         <input type="checkbox" data-item-number="${escapeHtml(numero)}" ${marcado ? 'checked' : ''} onchange="updateDealItemsSummary()" class="mt-0.5 w-4 h-4 shrink-0 rounded border-slate-600 bg-slate-800 accent-sky-500 cursor-pointer" />
         <span class="font-mono font-bold text-sky-400 text-xs w-8 shrink-0">${escapeHtml(numero)}</span>
         <span class="flex-1 min-w-0">
-          <span class="block text-xs text-slate-200 leading-snug line-clamp-2" title="${escapeHtml(descricao)}">${escapeHtml(descricao)}</span>
+          <span class="block text-xs text-slate-200 leading-snug max-h-24 overflow-y-auto pr-2 custom-scrollbar break-words" title="${escapeHtml(descricao)}">${escapeHtml(descricao)}</span>
           <span class="block text-[10px] text-slate-400 font-mono mt-0.5">${qtd ? `${escapeHtml(qtd)} ${escapeHtml(unidade)}` : 'Qtd. não informada'}${unitario ? ` × ${escapeHtml(unitario)}` : ''}</span>
         </span>
         <span class="text-xs font-mono font-bold whitespace-nowrap ${total ? 'text-emerald-300' : 'text-slate-500 font-normal'}">${total || (item.orcamento_sigiloso ? 'Sigiloso' : '—')}</span>
@@ -949,7 +963,7 @@
     let dados = null;
     try {
       const [resp, selecaoAnterior] = await Promise.all([
-        fetch(`/api/tenders/${encodeURIComponent(tender.id)}/itens${atualizar ? '?atualizar=true' : ''}`, { signal: controller.signal }),
+        fetch(`/api/tenders/${encodeURIComponent(tender.id)}/itens${atualizar ? '?forcar=true' : ''}`, { signal: controller.signal }),
         fetch('/api/deals', { headers: cabecalhosAuth() }).then(r => r.ok ? r.json() : null).then(data => {
           const deal = (data && data.deals || []).find(d => String(d.tender_id) === String(tender.id));
           if (deal) {

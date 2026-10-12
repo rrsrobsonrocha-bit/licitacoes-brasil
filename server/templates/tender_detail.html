@@ -145,7 +145,7 @@
               <span class="text-slate-400 font-bold uppercase text-[10px] tracking-wider block mb-1 flex items-center gap-1.5">
                 <i class="fa-solid fa-file-invoice text-indigo-400"></i> Resumo Executivo da Oportunidade:
               </span>
-              <p class="text-slate-200 leading-relaxed text-xs" id="gemini-overview-resumo">
+              <p class="text-slate-200 leading-relaxed text-xs whitespace-pre-line max-h-48 overflow-y-auto pr-2 custom-scrollbar break-words" id="gemini-overview-resumo" tabindex="0">
                 {{ detail.tender.ai_resumo or (detail.latest_ai_analysis.result_json.resumo_executivo.o_que_sera_contratado if detail.latest_ai_analysis and detail.latest_ai_analysis.result_json and detail.latest_ai_analysis.result_json.resumo_executivo else 'Certame selecionado para triagem automatizada multifonte. Clique em "Analisar com Gemini" para decodificar exigências de habilitação, itens e estimativa orçamentária.') }}
               </p>
             </div>
@@ -156,7 +156,7 @@
                 <span class="text-rose-300 font-bold uppercase text-[10px] tracking-wider block mb-1 flex items-center gap-1.5">
                   <i class="fa-solid fa-triangle-exclamation text-rose-400"></i> Alertas de Risco Jurídico / Execução:
                 </span>
-                <p class="text-rose-100/90 text-[11px] leading-relaxed" id="gemini-overview-riscos">
+                <p class="text-rose-100/90 text-[11px] leading-relaxed whitespace-pre-line max-h-48 overflow-y-auto pr-2 custom-scrollbar break-words" id="gemini-overview-riscos" tabindex="0">
                   {{ detail.tender.ai_pontos_atencao or 'Exigências de qualificação técnica e cláusulas de penalidade requerem atenção prévia ao envio da proposta.' }}
                 </p>
               </div>
@@ -189,7 +189,7 @@
           <h2 class="text-base font-bold text-slate-900 mb-3 flex items-center gap-2">
             <i class="fa-solid fa-align-left text-sky-600"></i> Objeto da Contratação
           </h2>
-          <div class="text-sm text-slate-700 leading-relaxed whitespace-pre-line bg-slate-50 p-4 rounded-xl border border-slate-100">
+          <div class="text-sm text-slate-700 leading-relaxed whitespace-pre-line bg-slate-50 p-4 rounded-xl border border-slate-100 max-h-48 overflow-y-auto pr-2 custom-scrollbar break-words" id="objeto-completo" tabindex="0">
             {{ detail.tender.object_description }}
           </div>
         </div>
@@ -308,7 +308,7 @@
             <input id="itens-busca" type="search" placeholder="Filtrar itens..." class="pl-7 pr-2 py-1.5 text-xs border border-slate-200 rounded-lg w-44 focus:ring-2 focus:ring-sky-500 focus:outline-none">
           </div>
           <button type="button" id="btn-atualizar-itens" onclick="carregarItens(true)" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-sky-600 hover:bg-sky-500 text-white flex items-center gap-1.5 transition disabled:opacity-60">
-            <i class="fa-solid fa-rotate"></i> Atualizar do PNCP
+            <i class="fa-solid fa-rotate"></i> {% if origem_compras_gov(detail.tender) %}Sincronizar Itens (Compras.gov.br / PNCP){% else %}Atualizar do PNCP{% endif %}
           </button>
         </div>
       </div>
@@ -654,22 +654,24 @@
     const btn = document.getElementById('btn-atualizar-itens');
     const original = btn.innerHTML;
     btn.disabled = true;
-    btn.innerHTML = '<i class="fa-solid fa-spinner animate-spin"></i> Consultando PNCP...';
+    btn.innerHTML = '<i class="fa-solid fa-spinner animate-spin"></i> Consultando portal oficial...';
+    if (atualizar) mostrarAviso('itens-aviso', null);  // nenhum aviso antigo enquanto consulta
     try {
-      const resp = await fetch(`/api/tenders/${encodeURIComponent(TENDER_ID)}/itens${atualizar ? '?atualizar=true' : ''}`);
+      // Clique manual: ?forcar=true ignora o disjuntor de 120 s e tenta PNCP e Compras.gov.br de novo
+      const resp = await fetch(`/api/tenders/${encodeURIComponent(TENDER_ID)}/itens${atualizar ? '?forcar=true' : ''}`);
       const data = await resp.json();
       if (!resp.ok) throw new Error(mensagemErroApi(data, 'Falha ao carregar os itens.'));
       itensCarregados = data.itens || [];
       document.getElementById('tab-count-itens').textContent = data.total;
       document.getElementById('itens-resumo').textContent = `${data.total} item(ns) registrado(s)`;
       const badge = document.getElementById('itens-origem-badge');
-      const doPncp = data.origem === 'PNCP';
-      badge.textContent = doPncp ? 'Fonte: PNCP' : 'Fonte: base local';
+      const doPncp = data.origem === 'PNCP' || data.origem === 'COMPRAS';
+      badge.textContent = data.origem === 'PNCP' ? 'Fonte: PNCP' : data.origem === 'COMPRAS' ? 'Fonte: Compras.gov.br' : 'Fonte: base local';
       badge.className = `ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border ${doPncp ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-600 border-slate-200'}`;
       const tipoAviso = ['indisponivel'].includes(data.status) ? 'alerta' : 'info';
       mostrarAviso('itens-aviso', data.mensagem, tipoAviso);
       renderizarItens();
-      if (atualizar && data.status === 'sincronizado') showToast(`${data.total} item(ns) sincronizado(s) do PNCP.`, 'success');
+      if (atualizar && data.status === 'sincronizado') showToast(`${data.total} item(ns) sincronizado(s) do ${data.origem === 'COMPRAS' ? 'Compras.gov.br' : 'PNCP'}.`, 'success');
     } catch (e) {
       mostrarAviso('itens-aviso', e.message || 'Falha ao carregar os itens.', 'erro');
     } finally {
@@ -724,9 +726,9 @@
     const btn = document.getElementById('btn-atualizar-arquivos');
     const original = btn.innerHTML;
     btn.disabled = true;
-    btn.innerHTML = '<i class="fa-solid fa-spinner animate-spin"></i> Consultando PNCP...';
+    btn.innerHTML = '<i class="fa-solid fa-spinner animate-spin"></i> Consultando portal oficial...';
     try {
-      const resp = await fetch(`/api/tenders/${encodeURIComponent(TENDER_ID)}/arquivos${atualizar ? '?atualizar=true' : ''}`);
+      const resp = await fetch(`/api/tenders/${encodeURIComponent(TENDER_ID)}/arquivos${atualizar ? '?forcar=true' : ''}`);
       const data = await resp.json();
       if (!resp.ok) throw new Error(mensagemErroApi(data, 'Falha ao listar os anexos.'));
       renderizarArquivos(data);
@@ -914,27 +916,27 @@
     execGrid.innerHTML = `
       <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
         <span class="text-slate-400 font-semibold block text-[10px] uppercase">O que será contratado:</span>
-        <span class="font-bold text-slate-800">${ex.o_que_sera_contratado || 'Não informado'}</span>
+        <div class="font-bold text-slate-800 whitespace-pre-line max-h-48 overflow-y-auto pr-2 custom-scrollbar break-words" tabindex="0">${escHtml(ex.o_que_sera_contratado || 'Não informado')}</div>
       </div>
       <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
         <span class="text-slate-400 font-semibold block text-[10px] uppercase">Quem contrata:</span>
-        <span class="font-bold text-slate-800">${ex.quem_contrata || 'Não informado'}</span>
+        <div class="font-bold text-slate-800 whitespace-pre-line max-h-48 overflow-y-auto pr-2 custom-scrollbar break-words" tabindex="0">${escHtml(ex.quem_contrata || 'Não informado')}</div>
       </div>
       <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
         <span class="text-slate-400 font-semibold block text-[10px] uppercase">Local / Município:</span>
-        <span class="font-bold text-slate-800">${ex.onde_local || 'Não informado'}</span>
+        <div class="font-bold text-slate-800 whitespace-pre-line max-h-48 overflow-y-auto pr-2 custom-scrollbar break-words" tabindex="0">${escHtml(ex.onde_local || 'Não informado')}</div>
       </div>
       <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
         <span class="text-slate-400 font-semibold block text-[10px] uppercase">Modalidade:</span>
-        <span class="font-bold text-slate-800">${ex.modalidade || 'Não informado'}</span>
+        <div class="font-bold text-slate-800 whitespace-pre-line max-h-48 overflow-y-auto pr-2 custom-scrollbar break-words" tabindex="0">${escHtml(ex.modalidade || 'Não informado')}</div>
       </div>
       <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
         <span class="text-slate-400 font-semibold block text-[10px] uppercase">Valor Estimado:</span>
-        <span class="font-bold text-emerald-700">${ex.valor_estimado || 'Não informado'}</span>
+        <div class="font-bold text-emerald-700 whitespace-pre-line max-h-48 overflow-y-auto pr-2 custom-scrollbar break-words" tabindex="0">${escHtml(ex.valor_estimado || 'Não informado')}</div>
       </div>
       <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
         <span class="text-slate-400 font-semibold block text-[10px] uppercase">Cronograma / Datas:</span>
-        <span class="font-bold text-slate-800">${ex.datas_relevantes || 'Não informado'}</span>
+        <div class="font-bold text-slate-800 whitespace-pre-line max-h-48 overflow-y-auto pr-2 custom-scrollbar break-words" tabindex="0">${escHtml(ex.datas_relevantes || 'Não informado')}</div>
       </div>
     `;
 
@@ -944,15 +946,15 @@
     habGrid.innerHTML = `
       <div class="p-4 bg-slate-50 rounded-xl border border-slate-100 space-y-2">
         <h4 class="font-bold text-slate-800 text-xs flex items-center gap-1.5"><i class="fa-solid fa-scale-balanced text-sky-500"></i> Habilitação Jurídica e Fiscal</h4>
-        <ul class="list-disc list-inside text-slate-600 space-y-1">
-          ${(hab.habilitacao_juridica || []).concat(hab.regularidade_fiscal_trabalhista || []).map(i => `<li>${i}</li>`).join('') || '<li>Conforme edital oficial</li>'}
+        <ul class="list-disc list-inside text-slate-600 space-y-1 max-h-48 overflow-y-auto pr-2 custom-scrollbar break-words" tabindex="0">
+          ${(hab.habilitacao_juridica || []).concat(hab.regularidade_fiscal_trabalhista || []).map(i => `<li>${escHtml(i)}</li>`).join('') || '<li>Conforme edital oficial</li>'}
         </ul>
       </div>
       <div class="p-4 bg-slate-50 rounded-xl border border-slate-100 space-y-2">
         <h4 class="font-bold text-slate-800 text-xs flex items-center gap-1.5"><i class="fa-solid fa-certificate text-emerald-500"></i> Qualificação Técnica e Registros</h4>
-        <ul class="list-disc list-inside text-slate-600 space-y-1">
-          ${(hab.qualificacao_tecnica || []).map(i => `<li>${i}</li>`).join('') || '<li>Conforme edital oficial</li>'}
-          ${hab.registros_profissionais_ou_sanitarios ? `<li><strong>Registros:</strong> ${hab.registros_profissionais_ou_sanitarios}</li>` : ''}
+        <ul class="list-disc list-inside text-slate-600 space-y-1 max-h-48 overflow-y-auto pr-2 custom-scrollbar break-words" tabindex="0">
+          ${(hab.qualificacao_tecnica || []).map(i => `<li>${escHtml(i)}</li>`).join('') || '<li>Conforme edital oficial</li>'}
+          ${hab.registros_profissionais_ou_sanitarios ? `<li><strong>Registros:</strong> ${escHtml(hab.registros_profissionais_ou_sanitarios)}</li>` : ''}
         </ul>
       </div>
     `;
@@ -963,11 +965,11 @@
     attList.innerHTML = `
       <div class="p-3 bg-white rounded-xl border border-rose-200">
         <span class="font-bold text-rose-700 block mb-1"><i class="fa-solid fa-clock"></i> Prazos e Impugnações:</span>
-        <p class="text-slate-700">${att.prazos_urgentes_ou_curtos || 'Não informado'}</p>
+        <p class="text-slate-700 whitespace-pre-line max-h-48 overflow-y-auto pr-2 custom-scrollbar break-words" tabindex="0">${escHtml(att.prazos_urgentes_ou_curtos || 'Não informado')}</p>
       </div>
       <div class="p-3 bg-white rounded-xl border border-rose-200">
         <span class="font-bold text-rose-700 block mb-1"><i class="fa-solid fa-circle-exclamation"></i> Penalidades e Cláusulas Críticas:</span>
-        <p class="text-slate-700">${att.penalidades_previstas || 'Conforme Lei 14.133/2021'}</p>
+        <p class="text-slate-700 whitespace-pre-line max-h-48 overflow-y-auto pr-2 custom-scrollbar break-words" tabindex="0">${escHtml(att.penalidades_previstas || 'Conforme Lei 14.133/2021')}</p>
       </div>
     `;
 
@@ -977,10 +979,10 @@
     citList.innerHTML = cits.map(c => `
       <div class="p-3 bg-slate-50 rounded-xl border border-slate-200">
         <div class="flex justify-between items-center font-bold text-slate-800 mb-1">
-          <span>${c.topico || 'Trecho Oficial'}</span>
-          <span class="text-sky-600 bg-sky-50 px-2 py-0.5 rounded text-[10px]">${c.pagina || 'Página do Edital'}</span>
+          <span>${escHtml(c.topico || 'Trecho Oficial')}</span>
+          <span class="text-sky-600 bg-sky-50 px-2 py-0.5 rounded text-[10px]">${escHtml(c.pagina || 'Página do Edital')}</span>
         </div>
-        <p class="italic text-slate-600">"${c.trecho || ''}"</p>
+        <p class="italic text-slate-600 whitespace-pre-line max-h-48 overflow-y-auto pr-2 custom-scrollbar break-words" tabindex="0">"${escHtml(c.trecho || '')}"</p>
       </div>
     `).join('') || '<div class="text-slate-400">Nenhuma citação destacada.</div>';
   }

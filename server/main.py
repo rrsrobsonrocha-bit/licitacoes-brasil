@@ -290,6 +290,8 @@ templates.env.globals["empresas_da_sessao"] = empresas_da_sessao
 templates.env.globals["NATUREZAS_FILTRO"] = NATUREZAS_FILTRO
 templates.env.globals["ESFERAS_FILTRO"] = ESFERAS_FILTRO
 templates.env.globals["BENEFICIOS_FILTRO"] = BENEFICIOS_FILTRO
+templates.env.globals["origem_compras_gov"] = lambda t: bool(t) and (
+    pncp_compras.origem_compras_gov(t) or bool(pncp_compras.id_compra_siasg(t)))
 templates.env.globals["PORTAIS_DISPUTA"] = [(codigo, nome) for codigo, nome, _ in PORTAIS_DISPUTA]
 
 # Arquivos Estáticos e PWA
@@ -2876,6 +2878,7 @@ async def api_tender_drawer(
     request: Request,
     sincronizar: bool = Query(True, description="false: só os dados já gravados (resposta imediata, sem PNCP)"),
     atualizar: bool = Query(False, description="Força nova consulta de itens e anexos ao PNCP"),
+    forcar: bool = Query(False, description="Clique manual: ignora o disjuntor de 120 s e tenta PNCP/Compras.gov.br"),
     db: Session = Depends(get_db),
 ):
     """
@@ -2885,6 +2888,7 @@ async def api_tender_drawer(
     continuam vindo, com listas locais (talvez vazias) e ``pncp_indisponivel`` = true.
     """
     tender = _tender_ou_404(db, tender_id)
+    atualizar = atualizar or forcar
     itens = await _sincronizar_para_tela(db, tender, "itens", sincronizar, atualizar)
     arquivos = await _sincronizar_para_tela(db, tender, "arquivos", sincronizar, atualizar)
     try:
@@ -2937,6 +2941,7 @@ async def api_tender_drawer(
             "url_pncp": url_pncp,
             "url_portal": tender.url_disputa if portal else None,
             "portal_nome": portal["nome"] if portal else None,
+            "compras_gov": pncp_compras.origem_compras_gov(tender) or bool(pncp_compras.id_compra_siasg(tender, ident)),
             "itens_exclusivos_me_epp": tender.itens_exclusivos_me_epp,
             "itens_ampla_concorrencia": tender.itens_ampla_concorrencia,
             "em_negocios": em_negocios,
@@ -2968,22 +2973,24 @@ async def api_tender_drawer(
 async def api_tender_itens(
     tender_id: str,
     atualizar: bool = Query(False, description="Força nova consulta ao endpoint /itens do PNCP"),
+    forcar: bool = Query(False, description="Clique manual: ignora o disjuntor de 120 s e tenta PNCP/Compras.gov.br"),
     db: Session = Depends(get_db)
 ):
     """Itens individuais do certame (descrição, quantidade, unidade, valores, critério, benefício ME/EPP)."""
     tender = _tender_ou_404(db, tender_id)
-    return await pncp_compras.sincronizar_itens(db, tender, forcar=atualizar, interativo=True)
+    return await pncp_compras.sincronizar_itens(db, tender, forcar=atualizar or forcar, interativo=True)
 
 
 @app.get("/api/tenders/{tender_id}/arquivos")
 async def api_tender_arquivos(
     tender_id: str,
     atualizar: bool = Query(False, description="Força nova consulta ao endpoint /arquivos do PNCP"),
+    forcar: bool = Query(False, description="Clique manual: ignora o disjuntor de 120 s"),
     db: Session = Depends(get_db)
 ):
     """Lista os anexos oficiais (edital, termo de referência, minutas) com rotas internas de download."""
     tender = _tender_ou_404(db, tender_id)
-    return await pncp_compras.sincronizar_arquivos(db, tender, forcar=atualizar, interativo=True)
+    return await pncp_compras.sincronizar_arquivos(db, tender, forcar=atualizar or forcar, interativo=True)
 
 
 @app.get("/api/tenders/{tender_id}/arquivos/zip")
