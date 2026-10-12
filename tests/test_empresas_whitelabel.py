@@ -264,3 +264,33 @@ def test_cofre_segue_a_empresa_ativa(contas, monkeypatch):
     assert doc.metadados_ia["alertas"] == ["Documento de outra empresa da conta: ALFA DISTRIBUIDORA HOSPITALAR LTDA"]
     assert doc.cnpj == CNPJ_A
     db.close()
+
+
+def test_navbar_em_tres_zonas_com_pilula_da_empresa_truncada(contas):
+    import re as _re
+
+    a, _ = contas
+    _cadastrar(a, CNPJ_A)
+    html = client.get("/dashboard", headers=a.headers).text
+    cabecalho = html[html.index("<header"):html.index("</header>")]
+    # Centro: links essenciais; secundários no menu "Mais"
+    nav = cabecalho[cabecalho.index('aria-label="Navegação principal"'):]
+    for rota in ("/search", "/dashboard", "/negocios", "/agenda", "/disputa", "/documentos", "/juridico"):
+        assert f'href="{rota}' in nav, rota
+    mais = nav[nav.index('class="nav-dropdown'):]
+    assert all(f'href="{r}"' in mais for r in ("/fornecedores", "/alerts", "/favorites"))
+    # Direita: zona isolada, perfil e "Sair" sem encolher
+    assert "shrink-0 border-l border-slate-700/60 pl-3" in cabecalho
+    assert _re.search(r'id="user-display" class="[^"]*shrink-0', cabecalho)
+    assert _re.search(r'id="auth-btn"[^>]*class="shrink-0', cabecalho)
+    # Pílula: largura máxima, truncamento e tooltip com CNPJ e razão social completa
+    chip = _re.search(r'<span id="empresa-ativa-chip"[^>]*>', cabecalho).group(0)
+    assert "max-w-[190px]" in chip and "2xl:max-w-[220px]" in chip
+    assert 'title="11.222.333/0001-81 - ALFA DISTRIBUIDORA HOSPITALAR LTDA"' in chip
+    assert 'class="truncate whitespace-nowrap">ALFA DISTRIBUIDORA HOSPITALAR LTDA</span>' in cabecalho
+    assert "▾" not in cabecalho[cabecalho.index('id="empresa-ativa-chip"'):cabecalho.index('id="user-display"')]
+
+    _cadastrar(a, CNPJ_B)
+    cabecalho = client.get("/dashboard", headers=a.headers).text.split("</header>")[0]
+    pilula = cabecalho[cabecalho.index('class="empresa-pill'):cabecalho.index('id="seletor-empresa"')]
+    assert "max-w-[190px]" in pilula and "▾" in pilula and "fa-building" in pilula

@@ -39,92 +39,107 @@
   <style>
     [x-cloak] { display: none !important; }
     .badge-status { @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium; }
+    .nav-dropdown > summary { list-style: none; }
+    .nav-dropdown > summary::-webkit-details-marker { display: none; }
     .safe-area-bottom { padding-bottom: max(0.5rem, env(safe-area-inset-bottom)); }
   </style>
 </head>
 <body class="flex flex-col min-h-full text-slate-800 antialiased font-sans" data-requires-login="{{ 'true' if requires_login else 'false' }}">
   
-  <!-- Top Navigation Header -->
+  <!-- Top Navigation Header: marca | navegação principal | conta e sessão -->
   <header class="bg-brand-900 text-white shadow-md sticky top-0 z-50">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-      <div class="flex items-center justify-between h-16">
-        <!-- Logo & Brand -->
-        <div class="flex items-center space-x-3">
-          <a href="/" class="flex items-center space-x-3">
-            <div class="w-10 h-10 rounded-lg bg-gradient-to-tr from-sky-400 to-emerald-400 flex items-center justify-center text-brand-900 font-black text-xl shadow-inner">
-              <i class="fa-solid fa-scale-balanced"></i>
-            </div>
-            <div>
-              <span class="text-xl font-bold tracking-tight text-white">Licitações<span class="text-sky-400">Brasil</span></span>
-              <span class="hidden sm:inline-block ml-2 text-xs bg-sky-950 text-sky-300 px-2 py-0.5 rounded font-mono border border-sky-800">PNCP + IA</span>
-            </div>
-          </a>
-        </div>
+    <div class="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between gap-3 h-16">
+        <!-- Esquerda: marca -->
+        <a href="/" class="flex items-center gap-2.5 shrink-0" aria-label="Licitações Brasil - início">
+          <div class="w-9 h-9 rounded-lg bg-gradient-to-tr from-sky-400 to-emerald-400 flex items-center justify-center text-brand-900 font-black text-lg shadow-inner">
+            <i class="fa-solid fa-scale-balanced"></i>
+          </div>
+          <span class="text-lg font-bold tracking-tight text-white whitespace-nowrap">Licitações<span class="text-sky-400">Brasil</span></span>
+          <span class="hidden 2xl:inline-block text-[10px] bg-sky-950 text-sky-300 px-1.5 py-0.5 rounded font-mono border border-sky-800">PNCP + IA</span>
+        </a>
 
-        <!-- Main Nav Links -->
-        <nav class="hidden md:flex items-center space-x-6 text-sm font-medium">
-          <a href="/search" class="text-slate-200 hover:text-white transition flex items-center gap-1.5">
-            <i class="fa-solid fa-magnifying-glass text-sky-400"></i> Pesquisar Editais
+        <!-- Centro: navegação principal (secundários no menu "Mais") -->
+        <nav class="hidden lg:flex flex-1 min-w-0 items-center justify-center gap-x-1 xl:gap-x-2 text-xs font-medium" aria-label="Navegação principal">
+          <a href="/search" title="Editais" class="nav-link flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-slate-200 hover:text-white hover:bg-white/5 transition whitespace-nowrap">
+            <i class="fa-solid fa-magnifying-glass text-sky-400 lg:inline xl:hidden 2xl:inline"></i><span class="hidden xl:inline">Editais</span>
           </a>
-          <a href="/dashboard" class="text-slate-200 hover:text-white transition flex items-center gap-1.5">
-            <i class="fa-solid fa-chart-pie text-sky-400"></i> Dashboard
+          <a href="/dashboard" title="Dashboard" class="nav-link flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-slate-200 hover:text-white hover:bg-white/5 transition whitespace-nowrap">
+            <i class="fa-solid fa-chart-pie text-sky-400 lg:inline xl:hidden 2xl:inline"></i><span class="hidden xl:inline">Dashboard</span>
           </a>
-          <a href="/favorites" class="text-slate-200 hover:text-white transition flex items-center gap-1.5">
-            <i class="fa-solid fa-star text-amber-400"></i> Favoritos
+          <a href="/negocios?view=quadros" title="Negócios" class="nav-link flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-slate-200 hover:text-white hover:bg-white/5 transition whitespace-nowrap">
+            <i class="fa-solid fa-table-columns text-emerald-400 lg:inline xl:hidden 2xl:inline"></i><span class="hidden xl:inline">Negócios</span>
           </a>
-          <a href="/negocios?view=quadros" class="text-slate-200 hover:text-white transition flex items-center gap-1.5">
-            <i class="fa-solid fa-table-columns text-emerald-400"></i> Negócios
+          <a href="/agenda" title="Agenda" class="nav-link flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-slate-200 hover:text-white hover:bg-white/5 transition whitespace-nowrap">
+            <i class="fa-solid fa-calendar-days text-rose-400 lg:inline xl:hidden 2xl:inline"></i><span class="hidden xl:inline">Agenda</span>
           </a>
-          <a href="/agenda" class="text-slate-200 hover:text-white transition flex items-center gap-1.5">
-            <i class="fa-solid fa-calendar-days text-rose-400"></i> Agenda
+          <a href="/disputa" title="Disputa (ao vivo)" class="nav-link flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-slate-200 hover:text-white hover:bg-white/5 transition whitespace-nowrap font-bold">
+            <i class="fa-solid fa-tower-broadcast text-rose-400 lg:inline xl:hidden 2xl:inline"></i><span class="hidden xl:inline">Disputa</span>
+            <span class="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" aria-label="ao vivo"></span>
           </a>
-          <a href="/disputa" class="text-slate-200 hover:text-white transition flex items-center gap-1.5 font-bold">
-            <i class="fa-solid fa-tower-broadcast text-rose-400 animate-pulse"></i> Disputa <span class="px-1.5 py-0.5 rounded text-[10px] font-black bg-rose-500 text-white animate-pulse">AO VIVO</span>
+          <a href="/documentos" title="Cofre" class="nav-link flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-slate-200 hover:text-white hover:bg-white/5 transition whitespace-nowrap">
+            <i class="fa-solid fa-vault text-emerald-400 lg:inline xl:hidden 2xl:inline"></i><span class="hidden xl:inline">Cofre</span>
           </a>
-          <a href="/fornecedores" class="text-slate-200 hover:text-white transition flex items-center gap-1.5">
-            <i class="fa-solid fa-building-user text-purple-400"></i> Fornecedores
+          <a href="/juridico" title="Peças Jurídicas" class="nav-link flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-slate-200 hover:text-white hover:bg-white/5 transition whitespace-nowrap">
+            <i class="fa-solid fa-gavel text-amber-400 lg:inline xl:hidden 2xl:inline"></i><span class="hidden xl:inline">Peças Jurídicas</span>
           </a>
-          <a href="/juridico" class="text-slate-200 hover:text-white transition flex items-center gap-1.5">
-            <i class="fa-solid fa-gavel text-amber-400"></i> Peças Jurídicas
-          </a>
-          <a href="/documentos" class="text-slate-200 hover:text-white transition flex items-center gap-1.5">
-            <i class="fa-solid fa-vault text-emerald-400"></i> Cofre de Documentos
-          </a>
-          <a href="/alerts" class="text-slate-200 hover:text-white transition flex items-center gap-1.5">
-            <i class="fa-solid fa-bell text-sky-400"></i> Alertas
-          </a>
-          {% if e_admin %}
-          <a href="/admin" id="nav-gestao" class="text-slate-200 hover:text-white transition flex items-center gap-1.5">
-            <i class="fa-solid fa-shield-halved text-emerald-400"></i> Gestão
-          </a>
-          {% endif %}
+          <details class="nav-dropdown relative">
+            <summary class="nav-link flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-slate-200 hover:text-white hover:bg-white/5 transition whitespace-nowrap cursor-pointer select-none" title="Mais módulos">
+              <i class="fa-solid fa-ellipsis lg:inline xl:hidden"></i><span class="hidden xl:inline">Mais</span> <span class="text-[10px] text-slate-400">▾</span>
+            </summary>
+            <div class="absolute right-0 mt-2 w-52 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-1.5 text-sm z-50">
+              <a href="/favorites" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-slate-200 hover:text-white hover:bg-slate-800 transition"><i class="fa-solid fa-star text-amber-400 w-4 text-center"></i> Favoritos</a>
+              <a href="/fornecedores" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-slate-200 hover:text-white hover:bg-slate-800 transition"><i class="fa-solid fa-building-user text-purple-400 w-4 text-center"></i> Fornecedores</a>
+              <a href="/alerts" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-slate-200 hover:text-white hover:bg-slate-800 transition"><i class="fa-solid fa-bell text-sky-400 w-4 text-center"></i> Alertas</a>
+              {% if e_admin %}
+              <div class="my-1 border-t border-slate-800"></div>
+              <a href="/admin" id="nav-gestao" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-slate-200 hover:text-white hover:bg-slate-800 transition"><i class="fa-solid fa-shield-halved text-emerald-400 w-4 text-center"></i> Gestão</a>
+              {% endif %}
+            </div>
+          </details>
         </nav>
 
-        <!-- User Controls / Auth -->
-        <div class="flex items-center space-x-3 text-sm">
+        <!-- Direita: contexto da conta e sessão (nunca encolhe) -->
+        <div class="flex items-center gap-3 shrink-0 border-l border-slate-700/60 pl-3 text-sm">
+          {% if empresas_nav.ativa %}
+          {% set emp_ativa = empresas_nav.ativa %}
+          {% set emp_rotulo = emp_ativa.nome_fantasia or emp_ativa.razao_social %}
           {% if empresas_nav.lista|length >= 2 %}
           <!-- Empresa ativa (multi-CNPJ): define timbre, minutas e contexto do Cofre -->
-          <label class="hidden lg:flex items-center gap-1.5 text-xs text-slate-300" title="Empresa usada no timbre, nas minutas e no Cofre">
-            <span class="text-slate-400">Empresa Ativa:</span>
-            <select id="seletor-empresa" onchange="alternarEmpresaAtiva(this.value)" class="max-w-[16rem] bg-slate-800 border border-slate-600 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:ring-2 focus:ring-sky-400">
+          <details class="nav-dropdown relative hidden md:block">
+            <summary class="empresa-pill inline-flex items-center gap-1.5 max-w-[190px] 2xl:max-w-[220px] px-2.5 py-1 rounded-full bg-slate-800/80 border border-slate-600 text-[11px] text-slate-200 hover:border-sky-500 cursor-pointer select-none"
+                     title="{{ emp_ativa.cnpj_formatado }} - {{ emp_ativa.razao_social }}">
+              <i class="fa-solid fa-building text-sky-400 shrink-0"></i>
+              <span class="truncate whitespace-nowrap">{{ emp_rotulo }}</span>
+              <span class="text-[10px] text-slate-400 shrink-0">▾</span>
+            </summary>
+            <div id="seletor-empresa" role="menu" aria-label="Empresa Ativa" class="absolute right-0 mt-2 w-80 max-w-[90vw] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-1.5 z-50">
+              <p class="px-3 pt-1.5 pb-1 text-[10px] font-bold uppercase tracking-wide text-slate-400">Empresa Ativa</p>
               {% for emp in empresas_nav.lista %}
-              <option value="{{ emp.id }}" {% if emp.is_primary %}selected{% endif %}>{{ emp.razao_social[:38] }} – {{ emp.cnpj_formatado }}</option>
+              <button type="button" role="menuitemradio" aria-checked="{{ 'true' if emp.is_primary else 'false' }}" onclick="alternarEmpresaAtiva({{ emp.id }})"
+                      title="{{ emp.cnpj_formatado }} - {{ emp.razao_social }}"
+                      class="w-full flex items-start gap-2 px-3 py-2 rounded-lg text-left text-xs {{ 'bg-sky-500/10 text-white' if emp.is_primary else 'text-slate-300 hover:bg-slate-800' }}">
+                <i class="fa-solid {{ 'fa-circle-check text-sky-400' if emp.is_primary else 'fa-building text-slate-500' }} mt-0.5 shrink-0"></i>
+                <span class="min-w-0"><span class="block truncate">{{ emp.razao_social }} – {{ emp.cnpj_formatado }}</span></span>
+              </button>
               {% endfor %}
-            </select>
-          </label>
-          {% elif empresas_nav.ativa %}
-          <span id="empresa-ativa-chip" class="hidden lg:inline-flex items-center gap-1 text-[11px] text-slate-300 bg-slate-800/80 border border-slate-700 rounded-lg px-2 py-1 max-w-[14rem]" title="CNPJ {{ empresas_nav.ativa.cnpj_formatado }}">
-            <i class="fa-solid fa-building text-sky-400"></i><span class="truncate">{{ empresas_nav.ativa.razao_social }}</span>
+            </div>
+          </details>
+          {% else %}
+          <span id="empresa-ativa-chip" class="empresa-pill hidden md:inline-flex items-center gap-1.5 max-w-[190px] 2xl:max-w-[220px] px-2.5 py-1 rounded-full bg-slate-800/80 border border-slate-700 text-[11px] text-slate-200"
+                title="{{ emp_ativa.cnpj_formatado }} - {{ emp_ativa.razao_social }}">
+            <i class="fa-solid fa-building text-sky-400 shrink-0"></i><span class="truncate whitespace-nowrap">{{ emp_rotulo }}</span>
           </span>
           {% endif %}
-          <span id="user-display" class="hidden sm:inline-block text-slate-300 font-medium">
-            <i class="fa-regular fa-user-circle mr-1"></i> <span id="user-name">Usuário</span>
+          {% endif %}
+          <span id="user-display" class="hidden shrink-0 items-center gap-1.5 text-xs text-slate-300 font-medium">
+            <i class="fa-regular fa-user-circle text-base"></i><span id="user-name" class="max-w-[7rem] truncate">Usuário</span>
           </span>
-          <button id="auth-btn" onclick="handleAuthAction()" class="bg-sky-500 hover:bg-sky-600 text-white font-medium px-4 py-2 rounded-lg text-xs tracking-wider uppercase transition shadow-sm">
+          <button id="auth-btn" onclick="handleAuthAction()" class="shrink-0 bg-sky-500 hover:bg-sky-600 text-white font-medium px-3 py-1.5 rounded-lg text-xs leading-none transition shadow-sm">
             Entrar
           </button>
-          <!-- Mobile Menu Hamburger Button -->
-          <button id="mobile-menu-toggle" onclick="toggleMobileMenu()" class="md:hidden p-2 text-slate-300 hover:text-white hover:bg-brand-800 rounded-lg transition focus:outline-none focus:ring-2 focus:ring-sky-400" aria-label="Abrir Menu">
+          <!-- Menu móvel (abaixo de lg a navegação principal fica no drawer) -->
+          <button id="mobile-menu-toggle" onclick="toggleMobileMenu()" class="lg:hidden shrink-0 p-2 -mr-2 text-slate-300 hover:text-white hover:bg-brand-800 rounded-lg transition focus:outline-none focus:ring-2 focus:ring-sky-400" aria-label="Abrir Menu">
             <i class="fa-solid fa-bars text-xl"></i>
           </button>
         </div>
@@ -133,9 +148,9 @@
   </header>
 
   <!-- Mobile Drawer Menu & Backdrop -->
-  <div id="mobile-menu-backdrop" onclick="closeMobileMenu()" class="fixed inset-0 bg-slate-950/75 backdrop-blur-sm z-50 opacity-0 pointer-events-none transition-opacity duration-300 md:hidden" aria-hidden="true"></div>
+  <div id="mobile-menu-backdrop" onclick="closeMobileMenu()" class="fixed inset-0 bg-slate-950/75 backdrop-blur-sm z-50 opacity-0 pointer-events-none transition-opacity duration-300 lg:hidden" aria-hidden="true"></div>
 
-  <aside id="mobile-menu-drawer" class="fixed top-0 right-0 bottom-0 w-80 max-w-[85vw] bg-slate-900 border-l border-slate-800 shadow-2xl z-50 transform translate-x-full transition-transform duration-300 ease-in-out md:hidden flex flex-col safe-area-bottom" aria-label="Menu de Navegação Móvel">
+  <aside id="mobile-menu-drawer" class="fixed top-0 right-0 bottom-0 w-80 max-w-[85vw] bg-slate-900 border-l border-slate-800 shadow-2xl z-50 transform translate-x-full transition-transform duration-300 ease-in-out lg:hidden flex flex-col safe-area-bottom" aria-label="Menu de Navegação Móvel">
     <!-- Cabeçalho do Drawer -->
     <div class="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/95">
       <div class="flex items-center space-x-3">
@@ -433,10 +448,14 @@
       }
     }
 
-    // Fechar menu móvel com a tecla ESC
+    // Fechar menu móvel e menus da navbar com a tecla ESC
+    function fecharMenusNavbar(exceto) {
+      document.querySelectorAll('details.nav-dropdown[open]').forEach(d => { if (d !== exceto) d.removeAttribute('open'); });
+    }
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') closeMobileMenu();
+      if (e.key === 'Escape') { closeMobileMenu(); fecharMenusNavbar(); }
     });
+    document.addEventListener('click', (e) => fecharMenusNavbar(e.target.closest('details.nav-dropdown')));
 
     // Interceptador e normalização de navegação de rotas no frontend
     document.addEventListener('click', (e) => {
@@ -576,8 +595,8 @@
         const mobileUserRole = document.getElementById('mobile-user-role');
 
         if (user && user.name) {
-          if (authBtn) { authBtn.textContent = 'Sair'; authBtn.className = 'bg-rose-600 hover:bg-rose-700 text-white font-medium px-3 py-1.5 rounded-lg text-xs transition'; }
-          if (userDisplay) { userDisplay.classList.remove('hidden'); }
+          if (authBtn) { authBtn.innerHTML = '<i class="fa-solid fa-right-from-bracket mr-1"></i>Sair'; authBtn.className = 'bg-rose-600 hover:bg-rose-700 shrink-0 font-medium px-3 py-1.5 rounded-lg text-xs leading-none transition shadow-sm text-white'; }
+          if (userDisplay) { userDisplay.classList.remove('hidden'); userDisplay.classList.add('hidden', 'sm:inline-flex'); }
           if (userName) { userName.textContent = user.name.split(' ')[0]; }
 
           if (mobileAuthBtnText) { mobileAuthBtnText.textContent = 'Sair'; }
@@ -586,8 +605,8 @@
           if (mobileUserName) { mobileUserName.textContent = user.name; }
           if (mobileUserRole) { mobileUserRole.textContent = user.role === 'ADMIN' ? 'Administrador' : (user.company || 'Usuário Autenticado'); }
         } else {
-          if (authBtn) { authBtn.textContent = 'Entrar'; authBtn.className = 'bg-sky-500 hover:bg-sky-600 text-white font-medium px-4 py-2 rounded-lg text-xs tracking-wider uppercase transition shadow-sm'; }
-          if (userDisplay) { userDisplay.classList.add('hidden'); }
+          if (authBtn) { authBtn.textContent = 'Entrar'; authBtn.className = 'bg-sky-500 hover:bg-sky-600 shrink-0 font-medium px-3 py-1.5 rounded-lg text-xs leading-none transition shadow-sm text-white'; }
+          if (userDisplay) { userDisplay.classList.remove('sm:inline-flex'); userDisplay.classList.add('hidden'); }
 
           if (mobileAuthBtnText) { mobileAuthBtnText.textContent = 'Entrar'; }
           if (mobileAuthIcon) { mobileAuthIcon.className = 'fa-solid fa-right-to-bracket'; }
