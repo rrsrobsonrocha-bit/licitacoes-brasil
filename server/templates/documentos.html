@@ -62,8 +62,9 @@
       <i class="fa-solid fa-wand-magic-sparkles text-2xl text-emerald-400 mb-2" aria-hidden="true"></i>
       <p class="text-sm font-bold text-white">Arraste suas Certidões, Balanços, Atestados e Contratos em PDF (Classificação Automática por IA)</p>
       <p id="zona-lote-ajuda" class="text-[11px] text-slate-400 mt-1">Ou clique para escolher. PDF, PNG ou JPG, até {{ max_mb }} MB cada e 20 por vez. O Gemini identifica o tipo, as datas, o órgão emissor e o código de autenticidade.</p>
-      <input id="lote-arquivos" type="file" multiple accept="application/pdf,.pdf,image/png,image/jpeg,image/webp" class="hidden">
+      <input id="lote-arquivos" type="file" multiple accept="application/pdf,.pdf,image/png,.png,image/jpeg,.jpg,.jpeg,image/webp,.webp" class="hidden">
     </div>
+    <div id="aviso-lote" class="hidden mt-3 bg-amber-500/10 border border-amber-500/40 rounded-2xl px-4 py-3 text-xs text-amber-200 space-y-1" role="alert"></div>
     <ul id="fila-lote" class="hidden mt-3 bg-slate-900/80 border border-slate-800 rounded-2xl divide-y divide-slate-800 text-xs" aria-live="polite"></ul>
   </div>
 
@@ -491,6 +492,55 @@
     }
   }
 
+  // ---------- Filtro do lote: só arquivos aceitos (pastas e formatos inválidos nunca vão para a fila) ----------
+  const EXTENSOES_LOTE = /\.(pdf|png|jpe?g|webp)$/i;
+  const AVISO_PASTA = 'Atenção: pastas não podem ser enviadas diretamente. Arraste apenas os arquivos contidos nela.';
+
+  function avisarLote(pastas, ignorados) {
+    const aviso = document.getElementById('aviso-lote');
+    const linhas = [];
+    if (pastas > 0) linhas.push(`<p><i class="fa-solid fa-folder-open mr-1"></i>${AVISO_PASTA}</p>`);
+    if (ignorados.length) {
+      const lista = ignorados.slice(0, 8).map(escapeHtml).join(', ') + (ignorados.length > 8 ? ` e mais ${ignorados.length - 8}` : '');
+      linhas.push(`<p><i class="fa-solid fa-ban mr-1"></i>Ignorado(s) por formato não aceito ou arquivo vazio: ${lista}. Envie PDF, PNG, JPG ou WEBP.</p>`);
+    }
+    aviso.innerHTML = linhas.join('');
+    aviso.classList.toggle('hidden', !linhas.length);
+  }
+
+  function filtrarArquivosLote(arquivos, pastas = 0) {
+    const validos = [], ignorados = [];
+    for (const arquivo of arquivos) {
+      if (!arquivo || !arquivo.name) continue;
+      const semExtensao = !arquivo.name.includes('.');
+      if (semExtensao && arquivo.size === 0) { pastas++; continue; }  // pasta sem suporte a webkitGetAsEntry
+      if (!EXTENSOES_LOTE.test(arquivo.name)) { ignorados.push(arquivo.name); continue; }
+      if (arquivo.size === 0) { ignorados.push(`${arquivo.name} (vazio)`); continue; }
+      validos.push(arquivo);
+    }
+    avisarLote(pastas, ignorados);
+    return validos;
+  }
+
+  // Precisa rodar dentro do evento 'drop': depois dele o navegador libera os itens arrastados
+  function arquivosDoDrop(evento) {
+    const dt = evento.dataTransfer;
+    const arquivos = [];
+    let pastas = 0;
+    if (dt && dt.items && dt.items.length) {
+      for (const item of Array.from(dt.items)) {
+        if (item.kind !== 'file') continue;
+        const entrada = typeof item.webkitGetAsEntry === 'function' ? item.webkitGetAsEntry() : null;
+        if (entrada && entrada.isDirectory) { pastas++; continue; }
+        const arquivo = item.getAsFile();
+        if (arquivo) arquivos.push(arquivo);
+      }
+    } else if (dt && dt.files) {
+      arquivos.push(...Array.from(dt.files));
+    }
+    return filtrarArquivosLote(arquivos, pastas);
+  }
+
   // ---------- Upload em lote com classificação automática ----------
   const LOTE_SIMULTANEOS = 2;
   const ROTULOS_CATEGORIA_IA = {
@@ -530,14 +580,15 @@
       atualizarFila(id, true, `Concluído: ${r.documento.nome}`, partes.filter(Boolean).join(' · '));
       return true;
     } catch (e) {
-      atualizarFila(id, false, 'Erro', e.message);
+      const msg = e instanceof TypeError ? 'Falha de conexão ao enviar o arquivo. Tente novamente.' : e.message;
+      atualizarFila(id, false, 'Erro', msg);
       return false;
     }
   }
 
   async function processarLote(lista) {
     const arquivos = Array.from(lista || []);
-    if (!arquivos.length) return;
+    if (!arquivos.length) return;  // nada válido: o aviso de pastas/formatos já foi exibido
     if (arquivos.length > 20) return showToast('Envie no máximo 20 arquivos por vez.', 'error');
     const fila = document.getElementById('fila-lote');
     const base = Date.now();
@@ -612,10 +663,10 @@
   document.addEventListener('DOMContentLoaded', () => {
     const zona = document.getElementById('zona-lote');
     const entrada = document.getElementById('lote-arquivos');
-    entrada.addEventListener('change', () => { processarLote(entrada.files); entrada.value = ''; });
+    entrada.addEventListener('change', () => { processarLote(filtrarArquivosLote(Array.from(entrada.files || []))); entrada.value = ''; });
     ['dragenter', 'dragover'].forEach(ev => zona.addEventListener(ev, (e) => { e.preventDefault(); zona.classList.add('border-emerald-300', 'bg-emerald-500/10'); }));
     ['dragleave', 'drop'].forEach(ev => zona.addEventListener(ev, (e) => { e.preventDefault(); zona.classList.remove('border-emerald-300', 'bg-emerald-500/10'); }));
-    zona.addEventListener('drop', (e) => processarLote(e.dataTransfer.files));
+    zona.addEventListener('drop', (e) => processarLote(arquivosDoDrop(e)));
     document.querySelectorAll('.filtro-categoria').forEach(btn => btn.addEventListener('click', () => {
       filtroCategoria = btn.dataset.categoria;
       document.querySelectorAll('.filtro-categoria').forEach(b => {

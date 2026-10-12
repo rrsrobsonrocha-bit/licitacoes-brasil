@@ -17,6 +17,9 @@ from server.services import certidoes, document_ai, document_vault, dossie
 logger = logging.getLogger(__name__)
 MAX_ARQUIVOS_POR_LOTE = 20
 ANALISES_SIMULTANEAS = 3
+# Tempo máximo de análise de um arquivo (Gemini com novas tentativas + regras); estourou, só ele vira erro
+TEMPO_MAX_ANALISE_SEGUNDOS = 180
+EXTENSOES_ACEITAS = (".pdf", ".png", ".jpg", ".jpeg", ".webp")
 
 router = APIRouter()
 
@@ -111,15 +114,27 @@ async def api_processar_lote(request: Request, arquivos: List[UploadFile] = File
 
     lidos: List[Dict[str, Any]] = []
     for arquivo in arquivos:
-        nome = (arquivo.filename or "documento")[:255]
+        nome = (getattr(arquivo, "filename", None) or "documento")[:255]
         try:
+            # Validação antes de qualquer análise: extensão, vazio (pastas chegam com 0 bytes) e assinatura
+            if not nome.lower().endswith(EXTENSOES_ACEITAS):
+                raise document_vault.DocumentoInvalidoError(
+                    f"'{nome}' não é um arquivo aceito: envie PDF, PNG, JPG ou WEBP (pastas não podem ser enviadas).")
             conteudo = await arquivo.read(document_vault.DOCUMENTO_MAX_BYTES + 1)
+            if not conteudo:
+                raise document_vault.DocumentoInvalidoError(f"'{nome}' está vazio (0 bytes).")
             mime = document_vault.detectar_mime(nome, conteudo)
             lidos.append({"arquivo": nome, "conteudo": conteudo, "mime": mime})
         except document_vault.DocumentoInvalidoError as exc:
             lidos.append({"arquivo": nome, "erro": str(exc)})
+        except Exception as exc:  # leitura interrompida, upload corrompido: só este arquivo falha
+            logger.warning("Cofre: falha ao ler %s: %r", nome, exc)
+            lidos.append({"arquivo": nome, "erro": "Não foi possível ler o arquivo enviado."})
         finally:
-            await arquivo.close()
+            try:
+                await arquivo.close()
+            except Exception:
+                pass
 
     # Análise em paralelo (sem banco); gravação em seguida, um arquivo por vez
     limite = asyncio.Semaphore(ANALISES_SIMULTANEAS)
@@ -129,7 +144,12 @@ async def api_processar_lote(request: Request, arquivos: List[UploadFile] = File
             return
         async with limite:
             try:
-                item["analise"] = await document_ai.analisar_documento(item["conteudo"], item["mime"], item["arquivo"])
+                item["analise"] = await asyncio.wait_for(
+                    document_ai.analisar_documento(item["conteudo"], item["mime"], item["arquivo"]),
+                    timeout=TEMPO_MAX_ANALISE_SEGUNDOS)
+            except asyncio.TimeoutError:
+                logger.warning("Cofre: análise de %s excedeu %ss", item["arquivo"], TEMPO_MAX_ANALISE_SEGUNDOS)
+                item["erro"] = "A análise demorou demais. Tente enviar o arquivo novamente."
             except Exception as exc:  # nunca derruba o lote
                 logger.warning("Cofre: falha ao analisar %s: %r", item["arquivo"], exc)
                 item["erro"] = "Não foi possível analisar o arquivo."
