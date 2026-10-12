@@ -66,6 +66,8 @@ class PregaoItem:
     kill_switch: bool = False
     worker: dict = field(default_factory=dict)
     worker_visto_em: float = 0.0  # time.time() do último sinal de vida do robô desktop
+    # Sala do sandbox de simulação (ADMIN): só em memória, concorrentes virtuais, nada gravado no banco
+    simulado: bool = False
 
     @property
     def worker_online(self) -> bool:
@@ -108,6 +110,7 @@ class PregaoItem:
             "is_losing": self.is_losing,
             "owner_id": self.owner_id,
             "kill_switch": bool(self.kill_switch),
+            "simulado": bool(self.simulado),
             "worker": dict(self.worker),
             "updated_at": self.updated_at.isoformat() if isinstance(self.updated_at, datetime) else str(self.updated_at)
         }
@@ -362,15 +365,16 @@ class DisputeMonitorService:
                 "timestamp": get_sp_now().isoformat()
             }
             self.broadcast_sync(event)
-            self._persist_dispute_history(
-                id_pregao=item.id_pregao,
-                numero_item=item.numero_item,
-                tipo_evento="AUTO_BID",
-                valor=item.meu_lance,
-                posicao=item.posicao_alvo,
-                autor="Robô Automático (Você)",
-                detalhes={"melhor_lance": item.melhor_lance, "fonte_portal": item.fonte_portal}
-            )
+            if not item.simulado:
+                self._persist_dispute_history(
+                    id_pregao=item.id_pregao,
+                    numero_item=item.numero_item,
+                    tipo_evento="AUTO_BID",
+                    valor=item.meu_lance,
+                    posicao=item.posicao_alvo,
+                    autor="Robô Automático (Você)",
+                    detalhes={"melhor_lance": item.melhor_lance, "fonte_portal": item.fonte_portal}
+                )
         else:
             # Piso ultrapassado: desativa robô para evitar prejuízo
             item.auto_lance_ativo = False
@@ -386,15 +390,16 @@ class DisputeMonitorService:
                 "timestamp": get_sp_now().isoformat()
             }
             self.broadcast_sync(event)
-            self._persist_dispute_history(
-                id_pregao=item.id_pregao,
-                numero_item=item.numero_item,
-                tipo_evento="STOP_LOSS",
-                valor=novo_lance,
-                posicao=item.posicao_alvo,
-                autor="Robô Automático (Você)",
-                detalhes={"piso": item.valor_minimo_limite, "fonte_portal": item.fonte_portal}
-            )
+            if not item.simulado:
+                self._persist_dispute_history(
+                    id_pregao=item.id_pregao,
+                    numero_item=item.numero_item,
+                    tipo_evento="STOP_LOSS",
+                    valor=novo_lance,
+                    posicao=item.posicao_alvo,
+                    autor="Robô Automático (Você)",
+                    detalhes={"piso": item.valor_minimo_limite, "fonte_portal": item.fonte_portal}
+                )
 
         return item.to_dict()
 
@@ -425,7 +430,8 @@ class DisputeMonitorService:
         self.broadcast_sync(event)
         return updated
 
-    def registrar_melhor_lance(self, item_id: str, valor: Any, owner_id: Optional[str] = None) -> Optional[dict]:
+    def registrar_melhor_lance(self, item_id: str, valor: Any, owner_id: Optional[str] = None,
+                               autor: str = "Melhor lance informado") -> Optional[dict]:
         """
         Registra o melhor lance atual da disputa, informado pelo usuário a partir do portal
         (Compras.gov.br, BLL, BNC...). Atualiza o histórico e, se o robô do lote estiver
@@ -447,7 +453,7 @@ class DisputeMonitorService:
             "posicao": 1,
             "valor": novo,
             "timestamp": get_sp_now().isoformat(),
-            "autor": "Melhor lance informado"
+            "autor": autor
         })
         item.historico_concorrentes = item.historico_concorrentes[:20]
 

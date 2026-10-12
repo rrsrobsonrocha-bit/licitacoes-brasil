@@ -78,6 +78,10 @@ FastAPI + Jinja2 + SQLAlchemy (SQLite em desenvolvimento, PostgreSQL em produç�
 - **Ambiente de produção, sem dados fictícios.** Nenhum certame, conta, negócio, evento, lote de
   disputa ou concorrente pode ser inventado. Sem resposta da API oficial, a coleta não insere nada.
   Dados de exemplo existem apenas na suíte de testes (`seed_dados_de_teste`, `tests/pncp_simulado.py`).
+  Única exceção: o sandbox de disputa (`server/services/simulacao_disputa.py`, `POST /api/disputa/criar-cenarios-simulacao`),
+  só para ADMIN, só em memória na conta dele, salas `sim-01` a `sim-04` marcadas `simulado` e concorrentes virtuais
+  ("Empresa Alfa", "Beta Distribuidora"). Nada dele vai para o banco, e o robô desktop nunca envia lance real nessas
+  salas (`worker-config` devolve `portal: "simulacao"`).
 - **Etapas do funil** (`ETAPAS_FUNIL` em server/models.py, fonte única do Kanban e do painel): Oportunidades,
   Qualificação, Proposta Feita (`proposta`), Disputa e Homologado / Ganho (`homologado`). As antigas
   `classificacao`/`contrato` são migradas no boot para `homologado` e ainda aceitas pela API (`normalizar_etapa`).

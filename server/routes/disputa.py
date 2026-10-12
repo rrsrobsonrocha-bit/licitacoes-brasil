@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from server.database import get_db
 from server.models import AdminBid, HistoricoDisputa, User
-from server.services import estrategia_lances
+from server.services import estrategia_lances, simulacao_disputa
 from server.services.dispute_monitor import dispute_monitor
 
 router = APIRouter()
@@ -210,6 +210,8 @@ def _lote_do_worker(item_id: str, user: User):
 
 
 def _portal_do_lote(item) -> str:
+    if item.simulado:
+        return "simulacao"  # sandbox: o robô desktop nunca envia lance real nessas salas
     fonte = (item.fonte_portal or "").lower()
     if "bnc" in fonte:
         return "bnc"
@@ -232,11 +234,22 @@ def _config_do_worker(item) -> Dict[str, Any]:
         "fase": item.fase.upper(),
         "melhor_lance": round(float(item.melhor_lance or 0), 2),
         "meu_lance": round(float(item.meu_lance or 0), 2),
+        "simulado": bool(item.simulado),
     }
 
 
 def _agora_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+
+
+@router.post("/api/disputa/criar-cenarios-simulacao")
+async def api_criar_cenarios_simulacao(request: Request):
+    """Cria (ou reinicia) as 4 salas do sandbox (sim-01 a sim-04) na conta do ADMIN, só em memória."""
+    user = exigir_admin(request)
+    itens = simulacao_disputa.criar_cenarios(user.id)
+    return {"status": "success", "itens": itens, "motor_ativo": simulacao_disputa.motor_ativo(),
+            "cenarios": [{"id": c["id"], "descricao": c["descricao"], "perfil": c["perfil"]}
+                         for c in simulacao_disputa.CENARIOS]}
 
 
 @router.get("/api/disputa/{item_id:path}/worker-config")
@@ -318,19 +331,30 @@ def api_worker_log(item_id: str, request: Request, payload: Dict[str, Any] = Bod
         item.kill_switch = True
         item.auto_lance_ativo = False
         item.status_automacao = "Kill-Switch: lance abaixo do piso"
-        db.add(HistoricoDisputa(id_pregao=item.id_pregao, numero_item=item.numero_item, tipo_evento="STOP_LOSS",
-                                valor_ofertado=float(valor), posicao=0, autor=autor,
-                                detalhes={**detalhes, "piso": float(piso)}))
-        db.commit()
+        if not item.simulado:
+            db.add(HistoricoDisputa(id_pregao=item.id_pregao, numero_item=item.numero_item, tipo_evento="STOP_LOSS",
+                                    valor_ofertado=float(valor), posicao=0, autor=autor,
+                                    detalhes={**detalhes, "piso": float(piso)}))
+            db.commit()
         dispute_monitor.broadcast_sync({"type": "STOP_LOSS_REACHED", "item": item.to_dict(), "piso": float(piso),
                                         "timestamp": _agora_iso()})
         raise HTTPException(status_code=422, detail={
             "mensagem": f"Lance de R$ {valor} abaixo do piso (R$ {piso}): Kill-Switch acionado.", "abortar": True})
 
+    lance = None
+    if item.simulado:
+        # Sandbox: só a memória e o cockpit são atualizados (nenhum dado fictício no banco)
+        if aceito:
+            dispute_monitor.registrar_meu_lance(item.item_key, float(valor), owner_id=user.id)
+        dispute_monitor.broadcast_sync({"type": "WORKER_BID", "aceito": aceito, "lance": float(valor),
+                                        "timestamp_ms": momento_ms, "resposta_portal": resposta,
+                                        "item": item.to_dict(), "timestamp": _agora_iso()})
+        return {"status": "success", "abortar": item.kill_switch, "aceito": aceito, "simulado": True,
+                "lance": {"valor_lance": float(valor), "status": "simulado"} if aceito else None}
+
     db.add(HistoricoDisputa(id_pregao=item.id_pregao, numero_item=item.numero_item,
                             tipo_evento="WORKER_BID" if aceito else "WORKER_BID_REJEITADO",
                             valor_ofertado=float(valor), posicao=1, autor=autor, detalhes=detalhes))
-    lance = None
     if aceito:
         lance = AdminBid(tender_id=item.id_pregao[:64], item_id=str(item.numero_item), user_id=user.id,
                          valor_lance=valor, preco_minimo_limite=piso, colocacao_alvo=item.posicao_alvo or 1,

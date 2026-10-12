@@ -30,6 +30,10 @@
         <i id="global-autobid-icon" class="fa-solid fa-robot text-slate-400"></i>
         <span id="global-autobid-label">Robô de Lances Global: DESLIGADO</span>
       </button>
+      <!-- Sandbox: 4 salas com concorrentes virtuais para testar o cockpit e o robô desktop (só memória) -->
+      <button id="btn-criar-simulacao" onclick="criarSalasSimulacao()" class="px-4 py-2.5 rounded-xl text-xs font-black transition shadow-md flex items-center gap-2 border border-violet-400 bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white disabled:opacity-60" title="Cria ou reinicia as salas sim-01 a sim-04 com concorrentes virtuais (nada é gravado no banco)">
+        <i class="fa-solid fa-flask"></i> Criar/Resetar 4 Salas de Simulação
+      </button>
       {% endif %}
 
       <!-- Toggle Sound Button -->
@@ -475,6 +479,8 @@
         `;
       }).join('');
 
+      // Lotes do sandbox: o ID curto (sim-01); lotes reais: pregão:item, como o robô procura
+      const idRobo = item.simulado ? item.id_pregao : item.item_key;
       return `
         <div id="item-card-${sKey}" class="bg-white rounded-2xl border ${cardBorder} shadow-sm overflow-hidden transition">
           <!-- Linha Principal (Vista Rápida Acordeão) -->
@@ -488,7 +494,9 @@
               
               <div class="min-w-0">
                 <div class="flex flex-wrap items-center gap-2 mb-1">
-                  <span class="text-xs font-extrabold text-sky-800 bg-sky-50 border border-sky-200 px-2.5 py-0.5 rounded-lg font-mono">${item.id_pregao}</span>
+                  ${item.simulado ? '<span class="text-[10px] font-black uppercase tracking-wider text-violet-700 bg-violet-100 border border-violet-300 px-2 py-0.5 rounded-md"><i class="fa-solid fa-flask"></i> Simulação</span>' : ''}
+                  <!-- ID do lote para o robô desktop (passo 3 do assistente): clique para copiar -->
+                  <button type="button" onclick="event.stopPropagation(); copiarIdRobo('${idRobo}')" title="Copiar o ID do lote para o robô desktop" class="id-lote-robo inline-flex items-center gap-1.5 font-black font-mono px-2.5 py-0.5 rounded-lg border transition ${item.simulado ? 'text-sm text-white bg-violet-600 hover:bg-violet-500 border-violet-700' : 'text-xs text-sky-800 bg-sky-50 hover:bg-sky-100 border-sky-200'}">${esc(idRobo)} <i class="fa-regular fa-copy text-[11px]"></i></button>
                   <span class="text-xs font-bold text-slate-600">Lote/Item #${item.numero_item}</span>
                   <span class="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-md shadow-xs"><i class="fa-solid fa-globe text-[10px]"></i> ${item.fonte_portal || 'Compras.gov.br'}</span>
                   ${phaseBadge}
@@ -1180,6 +1188,34 @@
       if (alvo) alvo.innerHTML = statusWorker(item.worker);
     });
   }, 2000);
+
+  async function criarSalasSimulacao() {
+    const botao = document.getElementById('btn-criar-simulacao');
+    if (botao) botao.disabled = true;
+    try {
+      const res = await fetch('/api/disputa/criar-cenarios-simulacao', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(mensagemErroApi(data));
+      Object.keys(activeItems).forEach(chave => { if (activeItems[chave].simulado) delete activeItems[chave]; });
+      data.itens.forEach(it => { activeItems[it.item_key] = it; });
+      renderDisputeAccordion();
+      showToast(data.motor_ativo
+        ? '4 salas de simulação prontas (sim-01 a sim-04): concorrentes virtuais dando lances.'
+        : '4 salas criadas, mas o motor dos concorrentes virtuais não está ativo neste servidor.', data.motor_ativo ? 'success' : 'error');
+    } catch (e) {
+      showToast(e.message || 'Falha ao criar as salas de simulação.', 'error');
+    } finally {
+      if (botao) botao.disabled = false;
+    }
+  }
+
+  function copiarIdRobo(id) {
+    const aviso = () => showToast(`ID do lote: ${id} (cole no passo 3 do robô desktop)`, 'info');
+    if (!navigator.clipboard) return aviso();
+    navigator.clipboard.writeText(id)
+      .then(() => showToast(`ID ${id} copiado: cole no passo 3 do robô desktop.`, 'success'))
+      .catch(aviso);
+  }
 
   async function acionarKillSwitch(itemKey, ativo) {
     try {

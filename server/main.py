@@ -63,7 +63,7 @@ from server.search_engine import (
     PAGE_SIZE_PADRAO, SEM_COLUNAS_PESADAS,
 )
 from server.services import minutas
-from server.services import cache_metricas, gemini_chaves
+from server.services import cache_metricas, gemini_chaves, simulacao_disputa
 from server.services import empresas as empresas_service
 from server.ai_engine import analyze_tender_document_with_ai
 from server.services.ai_service import analyze_tender_summary, ask_tender_question
@@ -475,6 +475,8 @@ async def on_startup():
 
     # Inicializa monitoramento assíncrono multi-pregão
     await dispute_monitor.start()
+    # Concorrentes virtuais do sandbox de disputa (ocioso até um ADMIN criar as salas sim-01 a sim-04)
+    simulacao_disputa.iniciar_motor()
 
     # A Sala de Disputa inicia vazia: só exibe lotes reais cadastrados por cada usuário.
 

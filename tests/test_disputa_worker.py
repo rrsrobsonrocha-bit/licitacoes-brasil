@@ -55,7 +55,7 @@ def test_config_do_worker_exclusiva_de_admin(lote, usuario_auth):
     assert cfg == {
         "item_id": lote["key"], "id_pregao": lote["id_pregao"], "numero_item": 1, "objeto": "Notebooks",
         "preco_minimo": 900.0, "decremento_minimo": 10.0, "status_robo": "DESLIGADO", "kill_switch": False,
-        "portal": "comprasnet", "fase": "ABERTO", "melhor_lance": 1000.0, "meu_lance": 1000.0,
+        "portal": "comprasnet", "fase": "ABERTO", "melhor_lance": 1000.0, "meu_lance": 1000.0, "simulado": False,
     }
     for sufixo, metodo in (("worker-config", "get"), ("worker-heartbeat", "post"), ("worker-log", "post"),
                            ("kill-switch", "post")):

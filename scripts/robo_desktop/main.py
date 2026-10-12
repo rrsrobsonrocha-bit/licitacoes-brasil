@@ -253,7 +253,7 @@ ADAPTADORES = {"simulacao": AdaptadorSimulacao, "comprasnet": AdaptadorComprasNe
 
 def criar_adaptador(opcoes_portal: Dict[str, Any], portal_do_lote: str) -> AdaptadorPortal:
     modo = (opcoes_portal or {}).get("modo", "simulacao")
-    if modo == "simulacao":
+    if modo == "simulacao" or portal_do_lote == "simulacao":  # sala do sandbox: nunca envia lance real
         return AdaptadorSimulacao(opcoes_portal)
     if modo == "portal":  # gravado pelo assistente: usa o adaptador do portal do lote
         modo = portal_do_lote
