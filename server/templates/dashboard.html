@@ -6,7 +6,7 @@
 {% from "partials_cabecalho_mobile.html" import linha_voltar, cabecalho_mobile %}
 <div class="bg-[#0b0f19] min-h-screen text-slate-100 font-sans pb-16">
   <!-- Header Executivo Licitações Brasil -->
-  <div class="border-b border-slate-800 lg:border-slate-800/80 bg-slate-900/90 lg:bg-slate-900/60 backdrop-blur-md sticky top-16 z-20 lg:z-30 py-2.5 lg:py-5">
+  <div class="border-b border-slate-800 lg:border-slate-800/80 bg-slate-900/95 lg:bg-slate-900/60 backdrop-blur-md sticky top-16 z-20 lg:z-30 py-2.5 lg:py-5">
     <div class="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
       {{ linha_voltar('Painel Executivo') }}
       <div class="hidden lg:flex flex-row items-center justify-between gap-4">
@@ -146,7 +146,7 @@
           <h2 class="text-sm font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2">
             <i class="fa-solid fa-arrows-split-up-and-left text-emerald-400"></i> Funil de Licitações <span class="text-xs text-slate-400 font-normal">| Status do Funil de Negócios</span>
           </h2>
-          <p class="text-xs text-slate-400 mt-0.5">Distribuição em tempo real das oportunidades nas etapas do pipeline comercial.</p>
+          <p class="hidden lg:block text-xs text-slate-400 mt-0.5">Distribuição em tempo real das oportunidades nas etapas do pipeline comercial.</p>
         </div>
         <a href="/negocios?view=quadros" class="text-xs text-emerald-400 hover:text-emerald-300 font-semibold flex items-center gap-1 transition">
           Abrir Quadro Completo <i class="fa-solid fa-arrow-right"></i>
@@ -201,7 +201,7 @@
           <h2 class="text-sm font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2">
             <i class="fa-solid fa-chart-simple text-amber-400"></i> Editais vigentes por demanda e valor
           </h2>
-          <p class="text-xs text-slate-400 mt-0.5">Editais com propostas abertas, por tipo de demanda e faixa orçamentária.</p>
+          <p class="hidden lg:block text-xs text-slate-400 mt-0.5">Editais com propostas abertas, por tipo de demanda e faixa orçamentária.</p>
         </div>
         <span class="text-xs bg-slate-800 text-slate-300 px-2.5 py-1 rounded-lg border border-slate-700 font-mono">
           PNCP + Compras.gov
@@ -307,7 +307,7 @@
             <h2 class="text-sm font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2">
               <i class="fa-solid fa-calendar-day text-rose-400"></i> Agenda da semana <span class="text-xs text-slate-400 font-normal">| Próximos Eventos da Agenda</span>
             </h2>
-            <p class="text-[11px] text-slate-400">Prazos críticos vinculados aos seus negócios e certames cadastrados no funil.</p>
+            <p class="hidden lg:block text-[11px] text-slate-400">Prazos críticos vinculados aos seus negócios e certames cadastrados no funil.</p>
           </div>
           <a href="/negocios?view=quadros" class="text-xs text-sky-400 hover:underline font-semibold">Ver funil</a>
         </div>
@@ -359,7 +359,7 @@
             <h2 class="text-sm font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2">
               <i class="fa-regular fa-clock text-amber-400"></i> Prazos de Propostas mais Próximos
             </h2>
-            <p class="text-[11px] text-slate-400">Editais favoritados com prazo de envio limite.</p>
+            <p class="hidden lg:block text-[11px] text-slate-400">Editais favoritados com prazo de envio limite.</p>
           </div>
           <a href="/favorites" class="text-xs text-sky-400 hover:underline font-semibold">Ver favoritos</a>
         </div>

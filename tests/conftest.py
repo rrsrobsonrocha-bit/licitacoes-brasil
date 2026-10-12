@@ -31,6 +31,8 @@ os.environ["RATE_LIMIT_REQUESTS_PER_MINUTE"] = "100000"
 # Os testes de cada funcionalidade usam um cliente anônimo; o paywall (ACESSO_EXIGE_LOGIN) é
 # ligado explicitamente e verificado em tests/test_controle_acesso.py
 os.environ["ACESSO_EXIGE_LOGIN"] = "false"
+# Métricas do catálogo sem cache: cada teste cria e apaga editais e confere as contagens na hora
+os.environ["METRICAS_CACHE_TTL"] = "0"
 os.environ["ORPHAN_OWNER_EMAIL"] = ""
 # Conector Licitações-e ativo em modo mock (não depende do .env da máquina)
 os.environ["LICITACOES_E_ACTIVE"] = "true"

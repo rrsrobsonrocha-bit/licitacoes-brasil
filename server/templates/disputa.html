@@ -3,10 +3,12 @@
 {% block title %}Disputa Multi-Pregão ao Vivo | Licitações Brasil{% endblock %}
 
 {% block content %}
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-  <!-- Top Cockpit Header -->
-  <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8 bg-slate-900 text-white p-6 rounded-2xl shadow-xl border border-slate-800">
-    <div>
+{% from "partials_cabecalho_mobile.html" import linha_voltar, cabecalho_mobile %}
+{{ cabecalho_mobile('Disputa ao Vivo', cor='rose') }}
+<div class="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 lg:py-8">
+  <!-- Top Cockpit Header (no celular: só as ações; título na barra fixa) -->
+  <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-4 lg:mb-8 bg-slate-900 text-white p-3 lg:p-6 rounded-2xl shadow-xl border border-slate-800">
+    <div class="hidden lg:block">
       <div class="flex items-center gap-3 mb-2">
         <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
           <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>

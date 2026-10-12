@@ -7,7 +7,7 @@ import gc
 import io
 import asyncio
 import logging
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 from datetime import datetime, date, timedelta, timezone
 from zoneinfo import ZoneInfo
 from typing import Optional, List, Dict, Any, Union
@@ -63,6 +63,7 @@ from server.search_engine import (
     PAGE_SIZE_PADRAO, SEM_COLUNAS_PESADAS,
 )
 from server.services import minutas
+from server.services import cache_metricas
 from server.services import empresas as empresas_service
 from server.ai_engine import analyze_tender_document_with_ai
 from server.services.ai_service import analyze_tender_summary, ask_tender_question
@@ -581,8 +582,11 @@ def page_search(
     )
     user = get_current_user(request, db)
     results = search_tenders(db, params, user_id=user.id if user else None)
-    total_db_tenders = db.query(Tender).count()
-    total_vigentes = db.query(func.count(Tender.id)).filter(filtro_vigentes()).scalar() or 0
+    # Totais do catálogo no cabeçalho da busca: cache de 15 min (não muda a cada requisição)
+    total_db_tenders, total_vigentes = cache_metricas.obter("busca:totais", lambda: (
+        db.query(func.count(Tender.id)).scalar() or 0,
+        db.query(func.count(Tender.id)).filter(filtro_vigentes()).scalar() or 0,
+    ))
     hoje = hoje_sao_paulo()
     return templates.TemplateResponse(request, "search.html", {
         "params": params,
@@ -1037,10 +1041,18 @@ def pwa_service_worker():
         )
     raise HTTPException(status_code=404, detail="Service worker não encontrado.")
 
+ORGAOS_POR_PAGINA = 100
+
+
 def get_fornecedores_data(db: Session) -> Dict[str, Any]:
     gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("AI_API_KEY") or ""
     gemini_configured = bool(gemini_key and gemini_key.strip())
+    # Varredura do catálogo inteiro (milhares de órgãos): cache de 15 min, descartado após cada coleta
+    return {"gemini_configured": gemini_configured,
+            **cache_metricas.obter("fornecedores", lambda: _agregar_fornecedores(db))}
 
+
+def _agregar_fornecedores(db: Session) -> Dict[str, Any]:
     # Só as colunas usadas, em lotes: o catálogo global tem dezenas de milhares de editais
     tenders = db.query(
         Tender.contracting_entity, Tender.state, Tender.city, Tender.estimated_total_value,
@@ -1093,7 +1105,6 @@ def get_fornecedores_data(db: Session) -> Dict[str, Any]:
     companies.sort(key=lambda x: x["tenders_count"], reverse=True)
 
     return {
-        "gemini_configured": gemini_configured,
         "companies": companies,
         "total_companies": len(companies),
         "total_tenders": total_tenders,
@@ -1109,14 +1120,31 @@ def page_fornecedores(
 ):
     user = get_current_user(request, db)
     data = get_fornecedores_data(db)
+    # Milhares de órgãos no catálogo: a página abre com os de mais certames e a busca pede o restante
     return templates.TemplateResponse(
         request,
         "fornecedores.html",
         {
             "user": user,
-            **data
+            **data,
+            "companies": data["companies"][:ORGAOS_POR_PAGINA],
         }
     )
+
+
+@app.get("/fornecedores/linhas", response_class=HTMLResponse)
+def linhas_fornecedores(request: Request, q: str = "", db: Session = Depends(get_db)):
+    """Linhas da tabela de órgãos que casam com ``q`` (nome, cidade ou UF), a partir da lista em cache."""
+    todos = get_fornecedores_data(db)["companies"]
+    termo = q.strip().lower()
+    achados = [c for c in todos if not termo or termo in f"{c['name']} {c['state']} {c['city'] or ''}".lower()]
+    pagina = achados[:ORGAOS_POR_PAGINA]
+    if len(achados) > len(pagina):
+        rodape = f"Exibindo {len(pagina)} de {len(achados)} órgãos. Refine a busca para ver os demais."
+    else:
+        rodape = ""
+    html = templates.env.get_template("partials_orgao_linha.html").module.corpo_orgaos(pagina)
+    return HTMLResponse(str(html), headers={"X-Orgaos-Rodape": quote(rodape)})
 
 @app.get("/api/fornecedores")
 @app.get("/api/empresas")
@@ -3537,11 +3565,8 @@ def api_retry_webhook(log_id: str, user: User = Depends(require_auth), db: Sessi
 
 # ----------------- Dashboard Summary API -----------------
 
-def get_dashboard_summary_data(db: Session, user: Optional[User] = None) -> Dict[str, Any]:
-    # 1. Total de negócios ativos (somente o funil do próprio usuário; visitante = 0)
-    deals_count = _deals_do_usuario(db, user).count()
-    funnel_stages = {s: _deals_do_usuario(db, user).filter(Deal.stage == s).count() for s in DEAL_STAGES}
-
+def _metricas_catalogo(db: Session, hoje_iso: str) -> Dict[str, Any]:
+    """Agregados do catálogo global (iguais para todas as contas): ficam no cache de métricas."""
     # Catálogo global: editais vigentes para disputa, qualquer que seja a data de publicação
     vigentes_count = db.query(func.count(Tender.id)).filter(filtro_vigentes()).scalar() or 0
     total_tenders_count = db.query(func.count(Tender.id)).scalar() or 0
@@ -3553,7 +3578,6 @@ def get_dashboard_summary_data(db: Session, user: Optional[User] = None) -> Dict
 
     # 3. Licitações publicadas HOJE: data oficial de publicação no PNCP, dia corrente em Brasília
     #    (o mesmo critério do filtro "Publicadas hoje" da busca; sem contar sincronizações locais)
-    hoje_iso = hoje_sao_paulo().isoformat()
     publicadas_hoje = filtro_publicacao(hoje_iso, hoje_iso)
     tenders_today_count = db.query(func.count(Tender.id)).filter(publicadas_hoje).scalar() or 0
 
@@ -3588,6 +3612,30 @@ def get_dashboard_summary_data(db: Session, user: Optional[User] = None) -> Dict
         func.sum(case((valor > 250000.0, 1), else_=0)),
     ).filter(filtro_vigentes()).one()
     ate_50k, de_50k_a_250k, acima_250k = (int(f or 0) for f in faixas)
+    return {
+        "vigentes_count": vigentes_count, "total_tenders_count": total_tenders_count,
+        "companies_count": companies_count, "tenders_today_count": tenders_today_count,
+        "total_items_count": total_items_count, "items_today_count": items_today_count,
+        "servicos_count": servicos_count, "materiais_count": materiais_count,
+        "nao_classificado_count": nao_classificado_count,
+        "ate_50k": ate_50k, "de_50k_a_250k": de_50k_a_250k, "acima_250k": acima_250k,
+    }
+
+
+def get_dashboard_summary_data(db: Session, user: Optional[User] = None) -> Dict[str, Any]:
+    # 1. Total de negócios ativos (somente o funil do próprio usuário; visitante = 0)
+    deals_count = _deals_do_usuario(db, user).count()
+    funnel_stages = {s: _deals_do_usuario(db, user).filter(Deal.stage == s).count() for s in DEAL_STAGES}
+
+    # 2 a 5. Catálogo global: COUNTs e agregações em cache de 15 min (descartado após cada coleta)
+    hoje_iso = hoje_sao_paulo().isoformat()
+    m = cache_metricas.obter(f"painel:{hoje_iso}", lambda: _metricas_catalogo(db, hoje_iso))
+    vigentes_count, total_tenders_count = m["vigentes_count"], m["total_tenders_count"]
+    companies_count, tenders_today_count = m["companies_count"], m["tenders_today_count"]
+    total_items_count, items_today_count = m["total_items_count"], m["items_today_count"]
+    servicos_count, materiais_count = m["servicos_count"], m["materiais_count"]
+    nao_classificado_count = m["nao_classificado_count"]
+    ate_50k, de_50k_a_250k, acima_250k = m["ate_50k"], m["de_50k_a_250k"], m["acima_250k"]
 
     # 6. Próximos eventos da agenda vinculados aos negócios do usuário
     deals = _deals_do_usuario(db, user).all()

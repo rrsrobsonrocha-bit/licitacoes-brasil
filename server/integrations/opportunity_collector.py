@@ -560,6 +560,10 @@ def sync_procurement_opportunities(
 
     if not dry_run:
         db.commit()
+        if new_tenders:
+            # Painel, busca e fornecedores voltam a contar o catálogo com os editais novos
+            from server.services import cache_metricas
+            cache_metricas.invalidar()
         if new_tenders and notificar_alertas:
             try:
                 from server.services.alert_service import check_and_deliver_tender_alerts

@@ -36,7 +36,7 @@ from server.database import SessionLocal
 from server.integrations.opportunity_collector import sync_procurement_opportunities
 from server.models import SyncProgresso, Tender, hoje_sao_paulo
 from server.search_engine import agora_sao_paulo_naive, filtro_vigentes
-from server.services import pncp_compras
+from server.services import cache_metricas, pncp_compras
 
 # Modalidades com disputa: 6 = Pregão Eletrônico, 8 = Dispensa de Licitação
 MODALIDADES_DISPUTA = [6, 8]
@@ -283,6 +283,7 @@ def _executar(modo: str, rotina: Callable[[], Dict[str, Any]]) -> Dict[str, Any]
         estado["progresso"] = None
         estado.pop("itens", None)
         _trava.release()
+        cache_metricas.invalidar()  # itens e editais novos entram nas métricas do painel na hora
         gc.collect()  # devolve na hora a memória dos lotes da coleta (Render: 512 MB)
 
 

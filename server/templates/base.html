@@ -13,6 +13,9 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="manifest" href="/static/manifest.json">
   <link rel="icon" type="image/svg+xml" href="/static/icons/icon.svg">
+  <!-- Conexões antecipadas com as CDNs de estilo e ícones -->
+  <link rel="preconnect" href="https://cdn.tailwindcss.com">
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
   <title>{% block title %}Licitações Brasil - Plataforma Inteligente de Contratações Públicas{% endblock %}</title>
   <!-- Tailwind CSS CDN para renderização ágil e responsiva -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -53,7 +56,8 @@
     .scrollbar-none::-webkit-scrollbar { display: none; }
   </style>
 </head>
-<body class="flex flex-col min-h-full text-slate-800 antialiased font-sans" data-requires-login="{{ 'true' if requires_login else 'false' }}">
+<body class="flex flex-col min-h-full text-slate-800 antialiased font-sans" data-requires-login="{{ 'true' if requires_login and not usuario_nav else 'false' }}"
+      {%- if usuario_nav %} data-usuario-nome="{{ usuario_nav.name }}" data-usuario-papel="{{ usuario_nav.role }}"{% endif %}>
   
   <!-- Top Navigation Header: marca | navegação principal | conta e sessão -->
   <header class="bg-brand-900 text-white shadow-md sticky top-0 z-50">
@@ -141,12 +145,16 @@
           </span>
           {% endif %}
           {% endif %}
-          <span id="user-display" class="hidden shrink-0 items-center gap-1.5 text-xs text-slate-300 font-medium">
-            <i class="fa-regular fa-user-circle text-base"></i><span id="user-name" class="max-w-[7rem] truncate">Usuário</span>
+          <span id="user-display" class="{{ 'hidden sm:inline-flex' if usuario_nav else 'hidden' }} shrink-0 items-center gap-1.5 text-xs text-slate-300 font-medium">
+            <i class="fa-regular fa-user-circle text-base"></i><span id="user-name" class="max-w-[7rem] truncate">{{ usuario_nav.name.split(' ')[0] if usuario_nav and usuario_nav.name else 'Usuário' }}</span>
           </span>
+          {% if usuario_nav %}
+          <button id="auth-btn" onclick="handleAuthAction()" class="shrink-0 bg-rose-600 hover:bg-rose-700 font-medium px-3 py-1.5 rounded-lg text-xs leading-none transition shadow-sm text-white"><i class="fa-solid fa-right-from-bracket mr-1"></i>Sair</button>
+          {% else %}
           <button id="auth-btn" onclick="handleAuthAction()" class="shrink-0 bg-sky-500 hover:bg-sky-600 text-white font-medium px-3 py-1.5 rounded-lg text-xs leading-none transition shadow-sm">
             Entrar
           </button>
+          {% endif %}
           <!-- Tablet (md a lg): abre o drawer. No celular o menu fica só na barra inferior ("Menu"). -->
           <button id="mobile-menu-toggle" onclick="toggleMobileMenu()" class="hidden md:inline-flex lg:hidden shrink-0 p-2 -mr-2 text-slate-300 hover:text-white hover:bg-brand-800 rounded-lg transition focus:outline-none focus:ring-2 focus:ring-sky-400" aria-label="Abrir Menu">
             <i class="fa-solid fa-bars text-xl"></i>
@@ -183,8 +191,8 @@
           <i class="fa-regular fa-user"></i>
         </div>
         <div>
-          <div id="mobile-user-name" class="text-xs font-semibold text-white">Visitante</div>
-          <div id="mobile-user-role" class="text-[10px] text-slate-400">Perfil Público</div>
+          <div id="mobile-user-name" class="text-xs font-semibold text-white">{{ usuario_nav.name if usuario_nav else 'Visitante' }}</div>
+          <div id="mobile-user-role" class="text-[10px] text-slate-400">{{ ('Administrador' if usuario_nav.role == 'ADMIN' else 'Usuário Autenticado') if usuario_nav else 'Perfil Público' }}</div>
         </div>
       </div>
       <a href="{{ '/admin' if e_admin else '/dashboard' }}" class="text-xs text-sky-400 hover:text-sky-300 font-medium py-1 px-2 rounded-md hover:bg-slate-700/50 transition">
@@ -310,9 +318,9 @@
 
     <!-- 11. Botão Sair / Autenticação no Rodapé do Drawer -->
     <div class="p-4 border-t border-slate-800 bg-slate-900/95">
-      <button id="mobile-auth-btn" onclick="handleAuthAction()" data-route="/logout" class="w-full bg-sky-500 hover:bg-sky-600 text-white font-medium py-2.5 px-4 rounded-xl text-xs tracking-wider uppercase transition flex items-center justify-center gap-2 shadow-sm">
-        <i id="mobile-auth-icon" class="fa-solid fa-right-to-bracket"></i>
-        <span id="mobile-auth-btn-text">Entrar</span>
+      <button id="mobile-auth-btn" onclick="handleAuthAction()" data-route="/logout" class="w-full {{ 'bg-rose-600 hover:bg-rose-700' if usuario_nav else 'bg-sky-500 hover:bg-sky-600' }} text-white font-medium py-2.5 px-4 rounded-xl text-xs tracking-wider uppercase transition flex items-center justify-center gap-2 shadow-sm">
+        <i id="mobile-auth-icon" class="fa-solid {{ 'fa-right-from-bracket' if usuario_nav else 'fa-right-to-bracket' }}"></i>
+        <span id="mobile-auth-btn-text">{{ 'Sair' if usuario_nav else 'Entrar' }}</span>
       </button>
     </div>
   </aside>
@@ -408,6 +416,27 @@
 
   <!-- Global Application Scripts -->
   <script>
+    // Navegação instantânea: pré-carrega a página interna ao passar o mouse ou tocar no link
+    // (Painel, Editais, Fornecedores, Funil...). Nunca pré-carrega APIs, downloads ou o logout.
+    (function prefetchInterno() {
+      const ROTAS = /^\/(dashboard|search|fornecedores|empresas|negocios|agenda|disputa|documentos|juridico|favorites|alerts|gestao|admin)(\/|\?|$)/;
+      const feitos = new Set();
+      function prefetch(evento) {
+        const link = evento.target.closest && evento.target.closest('a[href^="/"]');
+        if (!link || link.hasAttribute('download') || link.target === '_blank') return;
+        const href = link.getAttribute('href');
+        if (!ROTAS.test(href) || feitos.has(href) || href === location.pathname + location.search) return;
+        if (navigator.connection && (navigator.connection.saveData || /2g/.test(navigator.connection.effectiveType || ''))) return;
+        feitos.add(href);
+        const dica = document.createElement('link');
+        dica.rel = 'prefetch';
+        dica.href = href;
+        document.head.appendChild(dica);
+      }
+      document.addEventListener('mouseover', prefetch, { passive: true });
+      document.addEventListener('touchstart', prefetch, { passive: true });
+    })();
+
     // Seta de voltar do cabeçalho mobile: volta no histórico ou cai no painel
     function voltarPagina() {
       window.history.length > 1 ? window.history.back() : window.location.href = "/dashboard";
@@ -556,6 +585,11 @@
         if (!AppSession.getToken()) return null;
         try { return JSON.parse(AppSession._ler('user')); } catch { return null; }
       },
+      // Conta reconhecida pelo servidor (cookie lb_session), mesmo sem token no armazenamento local
+      usuarioServidor: () => {
+        const d = document.body && document.body.dataset;
+        return d && d.usuarioNome ? { name: d.usuarioNome, role: d.usuarioPapel } : null;
+      },
       isPersistente: () => {
         try { return !!localStorage.getItem('token'); } catch { return false; }
       },
@@ -596,7 +630,7 @@
         } catch {}
       },
       refreshUI: () => {
-        const user = AppSession.getUser();
+        const user = AppSession.getUser() || AppSession.usuarioServidor();
         const authBtn = document.getElementById('auth-btn');
         const userDisplay = document.getElementById('user-display');
         const userName = document.getElementById('user-name');
@@ -709,7 +743,8 @@
     }
 
     function handleAuthAction() {
-      if (AppSession.getToken()) {
+      if (AppSession.getToken() || AppSession.usuarioServidor()) {
+        if (document.body) { delete document.body.dataset.usuarioNome; delete document.body.dataset.usuarioPapel; }
         AppSession.clear();
         showToast('Sessão encerrada com sucesso.', 'info');
         window.location.href = '/';

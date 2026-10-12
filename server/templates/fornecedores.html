@@ -3,11 +3,14 @@
 {% block title %}Fornecedores & Prospecção de Empresas - Licitações Brasil{% endblock %}
 
 {% block content %}
+{% from "partials_cabecalho_mobile.html" import linha_voltar, cabecalho_mobile %}
+{% from "partials_orgao_linha.html" import linha_orgao %}
 <div class="bg-[#0b0f19] min-h-screen text-slate-100 font-sans pb-16">
   <!-- Header da Página -->
-  <div class="border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-md sticky top-16 z-30 py-5">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+  <div class="border-b border-slate-800 lg:border-slate-800/80 bg-slate-900/95 lg:bg-slate-900/60 backdrop-blur-md sticky top-16 z-20 lg:z-30 py-2.5 lg:py-5">
+    <div class="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+      {{ linha_voltar('Fornecedores', total_companies, 'fornecedores-total-mobile', 'purple') }}
+      <div class="hidden lg:flex flex-row items-center justify-between gap-4">
         <div>
           <div class="flex items-center gap-3">
             <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-purple-600 to-sky-500 flex items-center justify-center text-white shadow-lg shadow-purple-500/20">
@@ -36,11 +39,11 @@
     </div>
   </div>
 
-  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6 space-y-6">
+  <div class="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 mt-4 lg:mt-6 space-y-4 lg:space-y-6">
 
     <!-- FALLBACK AMIGÁVEL DA IA GEMINI OU STATUS ATIVO -->
     {% if not gemini_configured %}
-      <div class="bg-gradient-to-r from-amber-950/40 via-slate-900 to-slate-900 border border-amber-500/40 rounded-2xl p-5 shadow-xl relative overflow-hidden" id="gemini-fallback-banner">
+      <div class="hidden lg:block bg-gradient-to-r from-amber-950/40 via-slate-900 to-slate-900 border border-amber-500/40 rounded-2xl p-5 shadow-xl relative overflow-hidden" id="gemini-fallback-banner">
         <div class="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
           <div class="flex items-start gap-3.5">
             <div class="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400 flex items-center justify-center shrink-0 mt-0.5">
@@ -80,7 +83,7 @@
         </div>
       </div>
     {% else %}
-      <div class="bg-gradient-to-r from-emerald-950/30 via-slate-900 to-slate-900 border border-emerald-500/40 rounded-2xl p-4 shadow-lg flex items-center justify-between" id="gemini-active-banner">
+      <div class="hidden lg:flex bg-gradient-to-r from-emerald-950/30 via-slate-900 to-slate-900 border border-emerald-500/40 rounded-2xl p-4 shadow-lg items-center justify-between" id="gemini-active-banner">
         <div class="flex items-center gap-3">
           <div class="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 flex items-center justify-center">
             <i class="fa-solid fa-brain text-base"></i>
@@ -100,13 +103,13 @@
     {% endif %}
 
     <!-- DOSSIÊ 360° DO FORNECEDOR -->
-    <section id="dossie-fornecedor" class="bg-slate-900/80 border border-purple-500/40 rounded-2xl p-6 shadow-xl">
+    <section id="dossie-fornecedor" class="bg-slate-900/80 border border-purple-500/40 rounded-2xl p-4 lg:p-6 shadow-xl">
       <div class="flex flex-col lg:flex-row lg:items-end justify-between gap-4 pb-4 border-b border-slate-800">
         <div>
           <h2 class="text-sm font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2">
             <i class="fa-solid fa-id-card-clip text-purple-400"></i> Dossiê 360° do Fornecedor
           </h2>
-          <p class="text-xs text-slate-400 mt-0.5">
+          <p class="hidden lg:block text-xs text-slate-400 mt-0.5">
             Cadastro e sócios (Receita Federal), contratos públicos (PNCP) e sanções (CEIS/CNEP) de qualquer CNPJ.
           </p>
         </div>
@@ -210,8 +213,8 @@
             <input 
               type="text" 
               id="company-search" 
-              onkeyup="filterCompaniesTable()" 
-              placeholder="Buscar por nome ou UF..." 
+              oninput="filterCompaniesTable()" 
+              placeholder="Buscar por nome, cidade ou UF..." 
               class="w-full bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-purple-500 transition"
             >
           </div>
@@ -234,48 +237,7 @@
           <tbody class="divide-y divide-slate-800/60 text-xs">
             {% if companies %}
               {% for comp in companies %}
-                <tr class="hover:bg-slate-850/50 transition company-row" data-search="{{ comp.name.lower() }} {{ comp.state.lower() }} {{ comp.city.lower() if comp.city else '' }}">
-                  <td class="py-3.5 px-3">
-                    <div class="font-bold text-white leading-snug line-clamp-1 max-w-sm" title="{{ comp.name }}">
-                      {{ comp.name }}
-                    </div>
-                    <div class="text-[11px] text-slate-400 font-mono mt-0.5">
-                      {{ comp.sphere }} • UASG: {{ comp.uasg_code or 'PNCP' }}
-                    </div>
-                  </td>
-                  <td class="py-3.5 px-3">
-                    <span class="inline-flex items-center gap-1 font-mono font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 text-[11px]">
-                      {{ comp.state }}
-                    </span>
-                    <span class="text-slate-400 text-[11px] ml-1">{{ comp.city or 'Âmbito Federal' }}</span>
-                  </td>
-                  <td class="py-3.5 px-3 text-center">
-                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold font-mono bg-sky-500/15 text-sky-300 border border-sky-500/30">
-                      {{ comp.tenders_count }}
-                    </span>
-                  </td>
-                  <td class="py-3.5 px-3">
-                    <span class="text-[11px] text-slate-300 font-medium">
-                      {{ comp.primary_modality or 'PREGÃO ELETRÔNICO' }}
-                    </span>
-                  </td>
-                  <td class="py-3.5 px-3 text-right font-mono font-bold text-emerald-400">
-                    {% if comp.total_value %}
-                      R$ {{ "{:,.2f}".format(comp.total_value).replace(",", "X").replace(".", ",").replace("X", ".") }}
-                    {% else %}
-                      Sob demanda
-                    {% endif %}
-                  </td>
-                  <td class="py-3.5 px-3 text-center">
-                    <a 
-                      href="/search?q={{ comp.name|urlencode }}" 
-                      class="inline-flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-400 hover:text-white transition border border-slate-700"
-                      title="Ver editais desta entidade"
-                    >
-                      <i class="fa-solid fa-magnifying-glass text-[10px]"></i> Editais
-                    </a>
-                  </td>
-                </tr>
+                {{ linha_orgao(comp) }}
               {% endfor %}
             {% else %}
               <tr>
@@ -287,6 +249,9 @@
           </tbody>
         </table>
       </div>
+      <p id="companies-rodape" class="mt-3 text-[11px] text-slate-500">
+        {% if total_companies > companies|length %}Exibindo os {{ companies|length }} órgãos com mais certames de {{ total_companies }}. Use a busca para encontrar os demais.{% endif %}
+      </p>
     </div>
 
   </div>
@@ -304,17 +269,23 @@
 </style>
 
 <script>
+  // A página traz só os órgãos com mais certames; a busca consulta a lista completa no servidor (em cache)
+  let buscaOrgaosTimer = null;
+  let buscaOrgaosSeq = 0;
   function filterCompaniesTable() {
-    const term = (document.getElementById('company-search').value || '').toLowerCase().trim();
-    const rows = document.querySelectorAll('.company-row');
-    rows.forEach(r => {
-      const searchAttr = r.getAttribute('data-search') || '';
-      if (!term || searchAttr.includes(term)) {
-        r.style.display = '';
-      } else {
-        r.style.display = 'none';
-      }
-    });
+    clearTimeout(buscaOrgaosTimer);
+    buscaOrgaosTimer = setTimeout(async () => {
+      const term = (document.getElementById('company-search').value || '').trim();
+      const seq = ++buscaOrgaosSeq;
+      try {
+        const resp = await fetch('/fornecedores/linhas?q=' + encodeURIComponent(term), { credentials: 'same-origin' });
+        if (!resp.ok || seq !== buscaOrgaosSeq) return;
+        const corpo = document.querySelector('#companies-table tbody');
+        corpo.innerHTML = await resp.text();
+        const rodape = document.getElementById('companies-rodape');
+        if (rodape) rodape.textContent = resp.headers.get('X-Orgaos-Rodape') ? decodeURIComponent(resp.headers.get('X-Orgaos-Rodape')) : '';
+      } catch {}
+    }, 250);
   }
   // ---------- Dossiê 360° ----------
   function escDossie(v) {

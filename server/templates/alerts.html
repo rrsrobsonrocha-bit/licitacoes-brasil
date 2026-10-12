@@ -3,10 +3,12 @@
 {% block title %}Meus Alertas & Auditoria de Disparos - Licitações Brasil{% endblock %}
 
 {% block content %}
-<div class="bg-slate-900 text-white py-8 border-b border-slate-800">
-  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+{% from "partials_cabecalho_mobile.html" import linha_voltar, cabecalho_mobile %}
+{{ cabecalho_mobile('Alertas', cor='sky') }}
+<div class="bg-slate-900 text-white pt-3 pb-3 lg:py-8 border-b border-slate-800">
+  <div class="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-      <div>
+      <div class="hidden lg:block">
         <h1 class="text-2xl font-bold flex items-center gap-2">
           <i class="fa-solid fa-bell text-sky-400"></i> Radar, Alertas e Auditoria de Webhooks
         </h1>
@@ -23,18 +25,18 @@
     </div>
 
     <!-- Navegação por Abas -->
-    <div class="flex gap-2 mt-6 border-b border-slate-800 -mb-8">
-      <button id="tab-btn-alerts" onclick="switchTab('alerts')" class="px-4 py-2.5 text-xs font-bold border-b-2 border-sky-400 text-sky-400 flex items-center gap-2 transition">
+    <div class="flex gap-2 mt-3 lg:mt-6 border-b border-slate-800 -mb-3 lg:-mb-8 overflow-x-auto scrollbar-none">
+      <button id="tab-btn-alerts" onclick="switchTab('alerts')" class="shrink-0 whitespace-nowrap px-4 py-2.5 text-xs font-bold border-b-2 border-sky-400 text-sky-400 flex items-center gap-2 transition">
         <i class="fa-solid fa-list-check"></i> Radares e Alertas Configurados
       </button>
-      <button id="tab-btn-webhooks" onclick="switchTab('webhooks')" class="px-4 py-2.5 text-xs font-bold border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2 transition">
+      <button id="tab-btn-webhooks" onclick="switchTab('webhooks')" class="shrink-0 whitespace-nowrap px-4 py-2.5 text-xs font-bold border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2 transition">
         <i class="fa-solid fa-satellite-dish"></i> Histórico e Auditoria de Disparos
       </button>
     </div>
   </div>
 </div>
 
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+<div class="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 lg:py-8">
   <!-- ABA 1: Radares e Alertas -->
   <div id="tab-content-alerts" class="space-y-4">
     <div id="alerts-container" class="space-y-4">
@@ -284,13 +286,13 @@
     const contentWebhooks = document.getElementById('tab-content-webhooks');
 
     if (tab === 'alerts') {
-      btnAlerts.className = 'px-4 py-2.5 text-xs font-bold border-b-2 border-sky-400 text-sky-400 flex items-center gap-2 transition';
-      btnWebhooks.className = 'px-4 py-2.5 text-xs font-bold border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2 transition';
+      btnAlerts.className = 'shrink-0 whitespace-nowrap px-4 py-2.5 text-xs font-bold border-b-2 border-sky-400 text-sky-400 flex items-center gap-2 transition';
+      btnWebhooks.className = 'shrink-0 whitespace-nowrap px-4 py-2.5 text-xs font-bold border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2 transition';
       contentAlerts.classList.remove('hidden');
       contentWebhooks.classList.add('hidden');
     } else {
-      btnWebhooks.className = 'px-4 py-2.5 text-xs font-bold border-b-2 border-sky-400 text-sky-400 flex items-center gap-2 transition';
-      btnAlerts.className = 'px-4 py-2.5 text-xs font-bold border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2 transition';
+      btnWebhooks.className = 'shrink-0 whitespace-nowrap px-4 py-2.5 text-xs font-bold border-b-2 border-sky-400 text-sky-400 flex items-center gap-2 transition';
+      btnAlerts.className = 'shrink-0 whitespace-nowrap px-4 py-2.5 text-xs font-bold border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2 transition';
       contentWebhooks.classList.remove('hidden');
       contentAlerts.classList.add('hidden');
       loadHealthMetrics();

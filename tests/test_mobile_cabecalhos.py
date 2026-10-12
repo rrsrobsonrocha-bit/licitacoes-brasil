@@ -21,6 +21,9 @@ PAGINAS = {
     "/favorites": "Favoritos",
     "/agenda": "Agenda",
     "/gestao": "Gestão",
+    "/fornecedores": "Fornecedores",
+    "/disputa": "Disputa ao Vivo",
+    "/alerts": "Alertas",
 }
 
 
@@ -67,7 +70,7 @@ def test_paginas_secundarias_tem_seta_de_voltar_e_titulo_compacto(admin_auth, ed
         assert "btn-voltar h-9 w-9 shrink-0 inline-flex items-center justify-center" in linha and "active:scale-90" in linha
         assert f">{titulo}" in linha, rota
         # Cabeçalho fixo e compacto no celular (o global tem 4 rem; a barra da página fica logo abaixo)
-        assert re.search(r'class="[^"]*sticky top-16 z-20[^"]*py-2\.5[^"]*"|class="cabecalho-mobile lg:hidden sticky top-16 z-20 backdrop-blur bg-slate-900/90 py-2\.5 px-3 border-b border-slate-800"', html), rota
+        assert re.search(r'class="[^"]*sticky top-16 z-20[^"]*py-2\.5[^"]*"|class="cabecalho-mobile lg:hidden sticky top-16 z-20 bg-slate-900/95 backdrop-blur border-b border-slate-800 py-2\.5 px-3 flex items-center gap-2"', html), rota
         _js_valido(html, rota)
 
     base = client.get("/dashboard", cookies=admin_auth.cookies).text
