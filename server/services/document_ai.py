@@ -360,8 +360,12 @@ async def analisar_documento(conteudo: bytes, mime_type: str, nome_arquivo: str,
 # Gravação no Cofre (isolada por conta)
 # ------------------------------------------------------------------------------
 def cnpj_de_referencia(db, user_id: str) -> Optional[str]:
-    """CNPJ da empresa da conta: o usado na importação automática de certidões (mais recente)."""
+    """CNPJ da empresa ativa da conta; sem empresa cadastrada, o da importação de certidões mais recente."""
     from server.models import DocumentoEmpresa
+    from server.services.empresas import empresa_ativa
+    ativa = empresa_ativa(db, user_id)
+    if ativa:
+        return ativa.cnpj
     linha = (db.query(DocumentoEmpresa.cnpj)
              .filter(DocumentoEmpresa.user_id == user_id, DocumentoEmpresa.origem == "CNPJ",
                      DocumentoEmpresa.cnpj.isnot(None))
@@ -399,10 +403,14 @@ def gravar_no_cofre(db, user_id: str, conteudo: bytes, mime_type: str, nome_arqu
     hoje = hoje or hoje_sao_paulo()
     analise = dict(analise)
     alertas = list(analise.get("alertas") or [])
+    from server.models import EmpresaUsuario
     referencia = cnpj_de_referencia(db, user_id)
     identificado = analise.get("cnpj_cpf_identificado")
     if referencia and identificado and len(identificado) == 14 and identificado != referencia:
-        alertas.append("CNPJ divergente do cadastro")
+        outra = db.query(EmpresaUsuario).filter(EmpresaUsuario.user_id == user_id,
+                                                EmpresaUsuario.cnpj == identificado).first()
+        alertas.append(f"Documento de outra empresa da conta: {outra.razao_social}" if outra
+                       else "CNPJ divergente do cadastro")
     analise["alertas"] = alertas
     analise["arquivo_original"] = (nome_arquivo or "")[:255]
 
@@ -430,7 +438,8 @@ def gravar_no_cofre(db, user_id: str, conteudo: bytes, mime_type: str, nome_arqu
     doc.data_emissao = emissao or hoje  # sem emissão identificada: data do registro (não exibida como emissão)
     doc.data_validade = validade
     doc.pendente = False
-    doc.cnpj = identificado if identificado and len(identificado) == 14 else doc.cnpj
+    # Sem CNPJ no documento, ele fica com a empresa ativa (contexto do Cofre)
+    doc.cnpj = identificado if identificado and len(identificado) == 14 else (doc.cnpj or referencia)
     doc.metadados_ia = analise
     doc.updated_at = datetime.utcnow()
     db.flush()

@@ -4,6 +4,8 @@ Este projeto se chama **Licitações Brasil**, e esse é o único nome a usar em
 commits, textos de interface, docstrings e documentação. Em identificadores técnicos, use o slug
 `licitacoes-brasil` (pacotes, repositório, URLs) ou `licitacoes_brasil` (nomes Python/SQL).
 Commits são assinados como `Licitações-Brasil`.
+Exceção (white-label): documentos gerados em nome do licitante (minutas, petições, memoriais, relatórios em PDF/DOCX)
+não levam a marca da plataforma; saem no papel timbrado da empresa ativa da conta (ou neutros, sem empresa).
 
 ## O que é
 
@@ -31,6 +33,12 @@ FastAPI + Jinja2 + SQLAlchemy (SQLite em desenvolvimento, PostgreSQL em produç�
   do SIASG), gravando em lote (`TenderItem.origem` PNCP/COMPRAS). A rotina diurna pré-carrega itens de certames
   com sessão em 72 h, favoritos, AL e dispensas. O "+ Negócio" abre a gaveta de triagem (`#deal-items-modal`):
   itens selecionados (`item_ids`, valor = soma) ou modo global (`modo: "global"`, valor do edital).
+- `server/services/empresas.py` + `/api/minhas-empresas`: empresas (CNPJs) da conta, cadastradas pela Receita
+  (BrasilAPI) e também ao importar certidões no Cofre. Uma empresa = ativa automaticamente; 2+ = seletor "Empresa
+  Ativa" no cabeçalho. A ativa define timbre (`timbre`), qualificação (`dados_licitante`), CNPJ de referência e o
+  filtro do Cofre (docs da empresa ativa + sem CNPJ). `/api/empresas` continua sendo o apelido de `/api/fornecedores`.
+- `server/services/indices_contabeis.py` + `/api/juridico/indices-contabeis`: LG, SG e LC (art. 69), truncados em
+  2 casas, e o memorial DOCX timbrado para o contador. Nunca sugere valores de balanço.
 - `server/services/minutas.py` + `/api/minutas`: declarações e proposta readequada (Lei 14.133/2021) em DOCX.
 - `server/services/certidoes.py` + `POST /api/documents/auto-import/{cnpj}`: pacote de habilitação por CNPJ no
   Cofre. Só entra válido o que foi consultado de fato (situação cadastral via BrasilAPI; CEIS/CNEP com

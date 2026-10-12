@@ -3,7 +3,7 @@ Montador do Kit de Habilitação (ZIP).
 
 ``montar_kit_habilitacao_zip(tender_id)`` seleciona no SQLite os documentos válidos do
 cofre (``documentos_empresa``), empacota os PDFs e injeta ``Relatorio_Conformidade.pdf``
-(ReportLab, papel timbrado Licitações Brasil) como índice de habilitação do certame.
+(ReportLab, papel timbrado da empresa ativa) como índice de habilitação do certame.
 """
 import io
 import zipfile
@@ -24,7 +24,7 @@ from server.models import (
     hoje_sao_paulo,
 )
 from server.services.document_vault import (
-    EXTENSOES, arquivo_disponivel, consulta_do_cofre, ler_arquivo_documento, slugify,
+    EXTENSOES, arquivo_disponivel, cnpj_do_contexto, consulta_do_cofre, ler_arquivo_documento, slugify,
 )
 from server.services.pdf_generator import (
     COR_BORDA,
@@ -107,7 +107,7 @@ def selecionar_documentos(db: Session, tender: Tender, hoje: date, user_id: Opti
     resultado = ResultadoKit(tender=tender, hoje=hoje, data_sessao=_data_sessao(tender))
     ordem_categorias = {chave: i for i, chave in enumerate(DOCUMENTO_CATEGORIAS.keys())}
     documentos = sorted(
-        consulta_do_cofre(db, user_id).all(),
+        consulta_do_cofre(db, user_id, cnpj_do_contexto(db, user_id)).all(),
         key=lambda d: (ordem_categorias.get(d.categoria, 99), (d.nome or "").lower(), d.id or 0),
     )
     sequencia = 0
@@ -154,7 +154,7 @@ def _tabela_documentos(cabecalho: List[str], linhas: List[List[str]], larguras: 
     return tabela
 
 
-def gerar_relatorio_conformidade_pdf(resultado: ResultadoKit) -> bytes:
+def gerar_relatorio_conformidade_pdf(resultado: ResultadoKit, empresa: Optional[Dict[str, str]] = None) -> bytes:
     from xml.sax.saxutils import escape
 
     est = estilos_timbrados()
@@ -252,6 +252,7 @@ def gerar_relatorio_conformidade_pdf(resultado: ResultadoKit) -> bytes:
         titulo_documento="Relatório de Conformidade",
         referencia=f"Kit de Habilitação  •  Certame nº {numero}",
         assunto=f"Kit de habilitação — {t.contracting_entity or ''}",
+        empresa=empresa,
     )
 
 
@@ -284,7 +285,9 @@ def montar_kit_habilitacao_zip(
             raise KitHabilitacaoError(f"Certame '{tender_id}' não encontrado.")
 
         resultado = selecionar_documentos(sessao, tender, hoje or hoje_sao_paulo(), user_id)
-        relatorio = gerar_relatorio_conformidade_pdf(resultado)
+        from server.services import empresas
+        relatorio = gerar_relatorio_conformidade_pdf(
+            resultado, empresas.timbre(empresas.empresa_ativa(sessao, user_id)))
 
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as zf:

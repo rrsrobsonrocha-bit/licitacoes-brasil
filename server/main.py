@@ -60,6 +60,7 @@ from server.search_engine import (
     ESFERAS_FILTRO, BENEFICIOS_FILTRO, PORTAIS_DISPUTA, lista_param, normalizar_esfera, portal_de_disputa
 )
 from server.services import minutas
+from server.services import empresas as empresas_service
 from server.ai_engine import analyze_tender_document_with_ai
 from server.services.ai_service import analyze_tender_summary, ask_tender_question
 from server.connectors.registry import SOURCE_CATALOG, list_all_sources, get_connector
@@ -217,9 +218,13 @@ app.include_router(webhooks_router)
 from server.routes.documents import router as documentos_router
 from server.routes.dossie import router as dossie_router
 from server.routes.disputa import router as disputa_router
+from server.routes.empresas import router as empresas_router
+from server.routes.juridico_contabil import router as juridico_contabil_router
 app.include_router(documentos_router)
 app.include_router(dossie_router)
 app.include_router(disputa_router)
+app.include_router(empresas_router)
+app.include_router(juridico_contabil_router)
 
 # CORS
 app.add_middleware(
@@ -263,6 +268,23 @@ def formatar_brl(valor: Any) -> str:
 templates.env.filters["brl"] = formatar_brl
 templates.env.globals["UFS_BRASIL"] = UFS_BRASIL
 templates.env.globals["ETAPAS_FUNIL"] = ETAPAS_FUNIL
+
+
+def empresas_da_sessao(request: Request) -> Dict[str, Any]:
+    """Empresas da conta logada e a ativa (seletor "Empresa Ativa" do cabeçalho)."""
+    usuario = getattr(request.state, "usuario", None) if request else None
+    if usuario is None:
+        return {"lista": [], "ativa": None}
+    db = SessionLocal()
+    try:
+        return empresas_service.da_sessao(db, usuario.id)
+    except Exception:
+        return {"lista": [], "ativa": None}
+    finally:
+        db.close()
+
+
+templates.env.globals["empresas_da_sessao"] = empresas_da_sessao
 templates.env.globals["NATUREZAS_FILTRO"] = NATUREZAS_FILTRO
 templates.env.globals["ESFERAS_FILTRO"] = ESFERAS_FILTRO
 templates.env.globals["BENEFICIOS_FILTRO"] = BENEFICIOS_FILTRO
@@ -2386,8 +2408,12 @@ def api_minutas():
 
 
 @app.get("/api/minutas/{slug}/download")
-def api_minuta_download(slug: str, tender_id: Optional[str] = Query(None), db: Session = Depends(get_db)):
-    """Baixa a minuta em DOCX; com `tender_id`, órgão, referência e itens oficiais vêm preenchidos."""
+def api_minuta_download(slug: str, request: Request, tender_id: Optional[str] = Query(None),
+                        db: Session = Depends(get_db)):
+    """
+    Baixa a minuta em DOCX no papel timbrado da empresa ativa, com razão social, CNPJ, endereço e
+    representante preenchidos; com `tender_id`, órgão, referência e itens oficiais também.
+    """
     minuta = minutas.MINUTAS.get(slug)
     if not minuta:
         raise HTTPException(status_code=404, detail="Minuta não encontrada.")
@@ -2396,7 +2422,10 @@ def api_minuta_download(slug: str, tender_id: Optional[str] = Query(None), db: S
         tender = _tender_ou_404(db, tender_id)
         itens = db.query(TenderItem).filter(TenderItem.tender_id == tender.id).order_by(TenderItem.item_number.asc()).all()
         ctx = minutas.contexto_do_certame(tender, itens)
-    conteudo = minutas.gerar_docx(minuta, ctx)
+    user = get_current_user(request, db)
+    empresa = empresas_service.empresa_ativa(db, user.id) if user else None
+    conteudo = minutas.gerar_docx(minuta, ctx, empresa=empresas_service.dados_licitante(empresa) or None,
+                                  timbre=empresas_service.timbre(empresa))
     nome = minutas.nome_do_arquivo(minuta, ctx or {})
     return Response(
         content=conteudo,
@@ -2561,9 +2590,10 @@ class GerarPeticaoPDFRequest(BaseModel):
 
 
 @app.post("/api/juridico/gerar-pdf")
-def api_juridico_gerar_pdf(payload: GerarPeticaoPDFRequest, db: Session = Depends(get_db)):
+def api_juridico_gerar_pdf(payload: GerarPeticaoPDFRequest, request: Request, db: Session = Depends(get_db)):
     """
-    Compila a petição em PDF timbrado Licitações Brasil.
+    Compila a petição em PDF no papel timbrado da empresa ativa da conta (white-label); campos do
+    licitante não informados vêm do cadastro dessa empresa.
     O texto vem de `corpo` (editado no modal) ou do modelo `template_id`; os dados do
     certame podem ser informados diretamente ou herdados de `tender_id`.
     """
@@ -2594,6 +2624,10 @@ def api_juridico_gerar_pdf(payload: GerarPeticaoPDFRequest, db: Session = Depend
     titulo = payload.titulo or (tmpl.titulo if tmpl else "Petição Administrativa")
     tipo_label = serialize_legal_template(tmpl)["tipo_label"] if tmpl else None
 
+    user = get_current_user(request, db)
+    empresa = empresas_service.empresa_ativa(db, user.id) if user else None
+    licitante = {**empresas_service.dados_licitante(empresa),
+                 **{k: v for k, v in (payload.licitante.model_dump() if payload.licitante else {}).items() if v}}
     try:
         pdf_bytes = gerar_peticao_pdf(
             corpo=corpo,
@@ -2604,8 +2638,9 @@ def api_juridico_gerar_pdf(payload: GerarPeticaoPDFRequest, db: Session = Depend
             tipo_label=tipo_label,
             lei=lei,
             fundamentacao=fundamentacao,
-            licitante=payload.licitante.model_dump() if payload.licitante else None,
-            cidade=payload.cidade
+            licitante=licitante or None,
+            cidade=payload.cidade or (empresa.cidade if empresa else None),
+            empresa=empresas_service.timbre(empresa),
         )
     except PeticaoInvalidaError as exc:
         raise HTTPException(status_code=422, detail=str(exc))

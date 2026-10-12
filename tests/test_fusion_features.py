@@ -394,10 +394,14 @@ def test_gerar_peticao_pdf_conteudo_timbrado():
         licitante={"razao_social": "Alfa Distribuidora LTDA", "cnpj": "12345678000199", "representante": "Maria Souza"},
         cidade="Maceió/AL",
         data_documento=date(2026, 10, 9),
+        empresa={"nome": "Alfa Distribuidora LTDA", "linha_cnpj": "CNPJ: 12.345.678/0001-99 · Endereço: Rua A, 10 – Maceió/AL",
+                 "contato": "E-mail: contato@alfa.com.br"},
     )
     assert pdf.startswith(b"%PDF-")
     texto = _texto_pdf(pdf)
-    assert "Licitações" in texto and "Brasil" in texto
+    # White-label: timbre da empresa licitante, nenhuma marca da plataforma
+    assert "Licitações Brasil" not in texto
+    assert "Alfa Distribuidora LTDA" in texto and "contato@alfa.com.br" in texto
     assert "PE 042/2026" in texto
     assert "Prefeitura Municipal de Maceió" in texto
     assert "8.666" in texto

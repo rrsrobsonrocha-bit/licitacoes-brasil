@@ -583,8 +583,8 @@ def run_db_migrations():
         return
 
     from server.models import (
-        AdminBid, ArquivoCofre, DocumentoEmpresa, DossieFornecedor, HistoricoDisputa, PasswordResetToken,
-        SyncProgresso,
+        AdminBid, ArquivoCofre, DocumentoEmpresa, DossieFornecedor, EmpresaUsuario, HistoricoDisputa,
+        PasswordResetToken, SyncProgresso,
     )
 
     # 1. Colunas novas em tabelas existentes
@@ -619,6 +619,7 @@ def run_db_migrations():
     _criar_tabela_do_modelo(SyncProgresso)
     _criar_tabela_do_modelo(DossieFornecedor)
     _criar_tabela_do_modelo(ArquivoCofre)
+    _criar_tabela_do_modelo(EmpresaUsuario)
     _backfill_tipo_documento_certidoes()
     _criar_tabela_do_modelo(AdminBid)  # NUMERIC(14,2), TIMESTAMP WITH TIME ZONE e VARCHAR no PostgreSQL
     if "users" in _tabelas_existentes():

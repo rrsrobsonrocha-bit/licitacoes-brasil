@@ -1,5 +1,6 @@
 {#- Menu "Gestão" só para administradores: a conta vem do middleware de controle de acesso -#}
 {%- set usuario_nav = request.state.usuario if request and request.state else none -%}
+{%- set empresas_nav = empresas_da_sessao(request) if usuario_nav else {'lista': [], 'ativa': none} -%}
 {%- set e_admin = usuario_nav is defined and usuario_nav is not none and usuario_nav.role == 'ADMIN' -%}
 <!DOCTYPE html>
 <html lang="pt-BR" class="h-full bg-slate-50">
@@ -101,6 +102,21 @@
 
         <!-- User Controls / Auth -->
         <div class="flex items-center space-x-3 text-sm">
+          {% if empresas_nav.lista|length >= 2 %}
+          <!-- Empresa ativa (multi-CNPJ): define timbre, minutas e contexto do Cofre -->
+          <label class="hidden lg:flex items-center gap-1.5 text-xs text-slate-300" title="Empresa usada no timbre, nas minutas e no Cofre">
+            <span class="text-slate-400">Empresa Ativa:</span>
+            <select id="seletor-empresa" onchange="alternarEmpresaAtiva(this.value)" class="max-w-[16rem] bg-slate-800 border border-slate-600 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:ring-2 focus:ring-sky-400">
+              {% for emp in empresas_nav.lista %}
+              <option value="{{ emp.id }}" {% if emp.is_primary %}selected{% endif %}>{{ emp.razao_social[:38] }} – {{ emp.cnpj_formatado }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          {% elif empresas_nav.ativa %}
+          <span id="empresa-ativa-chip" class="hidden lg:inline-flex items-center gap-1 text-[11px] text-slate-300 bg-slate-800/80 border border-slate-700 rounded-lg px-2 py-1 max-w-[14rem]" title="CNPJ {{ empresas_nav.ativa.cnpj_formatado }}">
+            <i class="fa-solid fa-building text-sky-400"></i><span class="truncate">{{ empresas_nav.ativa.razao_social }}</span>
+          </span>
+          {% endif %}
           <span id="user-display" class="hidden sm:inline-block text-slate-300 font-medium">
             <i class="fa-regular fa-user-circle mr-1"></i> <span id="user-name">Usuário</span>
           </span>
@@ -153,6 +169,18 @@
     </div>
 
     <!-- Lista Completa de Módulos (11 Itens Funcionais) -->
+    {% if empresas_nav.lista|length >= 2 %}
+    <div class="px-4 py-2.5 border-b border-slate-800">
+      <label for="seletor-empresa-mobile" class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Empresa Ativa</label>
+      <select id="seletor-empresa-mobile" onchange="alternarEmpresaAtiva(this.value)" class="w-full bg-slate-800 border border-slate-600 rounded-lg px-2 py-1.5 text-xs text-white">
+        {% for emp in empresas_nav.lista %}
+        <option value="{{ emp.id }}" {% if emp.is_primary %}selected{% endif %}>{{ emp.razao_social[:40] }} – {{ emp.cnpj_formatado }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% elif empresas_nav.ativa %}
+    <div class="px-4 py-2 border-b border-slate-800 text-[11px] text-slate-300 truncate"><i class="fa-solid fa-building text-sky-400 mr-1"></i>{{ empresas_nav.ativa.razao_social }}</div>
+    {% endif %}
     <nav class="flex-1 overflow-y-auto py-3 px-3 space-y-1 text-sm font-medium">
       <!-- 1. Pesquisar Editais -->
       <a href="/" data-route="/search" class="flex items-center justify-between px-3 py-2.5 rounded-xl text-slate-200 hover:text-white hover:bg-slate-800/80 transition">
@@ -383,6 +411,17 @@
         backdrop.classList.add('opacity-0', 'pointer-events-none');
       }
       document.body.classList.remove('overflow-hidden');
+    }
+
+    // Troca a empresa ativa e recarrega: timbre, minutas e Cofre passam a usar a nova empresa
+    async function alternarEmpresaAtiva(empresaId) {
+      try {
+        const resp = await fetch(`/api/minhas-empresas/${encodeURIComponent(empresaId)}/ativar`, { method: 'POST', credentials: 'same-origin' });
+        if (!resp.ok) throw new Error();
+        window.location.reload();
+      } catch (e) {
+        if (typeof showToast === 'function') showToast('Não foi possível trocar a empresa ativa.', 'error');
+      }
     }
 
     function toggleMobileMenu() {

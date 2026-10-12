@@ -170,6 +170,57 @@
       </div>
     </section>
 
+    <!-- Balanço Patrimonial & Análise de Índices Contábeis (art. 69 da Lei 14.133/2021) -->
+    <section id="indices-contabeis" class="mb-8 scroll-mt-40 bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-lg" aria-labelledby="indices-titulo">
+      <div class="flex flex-col sm:flex-row sm:items-end justify-between gap-2 mb-4">
+        <div>
+          <h2 id="indices-titulo" class="text-sm font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2">
+            <i class="fa-solid fa-scale-balanced text-emerald-400"></i> Balanço Patrimonial &amp; Análise de Índices Contábeis
+          </h2>
+          <p class="text-xs text-slate-400 mt-0.5">Qualificação econômico-financeira (art. 69 da Lei 14.133/2021): LG, SG e LC calculados em tempo real.</p>
+        </div>
+        <p id="ic-referencia" class="hidden text-[11px] text-slate-400 sm:text-right"></p>
+      </div>
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <form id="ic-form" class="lg:col-span-1 space-y-2.5" novalidate oninput="icRecalcular()">
+          {% for campo, rotulo in [('ativo_circulante', 'Ativo Circulante (AC)'), ('realizavel_longo_prazo', 'Ativo Realizável a Longo Prazo (ARLP)'), ('ativo_total', 'Ativo Total (AT)'), ('passivo_circulante', 'Passivo Circulante (PC)'), ('passivo_nao_circulante', 'Passivo Não Circulante (PNC)'), ('patrimonio_liquido', 'Patrimônio Líquido (PL)')] %}
+          <div>
+            <label for="ic-{{ campo }}" class="block text-[10px] font-bold uppercase text-slate-400 mb-0.5">{{ rotulo }}</label>
+            <input id="ic-{{ campo }}" name="{{ campo }}" type="text" inputmode="decimal" placeholder="0,00" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-slate-100 focus:outline-none focus:border-emerald-500">
+          </div>
+          {% endfor %}
+          <div class="grid grid-cols-2 gap-2 pt-1">
+            <div>
+              <label for="ic-exercicio" class="block text-[10px] font-bold uppercase text-slate-400 mb-0.5">Exercício</label>
+              <input id="ic-exercicio" type="text" maxlength="4" inputmode="numeric" placeholder="2025" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-100">
+            </div>
+            <div>
+              <label for="ic-crc" class="block text-[10px] font-bold uppercase text-slate-400 mb-0.5">CRC do contador</label>
+              <input id="ic-crc" type="text" maxlength="40" placeholder="UF-000000/O" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-100">
+            </div>
+          </div>
+          <div>
+            <label for="ic-contador" class="block text-[10px] font-bold uppercase text-slate-400 mb-0.5">Nome do contador</label>
+            <input id="ic-contador" type="text" maxlength="255" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-100">
+          </div>
+        </form>
+        <div class="lg:col-span-2 space-y-3">
+          <div id="ic-diagnostico" class="rounded-xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-sm font-bold text-slate-400">Preencha os valores do balanço para calcular os índices.</div>
+          <div id="ic-indices" class="grid grid-cols-1 sm:grid-cols-3 gap-3"></div>
+          <ul id="ic-alertas" class="space-y-1 text-[11px] text-amber-300"></ul>
+          <div class="text-[11px] text-slate-400 bg-slate-950/60 border border-slate-800 rounded-xl p-3 leading-relaxed">
+            <b class="text-slate-300">Fórmulas oficiais:</b> LG = (AC + ARLP) / (PC + PNC) · SG = AT / (PC + PNC) · LC = AC / PC.
+            Índices truncados em duas casas (0,999 conta como 0,99).
+            <br><i class="fa-solid fa-circle-info text-sky-400"></i> O balanço definitivo para o certame deve estar registrado na Junta Comercial ou transmitido pelo SPED (art. 69, I).
+          </div>
+          <button type="button" id="ic-exportar" onclick="icExportarMemorial()" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2 rounded-xl text-xs transition shadow-md flex items-center gap-2 disabled:opacity-50">
+            <i class="fa-solid fa-file-word"></i> Gerar Declaração e Memorial de Cálculo (DOCX timbrado)
+          </button>
+        </div>
+      </div>
+    </section>
+
+
     <div id="templates-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
       {% for t in templates %}
         <div 
@@ -755,6 +806,114 @@
 
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closeTemplateModal();
+  });
+</script>
+<script>
+  // ---------------- Índices contábeis (mesmas fórmulas e truncamento do servidor) ----------------
+  const IC_CAMPOS = ['ativo_circulante', 'realizavel_longo_prazo', 'ativo_total', 'passivo_circulante', 'passivo_nao_circulante', 'patrimonio_liquido'];
+  const IC_ORIENTACAO = {
+    LG: 'Dívidas totais acima dos bens realizáveis. O edital pode aceitar capital mínimo ou PL mínimo de até 10% do valor estimado (art. 69, § 4º).',
+    SG: 'Ativo total não cobre o passivo exigível. Confira a escrituração e se o edital aceita PL mínimo como alternativa.',
+    LC: 'Obrigações de curto prazo acima do ativo circulante. Avalie com o contador a reclassificação de dívidas e a capitalização.',
+  };
+
+  function icNumero(texto) {
+    let t = String(texto || '').replace(/[R$\s]/g, '');
+    if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.');
+    const n = parseFloat(t);
+    return Number.isFinite(n) ? n : null;
+  }
+  const icTrunc = (v) => Math.floor(v * 100 + 1e-9) / 100;
+  const icFmt = (v) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const icEsc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  function icValores() {
+    const v = {};
+    IC_CAMPOS.forEach(c => { v[c] = icNumero(document.getElementById(`ic-${c}`).value); });
+    return v;
+  }
+
+  function icRecalcular() {
+    const v = icValores();
+    const diag = document.getElementById('ic-diagnostico');
+    const caixa = document.getElementById('ic-indices');
+    const alertas = document.getElementById('ic-alertas');
+    if (IC_CAMPOS.some(c => v[c] === null)) {
+      diag.className = 'rounded-xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-sm font-bold text-slate-400';
+      diag.textContent = 'Preencha os seis valores do balanço para calcular os índices.';
+      caixa.innerHTML = ''; alertas.innerHTML = '';
+      return null;
+    }
+    const exigivel = v.passivo_circulante + v.passivo_nao_circulante;
+    const indices = [
+      ['LG', 'Liquidez Geral', '(AC + ARLP) / (PC + PNC)', v.ativo_circulante + v.realizavel_longo_prazo, exigivel],
+      ['SG', 'Solvência Geral', 'AT / (PC + PNC)', v.ativo_total, exigivel],
+      ['LC', 'Liquidez Corrente', 'AC / PC', v.ativo_circulante, v.passivo_circulante],
+    ].map(([sigla, nome, formula, num, den]) => {
+      const valor = den > 0 ? icTrunc(num / den) : null;
+      return { sigla, nome, formula, valor, atende: valor === null || valor >= 1 };
+    });
+    const ok = indices.every(i => i.atende);
+    diag.className = `rounded-xl border px-4 py-3 text-sm font-black ${ok ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-300' : 'border-rose-500/50 bg-rose-500/10 text-rose-300'}`;
+    diag.innerHTML = ok ? '<i class="fa-solid fa-circle-check"></i> Qualificado para Licitar: LG, SG e LC ≥ 1,00'
+                        : '<i class="fa-solid fa-triangle-exclamation"></i> Atenção: há índice abaixo de 1,00';
+    caixa.innerHTML = indices.map(i => `
+      <div class="rounded-xl border p-3 ${i.atende ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-rose-500/40 bg-rose-500/5'}">
+        <div class="flex items-center justify-between"><span class="text-[11px] font-bold text-slate-300">${i.nome} (${i.sigla})</span>
+          <span class="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${i.atende ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'}">${i.atende ? '≥ 1,00' : '< 1,00'}</span></div>
+        <div class="text-2xl font-black font-mono mt-1 ${i.atende ? 'text-emerald-300' : 'text-rose-300'}">${i.valor === null ? '∞' : icFmt(i.valor)}</div>
+        <div class="text-[10px] text-slate-500 font-mono">${i.formula}</div>
+        ${i.atende ? '' : `<p class="text-[10px] text-rose-200 mt-1.5 leading-snug">${IC_ORIENTACAO[i.sigla]}</p>`}
+      </div>`).join('');
+    const avisos = [];
+    const passivoPl = exigivel + v.patrimonio_liquido;
+    if (v.ativo_total && Math.abs(v.ativo_total - passivoPl) > Math.max(1, v.ativo_total * 0.005)) avisos.push(`Ativo Total (R$ ${icFmt(v.ativo_total)}) diferente de Passivo + PL (R$ ${icFmt(passivoPl)}): confira os valores.`);
+    if (v.ativo_total < v.ativo_circulante + v.realizavel_longo_prazo) avisos.push('Ativo Total menor que AC + ARLP: confira os valores.');
+    if (v.patrimonio_liquido < 0) avisos.push('Patrimônio Líquido negativo (passivo a descoberto).');
+    alertas.innerHTML = avisos.map(a => `<li><i class="fa-solid fa-triangle-exclamation"></i> ${icEsc(a)}</li>`).join('');
+    return v;
+  }
+
+  async function icExportarMemorial() {
+    const v = icRecalcular();
+    if (!v) { if (typeof showToast === 'function') showToast('Preencha os valores do balanço.', 'error'); return; }
+    const botao = document.getElementById('ic-exportar');
+    botao.disabled = true;
+    try {
+      const resp = await fetch('/api/juridico/indices-contabeis/memorial', {
+        method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...v, exercicio: document.getElementById('ic-exercicio').value,
+                               contador_nome: document.getElementById('ic-contador').value,
+                               contador_crc: document.getElementById('ic-crc').value }),
+      });
+      if (!resp.ok) {
+        const corpo = await resp.json().catch(() => ({}));
+        throw new Error(typeof corpo.detail === 'string' ? corpo.detail : 'Falha ao gerar o memorial.');
+      }
+      const blob = await resp.blob();
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = (resp.headers.get('content-disposition') || '').match(/filename="([^"]+)"/)?.[1] || 'memorial-indices-contabeis.docx';
+      document.body.appendChild(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(link.href), 2000);
+    } catch (e) {
+      if (typeof showToast === 'function') showToast(e.message, 'error');
+    } finally {
+      botao.disabled = false;
+    }
+  }
+
+  // Referência: faturamento dos negócios homologados no funil (contexto; não substitui o balanço)
+  document.addEventListener('DOMContentLoaded', async () => {
+    try {
+      const resp = await fetch('/api/juridico/indices-contabeis/referencia', { credentials: 'same-origin' });
+      if (!resp.ok) return;
+      const d = await resp.json();
+      const el = document.getElementById('ic-referencia');
+      const empresa = d.empresa ? `${d.empresa.razao_social} · ` : '';
+      el.innerHTML = `${icEsc(empresa)}Negócios homologados no funil: <b class="text-emerald-300">${d.negocios_homologados}</b> · R$ ${icFmt(d.faturamento_homologado)}<br><span class="text-slate-500">Referência de faturamento: os valores do balanço vêm da contabilidade.</span>`;
+      el.classList.remove('hidden');
+    } catch (e) { /* referência é opcional */ }
   });
 </script>
 {% endblock %}

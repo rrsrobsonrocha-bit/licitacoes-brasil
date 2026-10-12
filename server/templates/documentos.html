@@ -91,6 +91,16 @@
         <ul id="importacao-resultado" class="hidden space-y-1.5 text-[11px]"></ul>
       </form>
 
+      <!-- Empresas da conta (multi-CNPJ): a ativa define timbre, minutas e o contexto do Cofre -->
+      <div id="painel-empresas" class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-lg space-y-3">
+        <div class="flex items-center justify-between gap-2">
+          <h2 class="text-sm font-bold text-white flex items-center gap-2"><i class="fa-solid fa-building text-sky-400"></i> Empresas da conta</h2>
+          <span class="text-[10px] text-slate-500">Dados da Receita Federal</span>
+        </div>
+        <ul id="lista-empresas" class="space-y-2 text-xs"><li class="text-slate-500">Carregando...</li></ul>
+        <p class="text-[10px] text-slate-500 leading-relaxed">Todo CNPJ importado acima entra aqui. Com uma empresa, ela é usada automaticamente; com várias, a <b>ativa</b> define o papel timbrado, as minutas e quais documentos aparecem no Cofre.</p>
+      </div>
+
       <form id="form-upload-documento" class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-lg space-y-4" enctype="multipart/form-data" novalidate>
         <div class="flex items-center gap-2">
           <i class="fa-solid fa-cloud-arrow-up text-emerald-400"></i>
@@ -617,6 +627,40 @@
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') fecharDetalhes(); });
   });
 
+  // ---------- Empresas da conta ----------
+  async function carregarEmpresas() {
+    const lista = document.getElementById('lista-empresas');
+    try {
+      const resp = await fetch('/api/minhas-empresas', { credentials: 'same-origin' });
+      if (resp.status === 401) { lista.innerHTML = '<li class="text-slate-500">Entre na sua conta para cadastrar empresas.</li>'; return; }
+      const dados = await resp.json();
+      if (!dados.lista.length) { lista.innerHTML = '<li class="text-slate-500">Nenhuma empresa ainda: puxe as certidões de um CNPJ acima.</li>'; return; }
+      lista.innerHTML = dados.lista.map(e => `
+        <li class="flex items-start gap-2 p-2 rounded-xl border ${e.is_primary ? 'border-emerald-500/50 bg-emerald-500/5' : 'border-slate-800'}">
+          <div class="flex-1 min-w-0">
+            <div class="font-semibold text-slate-100 truncate" title="${escapeHtml(e.razao_social)}">${escapeHtml(e.razao_social)}</div>
+            <div class="text-[10px] text-slate-400 font-mono">${escapeHtml(e.cnpj_formatado)}${e.cidade ? ` · ${escapeHtml(e.cidade)}/${escapeHtml(e.uf || '')}` : ''}</div>
+            ${e.representante_nome ? `<div class="text-[10px] text-slate-500 truncate">Repres.: ${escapeHtml(e.representante_nome)}</div>` : ''}
+          </div>
+          ${e.is_primary
+            ? '<span class="shrink-0 text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-emerald-600 text-white">Ativa</span>'
+            : `<button type="button" onclick="alternarEmpresaAtiva(${e.id})" class="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded border border-slate-600 text-slate-200 hover:bg-slate-800">Ativar</button>`}
+          <button type="button" onclick="removerEmpresa(${e.id})" class="shrink-0 p-0.5 text-slate-500 hover:text-rose-400" title="Remover da conta" aria-label="Remover ${escapeHtml(e.razao_social)}"><i class="fa-regular fa-trash-can"></i></button>
+        </li>`).join('');
+    } catch (e) {
+      lista.innerHTML = '<li class="text-rose-300">Não foi possível carregar as empresas.</li>';
+    }
+  }
+
+  async function removerEmpresa(id) {
+    if (!confirm('Remover esta empresa da conta? Os documentos do Cofre não são apagados.')) return;
+    const resp = await fetch(`/api/minhas-empresas/${id}`, { method: 'DELETE', credentials: 'same-origin' });
+    if (resp.ok) window.location.reload();
+    else showToast('Não foi possível remover a empresa.', 'error');
+  }
+
+  document.addEventListener('DOMContentLoaded', carregarEmpresas);
+
   // ---------- Preenchimento rápido por CNPJ ----------
   function mascararCnpj(valor) {
     const d = String(valor || '').replace(/\D/g, '').slice(0, 14);
@@ -666,6 +710,7 @@
         }).join('');
       lista.classList.remove('hidden');
       await recarregarDocumentos();
+      await carregarEmpresas();
       const r = corpo.resumo;
       showToast(`${r.valido} documento(s) guardado(s) e ${r.pendente + r.alerta} pendente(s) de emissão.`, 'success');
     } catch (e) {

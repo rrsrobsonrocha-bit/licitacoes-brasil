@@ -644,6 +644,35 @@ class DocumentoEmpresa(Base):
         return self.status_validade(hoje) not in (DOCUMENTO_STATUS_VENCIDO, DOCUMENTO_STATUS_PENDENTE)
 
 
+class EmpresaUsuario(Base):
+    """
+    Empresas (CNPJs) da conta, com os dados cadastrais da Receita. A empresa ativa (``is_primary``)
+    identifica o licitante em todo o sistema: timbre e qualificação das minutas e petições, CNPJ de
+    referência do Cofre e filtro dos documentos. Com uma única empresa, ela é a ativa automaticamente.
+    """
+    __tablename__ = "empresas_usuario"
+    __table_args__ = (UniqueConstraint("user_id", "cnpj", name="uq_empresas_usuario_user_cnpj"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    cnpj = Column(String(14), nullable=False)
+    razao_social = Column(String(255), nullable=False)
+    nome_fantasia = Column(String(255), nullable=True)
+    endereco_completo = Column(String(500), nullable=True)
+    cidade = Column(String(120), nullable=True)
+    uf = Column(String(2), nullable=True)
+    cep = Column(String(8), nullable=True)
+    telefone = Column(String(40), nullable=True)
+    email = Column(String(255), nullable=True)
+    cnae_principal = Column(String(255), nullable=True)
+    porte = Column(String(60), nullable=True)
+    representante_nome = Column(String(255), nullable=True)
+    representante_cargo = Column(String(120), nullable=True)
+    is_primary = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
 class ArquivoCofre(Base):
     """
     Conteúdo binário dos arquivos do Cofre, persistido no banco (o disco do Render é apagado a cada

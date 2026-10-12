@@ -1,5 +1,5 @@
 """
-Gerador de PDFs jurídicos timbrados "Licitações Brasil" (ReportLab).
+Gerador de PDFs jurídicos no papel timbrado da empresa licitante (white-label, ReportLab).
 
 - ``gerar_peticao_pdf``: compila petições (impugnação, esclarecimento, recurso,
   contrarrazões) com cabeçalho oficial, ficha do certame, qualificação da licitante,
@@ -180,49 +180,62 @@ def estilos_timbrados() -> Dict[str, ParagraphStyle]:
 # ------------------------------------------------------------------------------
 # Timbre, rodapé e paginação
 # ------------------------------------------------------------------------------
-def _desenhar_timbre(c: rl_canvas.Canvas, titulo_documento: str, referencia: str) -> None:
+def _caber(c: rl_canvas.Canvas, texto: str, fonte: str, tamanho: float, largura: float) -> str:
+    """Corta o texto (com reticências) para caber na largura disponível."""
+    texto = texto or ""
+    if c.stringWidth(texto, fonte, tamanho) <= largura:
+        return texto
+    while texto and c.stringWidth(texto + "…", fonte, tamanho) > largura:
+        texto = texto[:-1]
+    return texto.rstrip() + "…"
+
+
+def _desenhar_timbre(c: rl_canvas.Canvas, titulo_documento: str, referencia: str,
+                     empresa: Optional[Dict[str, str]] = None) -> None:
+    """
+    Papel timbrado da empresa licitante (white-label): razão social, CNPJ/endereço e contato.
+    Sem empresa cadastrada, cabeçalho neutro com o título do documento (nenhuma marca da plataforma).
+    """
     c.saveState()
     topo = PAGE_H
-    # Faixa institucional
     c.setFillColor(COR_NAVY)
     c.rect(0, topo - ALTURA_TIMBRE, PAGE_W, ALTURA_TIMBRE, stroke=0, fill=1)
     c.setFillColor(COR_AMBAR)
     c.rect(0, topo - ALTURA_TIMBRE - 1.2 * mm, PAGE_W, 1.2 * mm, stroke=0, fill=1)
 
-    # Monograma
-    lado = 11 * mm
-    x_logo = MARGEM_X
-    y_logo = topo - ALTURA_TIMBRE / 2 - lado / 2
-    c.setFillColor(COR_SKY)
-    c.roundRect(x_logo, y_logo, lado, lado, 2.2 * mm, stroke=0, fill=1)
-    c.setFillColor(COR_NAVY)
-    c.setFont("Helvetica-Bold", 12)
-    c.drawCentredString(x_logo + lado / 2, y_logo + lado / 2 - 4.2, "LB")
-
-    # Marca nominativa
-    x_txt = x_logo + lado + 3.5 * mm
-    y_txt = topo - ALTURA_TIMBRE / 2 + 1.2 * mm
-    c.setFont("Helvetica-Bold", 17)
-    c.setFillColor(colors.white)
-    c.drawString(x_txt, y_txt, "Licitações")
-    largura = c.stringWidth("Licitações", "Helvetica-Bold", 17)
-    c.setFillColor(COR_SKY)
-    c.drawString(x_txt + largura, y_txt, "Brasil")
-    c.setFont("Helvetica", 7.5)
-    c.setFillColor(colors.HexColor("#cbd5e1"))
-    c.drawString(x_txt, y_txt - 4.2 * mm, "Inteligência em Contratações Públicas  •  Assessoria Jurídica Licitatória")
-
-    # Identificação do documento (direita)
-    c.setFont("Helvetica-Bold", 8)
-    c.setFillColor(colors.white)
-    c.drawRightString(PAGE_W - MARGEM_X, topo - ALTURA_TIMBRE / 2 + 2 * mm, (titulo_documento or "")[:70].upper())
-    c.setFont("Helvetica", 7.5)
-    c.setFillColor(COR_SKY)
-    c.drawRightString(PAGE_W - MARGEM_X, topo - ALTURA_TIMBRE / 2 - 2.5 * mm, (referencia or "")[:90])
+    largura_util = PAGE_W - 2 * MARGEM_X
+    largura_esquerda = largura_util * 0.66
+    y_base = topo - ALTURA_TIMBRE / 2
+    if empresa:
+        c.setFont("Helvetica-Bold", 12.5)
+        c.setFillColor(colors.white)
+        c.drawString(MARGEM_X, y_base + 4 * mm, _caber(c, empresa.get("nome", ""), "Helvetica-Bold", 12.5, largura_esquerda))
+        c.setFont("Helvetica", 7.2)
+        c.setFillColor(colors.HexColor("#cbd5e1"))
+        c.drawString(MARGEM_X, y_base - 0.6 * mm, _caber(c, empresa.get("linha_cnpj", ""), "Helvetica", 7.2, largura_esquerda))
+        if empresa.get("contato"):
+            c.drawString(MARGEM_X, y_base - 4.6 * mm, _caber(c, empresa["contato"], "Helvetica", 7.2, largura_esquerda))
+        largura_direita = largura_util - largura_esquerda - 4 * mm
+        c.setFont("Helvetica-Bold", 8)
+        c.setFillColor(colors.white)
+        c.drawRightString(PAGE_W - MARGEM_X, y_base + 2 * mm,
+                          _caber(c, (titulo_documento or "").upper(), "Helvetica-Bold", 8, largura_direita))
+        c.setFont("Helvetica", 7.5)
+        c.setFillColor(COR_SKY)
+        c.drawRightString(PAGE_W - MARGEM_X, y_base - 2.5 * mm,
+                          _caber(c, referencia or "", "Helvetica", 7.5, largura_direita))
+    else:
+        c.setFont("Helvetica-Bold", 12)
+        c.setFillColor(colors.white)
+        c.drawString(MARGEM_X, y_base + 1 * mm, _caber(c, (titulo_documento or "").upper(), "Helvetica-Bold", 12, largura_util))
+        c.setFont("Helvetica", 7.5)
+        c.setFillColor(COR_SKY)
+        c.drawString(MARGEM_X, y_base - 4 * mm, _caber(c, referencia or "", "Helvetica", 7.5, largura_util))
     c.restoreState()
 
 
-def _desenhar_rodape(c: rl_canvas.Canvas, pagina: int, total: int, emitido_em: str) -> None:
+def _desenhar_rodape(c: rl_canvas.Canvas, pagina: int, total: int, emitido_em: str,
+                     empresa: Optional[Dict[str, str]] = None) -> None:
     c.saveState()
     y = MARGEM_BASE - 8 * mm
     c.setStrokeColor(COR_BORDA)
@@ -230,12 +243,14 @@ def _desenhar_rodape(c: rl_canvas.Canvas, pagina: int, total: int, emitido_em: s
     c.line(MARGEM_X, y + 4 * mm, PAGE_W - MARGEM_X, y + 4 * mm)
     c.setFont("Helvetica", 7)
     c.setFillColor(COR_CINZA)
-    c.drawString(MARGEM_X, y, f"{MARCA}  •  Documento gerado eletronicamente em {emitido_em}")
+    prefixo = f"{empresa['nome']}  •  " if empresa and empresa.get("nome") else ""
+    c.drawString(MARGEM_X, y, _caber(c, f"{prefixo}Documento gerado eletronicamente em {emitido_em}", "Helvetica", 7,
+                                     PAGE_W - 2 * MARGEM_X - 25 * mm))
     c.drawRightString(PAGE_W - MARGEM_X, y, f"Página {pagina} de {total}")
     c.restoreState()
 
 
-def _canvas_numerado(titulo_documento: str, referencia: str, emitido_em: str):
+def _canvas_numerado(titulo_documento: str, referencia: str, emitido_em: str, empresa: Optional[Dict[str, str]] = None):
     """Fábrica de Canvas com paginação total ("Página X de Y") e timbre em todas as páginas."""
 
     class CanvasNumerado(rl_canvas.Canvas):
@@ -251,8 +266,8 @@ def _canvas_numerado(titulo_documento: str, referencia: str, emitido_em: str):
             total = len(self._estados_paginas)
             for estado in self._estados_paginas:
                 self.__dict__.update(estado)
-                _desenhar_timbre(self, titulo_documento, referencia)
-                _desenhar_rodape(self, self._pageNumber, total, emitido_em)
+                _desenhar_timbre(self, titulo_documento, referencia, empresa)
+                _desenhar_rodape(self, self._pageNumber, total, emitido_em, empresa)
                 super().showPage()
             super().save()
 
@@ -265,8 +280,9 @@ def renderizar_pdf_timbrado(
     titulo_documento: str,
     referencia: str = "",
     assunto: str = "",
+    empresa: Optional[Dict[str, str]] = None,
 ) -> bytes:
-    """Renderiza uma lista de flowables no papel timbrado Licitações Brasil e retorna os bytes do PDF."""
+    """Renderiza os flowables no papel timbrado da empresa licitante (``empresa``) e retorna o PDF."""
     buffer = io.BytesIO()
     emitido_em = agora_sao_paulo().strftime("%d/%m/%Y %H:%M")
     doc = SimpleDocTemplate(
@@ -277,11 +293,11 @@ def renderizar_pdf_timbrado(
         topMargin=MARGEM_TOPO,
         bottomMargin=MARGEM_BASE,
         title=titulo_documento,
-        author=MARCA,
+        author=(empresa or {}).get("nome", ""),
         subject=assunto or titulo_documento,
-        creator=f"{MARCA} — Gerador Jurídico",
+        creator=(empresa or {}).get("nome", ""),
     )
-    doc.build(list(story), canvasmaker=_canvas_numerado(titulo_documento, referencia, emitido_em))
+    doc.build(list(story), canvasmaker=_canvas_numerado(titulo_documento, referencia, emitido_em, empresa))
     return buffer.getvalue()
 
 
@@ -361,6 +377,7 @@ def gerar_peticao_pdf(
     licitante: Optional[Dict[str, Any]] = None,
     cidade: Optional[str] = None,
     data_documento: Optional[date] = None,
+    empresa: Optional[Dict[str, str]] = None,
 ) -> bytes:
     """
     Compila a petição em PDF timbrado e retorna os bytes.
@@ -439,6 +456,7 @@ def gerar_peticao_pdf(
         titulo_documento=titulo_txt,
         referencia=f"Certame nº {numero_txt}  •  {lei_info['rotulo'].split(' — ')[0]}",
         assunto=f"{titulo_txt} — {orgao_txt}",
+        empresa=empresa,
     )
 
 

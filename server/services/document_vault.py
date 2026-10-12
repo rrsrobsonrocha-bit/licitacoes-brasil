@@ -202,16 +202,35 @@ def remover_arquivo_documento(caminho_arquivo: Optional[str], db: Optional[Sessi
     return True
 
 
-def consulta_do_cofre(db: Session, user_id: Optional[str]):
-    """Documentos do cofre da conta (privado por usuário); sem conta, só os legados sem dono."""
+def consulta_do_cofre(db: Session, user_id: Optional[str], cnpj: Optional[str] = None):
+    """
+    Documentos do cofre da conta (privado por usuário); sem conta, só os legados sem dono.
+    Com ``cnpj`` (conta com várias empresas), só os da empresa ativa e os sem CNPJ definido.
+    """
+    from sqlalchemy import or_
     consulta = db.query(DocumentoEmpresa)
     if user_id is None:
         return consulta.filter(DocumentoEmpresa.user_id.is_(None))
-    return consulta.filter(DocumentoEmpresa.user_id == user_id)
+    consulta = consulta.filter(DocumentoEmpresa.user_id == user_id)
+    if cnpj:
+        consulta = consulta.filter(or_(DocumentoEmpresa.cnpj == cnpj, DocumentoEmpresa.cnpj.is_(None)))
+    return consulta
+
+
+def cnpj_do_contexto(db: Session, user_id: Optional[str]) -> Optional[str]:
+    """CNPJ da empresa ativa quando a conta tem 2+ empresas (com uma só, o cofre mostra tudo)."""
+    if not user_id:
+        return None
+    from server.models import EmpresaUsuario
+    if db.query(EmpresaUsuario).filter(EmpresaUsuario.user_id == user_id).count() < 2:
+        return None
+    from server.services.empresas import empresa_ativa
+    ativa = empresa_ativa(db, user_id)
+    return ativa.cnpj if ativa else None
 
 
 def documentos_ordenados(db: Session, user_id: Optional[str], categoria: Optional[str] = None) -> List[DocumentoEmpresa]:
-    consulta = consulta_do_cofre(db, user_id)
+    consulta = consulta_do_cofre(db, user_id, cnpj_do_contexto(db, user_id))
     if categoria:
         consulta = consulta.filter(DocumentoEmpresa.categoria == categoria.lower())
     return consulta.order_by(

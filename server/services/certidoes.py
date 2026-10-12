@@ -103,13 +103,13 @@ def _pdf_situacao_cadastral(receita: Dict[str, Any], hoje: date) -> bytes:
         tabela_ficha([(escape(r), escape(v)) for r, v in linhas], estilos),
         Spacer(1, 10),
         Paragraph(
-            "Relatório gerado pela Licitações Brasil a partir dos dados públicos da Receita Federal. "
+            "Relatório gerado a partir dos dados públicos da Receita Federal (consulta automatizada). "
             "Quando o edital exigir o comprovante oficial, emita-o em "
             "solucoes.receita.fazenda.gov.br (Comprovante de Inscrição e de Situação Cadastral).",
             estilos["pequeno"]),
     ]
     return renderizar_pdf_timbrado(story, titulo_documento="Situação Cadastral do CNPJ",
-                                   referencia=receita["cnpj_formatado"])
+                                   referencia=receita["cnpj_formatado"], empresa=_timbre_receita(receita))
 
 
 def _pdf_sancoes(receita: Dict[str, Any], sancoes: Dict[str, Any], hoje: date) -> bytes:
@@ -128,7 +128,18 @@ def _pdf_sancoes(receita: Dict[str, Any], sancoes: Dict[str, Any], hoje: date) -
                   "certidoes-apf.apps.tcu.gov.br.", estilos["pequeno"]),
     ]
     return renderizar_pdf_timbrado(story, titulo_documento="Consulta de Sanções CEIS/CNEP",
-                                   referencia=receita["cnpj_formatado"])
+                                   referencia=receita["cnpj_formatado"], empresa=_timbre_receita(receita))
+
+
+def _timbre_receita(receita: Dict[str, Any]) -> Dict[str, str]:
+    from server.services.empresas import endereco_da_receita
+    endereco = endereco_da_receita(receita)
+    return {
+        "nome": receita.get("razao_social") or receita["cnpj_formatado"],
+        "linha_cnpj": " · ".join(p for p in (f"CNPJ: {receita['cnpj_formatado']}", f"Endereço: {endereco}" if endereco else "") if p),
+        "contato": " · ".join(p for p in (f"E-mail: {receita['email']}" if receita.get("email") else "",
+                                          f"Telefone: {receita['telefone']}" if receita.get("telefone") else "") if p),
+    }
 
 
 def _br(iso: Optional[str]) -> str:
@@ -154,6 +165,9 @@ def importar_por_cnpj(
     cnpj = dossie.normalizar_cnpj(cnpj)
     hoje = hoje or hoje_sao_paulo()
     receita = consultar_receita(cnpj)
+    if user_id:  # o CNPJ digitado no Cofre passa a ser uma empresa da conta (a primeira vira a ativa)
+        from server.services import empresas
+        empresas.registrar_da_receita(db, user_id, receita)
     sancoes = consultar_sancoes(cnpj)
     ativa = receita.get("situacao") == "ATIVA"
 

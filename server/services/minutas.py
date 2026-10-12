@@ -211,23 +211,15 @@ def _cabecalho(minuta: Minuta, ctx: Dict[str, Any]) -> List[str]:
     return blocos
 
 
-def _assinatura() -> List[str]:
-    return [
-        _p("", depois=120),
-        _p("[CIDADE/UF], [DIA] de [MÊS] de [ANO].", alinhamento="right", depois=600),
-        _p("______________________________________________", alinhamento="center", depois=40),
-        _p("[NOME DO REPRESENTANTE LEGAL]", negrito=True, alinhamento="center", depois=40),
-        _p("[CARGO] – CPF nº [CPF]", alinhamento="center", depois=40),
-        _p("[RAZÃO SOCIAL] – CNPJ nº [CNPJ]", alinhamento="center", depois=40),
-    ]
+def _corpo_proposta(ctx: Dict[str, Any], empresa: Optional[Dict[str, str]] = None) -> List[str]:
+    def dados(texto: str) -> str:
+        return preencher_empresa(texto, empresa)
 
-
-def _corpo_proposta(ctx: Dict[str, Any]) -> List[str]:
     blocos = [
         _p("1. DADOS DO LICITANTE", negrito=True, alinhamento="left"),
-        _p("Razão social: [RAZÃO SOCIAL] – CNPJ nº [CNPJ]", alinhamento="left", depois=40),
-        _p("Endereço: [ENDEREÇO COMPLETO] – Telefone: [TELEFONE] – E-mail: [E-MAIL]", alinhamento="left", depois=40),
-        _p("Representante legal: [NOME DO REPRESENTANTE LEGAL] – CPF nº [CPF] – Cargo: [CARGO]", alinhamento="left", depois=40),
+        _p(dados("Razão social: [RAZÃO SOCIAL] – CNPJ nº [CNPJ]"), alinhamento="left", depois=40),
+        _p(dados("Endereço: [ENDEREÇO COMPLETO] – Telefone: [TELEFONE] – E-mail: [E-MAIL]"), alinhamento="left", depois=40),
+        _p(dados("Representante legal: [NOME DO REPRESENTANTE LEGAL] – CPF nº [CPF] – Cargo: [CARGO]"), alinhamento="left", depois=40),
         _p("Dados bancários: Banco [BANCO] – Agência [AGÊNCIA] – Conta [CONTA]", alinhamento="left"),
         _p("2. PROPOSTA DE PREÇOS (VALORES READEQUADOS AO LANCE FINAL)", negrito=True, alinhamento="left"),
     ]
@@ -260,23 +252,57 @@ def _corpo_proposta(ctx: Dict[str, Any]) -> List[str]:
     return blocos
 
 
-def gerar_docx(minuta: Minuta, ctx: Optional[Dict[str, Any]] = None) -> bytes:
-    ctx = ctx or contexto_do_certame()
-    blocos = _cabecalho(minuta, ctx)
-    if minuta.slug == "proposta-comercial-readequada":
-        blocos += _corpo_proposta(ctx)
-    else:
-        blocos += [_p(texto) for texto in minuta.paragrafos]
-    blocos += _assinatura()
-    blocos.append(_p(f"Fundamentação: {minuta.fundamentacao}. Modelo de referência: confira as exigências do edital antes de assinar.",
-                     alinhamento="left", tamanho=16, depois=0))
+# Campos da empresa preenchidos com o cadastro da empresa ativa (os demais seguem como [CAMPO] em amarelo)
+CAMPOS_EMPRESA = {
+    "[RAZÃO SOCIAL]": "razao_social",
+    "[CNPJ]": "cnpj_formatado",
+    "[ENDEREÇO COMPLETO]": "endereco",
+    "[NOME DO REPRESENTANTE LEGAL]": "representante",
+    "[CARGO]": "cargo",
+    "[TELEFONE]": "telefone",
+    "[E-MAIL]": "email",
+    "[CIDADE/UF]": "cidade_uf",
+}
 
+
+def preencher_empresa(texto: str, empresa: Optional[Dict[str, str]]) -> str:
+    if not empresa:
+        return texto
+    dados = dict(empresa)
+    cnpj = re.sub(r"\D", "", dados.get("cnpj") or "")
+    dados["cnpj_formatado"] = f"{cnpj[:2]}.{cnpj[2:5]}.{cnpj[5:8]}/{cnpj[8:12]}-{cnpj[12:]}" if len(cnpj) == 14 else cnpj
+    for campo, chave in CAMPOS_EMPRESA.items():
+        valor = (dados.get(chave) or "").strip()
+        if valor:
+            texto = texto.replace(campo, valor)
+    return texto
+
+
+def _cabecalho_timbrado(timbre: Dict[str, str]) -> str:
+    """Parte de cabeçalho do Word (repetida em todas as páginas) com o timbre da empresa."""
+    linhas = [_p(timbre["nome"], negrito=True, alinhamento="center", tamanho=26, depois=20)]
+    if timbre.get("linha_cnpj"):
+        linhas.append(_p(timbre["linha_cnpj"], alinhamento="center", tamanho=16, depois=0))
+    if timbre.get("contato"):
+        linhas.append(_p(timbre["contato"], alinhamento="center", tamanho=16, depois=0))
+    # Fio separador sob o timbre
+    linhas.append('<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="8" w:space="1" w:color="0F172A"/></w:pBdr>'
+                  '<w:spacing w:after="120"/></w:pPr></w:p>')
+    return ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+            f"{''.join(linhas)}</w:hdr>")
+
+
+def empacotar_docx(blocos: List[str], titulo: str, timbre: Optional[Dict[str, str]] = None) -> bytes:
+    """Monta o pacote DOCX; com ``timbre``, o cabeçalho da empresa vai em todas as páginas (white-label)."""
+    referencia_cabecalho = '<w:headerReference w:type="default" r:id="rIdTimbre"/>' if timbre else ""
     documento = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
         f"<w:body>{''.join(blocos)}"
-        '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/>'
-        '<w:pgMar w:top="1418" w:right="1134" w:bottom="1134" w:left="1418" w:header="709" w:footer="709" w:gutter="0"/>'
+        f'<w:sectPr>{referencia_cabecalho}<w:pgSz w:w="11906" w:h="16838"/>'
+        '<w:pgMar w:top="1701" w:right="1134" w:bottom="1134" w:left="1418" w:header="567" w:footer="709" w:gutter="0"/>'
         "</w:sectPr></w:body></w:document>"
     )
     tipos = (
@@ -286,7 +312,9 @@ def gerar_docx(minuta: Minuta, ctx: Optional[Dict[str, Any]] = None) -> bytes:
         '<Default Extension="xml" ContentType="application/xml"/>'
         '<Override PartName="/word/document.xml" '
         'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
-        '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>'
+        + ('<Override PartName="/word/header1.xml" '
+           'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>' if timbre else "")
+        + '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>'
         "</Types>"
     )
     relacoes = (
@@ -296,11 +324,18 @@ def gerar_docx(minuta: Minuta, ctx: Optional[Dict[str, Any]] = None) -> bytes:
         '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>'
         "</Relationships>"
     )
+    relacoes_documento = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rIdTimbre" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>'
+        "</Relationships>"
+    )
+    autor = escape((timbre or {}).get("nome", ""))
     propriedades = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" '
         'xmlns:dc="http://purl.org/dc/elements/1.1/">'
-        f"<dc:title>{escape(minuta.titulo)}</dc:title><dc:creator>Licitações Brasil</dc:creator>"
+        f"<dc:title>{escape(titulo)}</dc:title><dc:creator>{autor}</dc:creator>"
         "</cp:coreProperties>"
     )
     buffer = io.BytesIO()
@@ -309,7 +344,39 @@ def gerar_docx(minuta: Minuta, ctx: Optional[Dict[str, Any]] = None) -> bytes:
         zf.writestr("_rels/.rels", relacoes)
         zf.writestr("docProps/core.xml", propriedades)
         zf.writestr("word/document.xml", documento)
+        if timbre:
+            zf.writestr("word/_rels/document.xml.rels", relacoes_documento)
+            zf.writestr("word/header1.xml", _cabecalho_timbrado(timbre))
     return buffer.getvalue()
+
+
+def gerar_docx(minuta: Minuta, ctx: Optional[Dict[str, Any]] = None, empresa: Optional[Dict[str, str]] = None,
+               timbre: Optional[Dict[str, str]] = None) -> bytes:
+    """
+    Minuta em DOCX. ``empresa`` (dados_licitante da empresa ativa) preenche razão social, CNPJ, endereço,
+    representante, cargo e contato; ``timbre`` coloca o papel timbrado da empresa no cabeçalho.
+    """
+    ctx = ctx or contexto_do_certame()
+    textos_assinatura = [
+        "[CIDADE/UF], [DIA] de [MÊS] de [ANO].",
+        "[NOME DO REPRESENTANTE LEGAL]", "[CARGO] – CPF nº [CPF]", "[RAZÃO SOCIAL] – CNPJ nº [CNPJ]",
+    ]
+    blocos = _cabecalho(minuta, ctx)
+    if minuta.slug == "proposta-comercial-readequada":
+        blocos += _corpo_proposta(ctx, empresa)
+    else:
+        blocos += [_p(preencher_empresa(texto, empresa)) for texto in minuta.paragrafos]
+    blocos += [
+        _p("", depois=120),
+        _p(preencher_empresa(textos_assinatura[0], empresa), alinhamento="right", depois=600),
+        _p("______________________________________________", alinhamento="center", depois=40),
+        _p(preencher_empresa(textos_assinatura[1], empresa), negrito=True, alinhamento="center", depois=40),
+        _p(preencher_empresa(textos_assinatura[2], empresa), alinhamento="center", depois=40),
+        _p(preencher_empresa(textos_assinatura[3], empresa), alinhamento="center", depois=40),
+    ]
+    blocos.append(_p(f"Fundamentação: {minuta.fundamentacao}. Modelo de referência: confira as exigências do edital antes de assinar.",
+                     alinhamento="left", tamanho=16, depois=0))
+    return empacotar_docx(blocos, minuta.titulo, timbre)
 
 
 def listar() -> List[Dict[str, str]]:
