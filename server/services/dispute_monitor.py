@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Any
@@ -20,6 +21,8 @@ def get_sp_now() -> datetime:
 
 
 DEGRAU_PADRAO = 0.01
+# Sem sinal de vida por mais que isso, o robô desktop é considerado desconectado
+WORKER_ONLINE_SEGUNDOS = 6
 MAX_RANKING = 10
 
 
@@ -59,6 +62,15 @@ class PregaoItem:
     ranking: List[dict] = field(default_factory=list)
     updated_at: datetime = field(default_factory=get_sp_now)
     owner_id: Optional[str] = None  # conta dona do lote (multitenancy); cada usuário vê só os seus
+    # Robô de lances desktop (worker local do ADMIN): trava de emergência e último sinal de vida
+    kill_switch: bool = False
+    worker: dict = field(default_factory=dict)
+    worker_visto_em: float = 0.0  # time.time() do último sinal de vida do robô desktop
+
+    @property
+    def worker_online(self) -> bool:
+        """Robô desktop com sinal de vida recente: é ele quem dá os lances deste lote."""
+        return bool(self.worker_visto_em) and time.time() - self.worker_visto_em <= WORKER_ONLINE_SEGUNDOS
 
     @property
     def item_key(self) -> str:
@@ -95,6 +107,8 @@ class PregaoItem:
             "ranking": list(self.ranking),
             "is_losing": self.is_losing,
             "owner_id": self.owner_id,
+            "kill_switch": bool(self.kill_switch),
+            "worker": dict(self.worker),
             "updated_at": self.updated_at.isoformat() if isinstance(self.updated_at, datetime) else str(self.updated_at)
         }
 
@@ -306,6 +320,11 @@ class DisputeMonitorService:
             return item.to_dict()
 
         if not item.auto_lance_ativo:
+            return item.to_dict()
+
+        # Com o robô desktop conectado, o lance real sai da máquina do operador: o servidor não
+        # marca lance em memória (o robô passaria a se achar líder sem ter enviado nada)
+        if item.worker_online:
             return item.to_dict()
 
         base_lance = item.melhor_lance if item.melhor_lance > 0 else item.valor_referencia

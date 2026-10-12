@@ -531,6 +531,11 @@
                 <button type="button" onclick="toggleItemAutobid('${item.item_key}')" class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${item.auto_lance_ativo ? 'bg-emerald-500' : 'bg-slate-300'}" title="${item.auto_lance_ativo ? 'Desativar Robô deste item' : 'Ativar Robô deste item'}">
                   <span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow ${item.auto_lance_ativo ? 'translate-x-6' : 'translate-x-1'}"></span>
                 </button>
+                <!-- Kill-Switch do Robô de Lances Desktop: o executável aborta no próximo sinal de vida -->
+                <button type="button" onclick="acionarKillSwitch('${item.item_key}', ${!item.kill_switch})" class="kill-switch-btn h-7 px-2 rounded-lg text-[10px] font-black uppercase border transition ${item.kill_switch ? 'bg-rose-600 text-white border-rose-700' : 'bg-white text-rose-600 border-rose-300 hover:bg-rose-50'}" title="${item.kill_switch ? 'Liberar o Kill-Switch deste lote' : 'Parar imediatamente o robô desktop deste lote'}">
+                  <i class="fa-solid fa-power-off"></i> ${item.kill_switch ? 'Kill ativo' : 'Kill'}
+                </button>
+                <span id="worker-${sKey}" class="worker-status hidden xl:inline text-[10px] font-mono">${statusWorker(item.worker)}</span>
               </div>
 
             </div>
@@ -1067,6 +1072,25 @@
         renderDisputeAccordion();
         showToast(`🛑 Stop-Loss Atingido: Robô suspenso em ${item.id_pregao} para proteger margem mínima (${formatCurrency(event.piso)})!`, 'error');
       }
+    } else if (event.type === 'WORKER_HEARTBEAT') {
+      // Sinal de vida do robô desktop: atualiza só o indicador, sem redesenhar o lote
+      const item = activeItems[event.item_key];
+      if (item) {
+        item.worker = event.worker || {};
+        const alvo = document.getElementById('worker-' + safeKey(event.item_key));
+        if (alvo) alvo.innerHTML = statusWorker(item.worker);
+      }
+    } else if (event.type === 'WORKER_BID' || event.type === 'KILL_SWITCH') {
+      if (event.item) {
+        activeItems[event.item.item_key] = event.item;
+        renderDisputeAccordion();
+      }
+      if (event.type === 'WORKER_BID') {
+        audioEngine.playCompetitorBeep();
+        showToast(`🖥️ Robô desktop ${event.aceito ? 'deu lance de' : 'teve lance recusado:'} ${formatCurrency(event.lance)} em ${event.item ? event.item.id_pregao : ''}`, event.aceito ? 'success' : 'error');
+      } else {
+        showToast(event.ativo ? '🛑 Kill-Switch acionado: o robô desktop vai abortar.' : 'Kill-Switch liberado.', event.ativo ? 'error' : 'info');
+      }
     } else if (event.type === 'ITEM_REMOVED') {
       if (event.item) {
         delete activeItems[event.item.item_key];
@@ -1139,6 +1163,37 @@
       showToast('Lote removido da Sala de Disputa.', 'info');
     } catch (e) {
       showToast('Não foi possível remover o lote.', 'error');
+    }
+  }
+
+  // Robô de Lances Desktop: online se o último sinal de vida tem menos de 6 s
+  const WORKER_ONLINE_MS = 6000;
+  function statusWorker(worker) {
+    if (!worker || !worker.ultimo_heartbeat) return '<span class="text-slate-400">Robô desktop: desconectado</span>';
+    const idade = Date.now() - new Date(worker.ultimo_heartbeat).getTime();
+    if (idade > WORKER_ONLINE_MS) return '<span class="text-amber-600">Robô desktop: sem sinal</span>';
+    return `<span class="text-emerald-600">● Robô desktop ${esc(worker.status || '')} · ${Number(worker.latencia_ms) || 0} ms</span>`;
+  }
+  setInterval(() => {
+    Object.values(activeItems).forEach(item => {
+      const alvo = document.getElementById('worker-' + safeKey(item.item_key));
+      if (alvo) alvo.innerHTML = statusWorker(item.worker);
+    });
+  }, 2000);
+
+  async function acionarKillSwitch(itemKey, ativo) {
+    try {
+      const res = await fetch('/api/disputa/' + encodeURIComponent(itemKey) + '/kill-switch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ativo })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(mensagemErroApi(data));
+      activeItems[data.item.item_key] = data.item;
+      renderDisputeAccordion();
+    } catch (e) {
+      showToast(e.message || 'Falha ao acionar o Kill-Switch.', 'error');
     }
   }
 

@@ -3,10 +3,13 @@ Sala de Disputa — Ranking Top 10 e Mesa de Lances do Operador.
 
 - Ranking: qualquer conta registra no próprio lote os lances vistos no portal (monitoramento).
 - Mesa de Lances (cálculo de menor perda, registro e histórico de lances): EXCLUSIVA de ADMIN.
-  Os lances ficam em ``admin_bids`` como registro de auditoria; a plataforma não envia lances ao
+  Os lances ficam em ``admin_bids`` como registro de auditoria; o servidor não envia lances ao
   portal de compras — o operador dá o lance no portal e o registra aqui.
+- Robô de Lances Desktop (ADMIN): o executável local (scripts/robo_desktop) é quem envia lances ao
+  portal; aqui ficam a configuração, o Kill-Switch, o sinal de vida e a auditoria de cada lance.
 """
-from datetime import timezone
+import time
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Dict, Optional
 
@@ -14,7 +17,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
 from server.database import get_db
-from server.models import AdminBid, User
+from server.models import AdminBid, HistoricoDisputa, User
 from server.services import estrategia_lances
 from server.services.dispute_monitor import dispute_monitor
 
@@ -189,3 +192,157 @@ def api_meus_lances(tender_id: str, request: Request, item_id: Optional[str] = Q
         consulta = consulta.filter(AdminBid.item_id == item_id)
     lances = consulta.order_by(AdminBid.created_at.desc(), AdminBid.id.desc()).limit(limite).all()
     return {"tender_id": tender_id, "total": len(lances), "lances": [serializar_lance(l) for l in lances]}
+
+
+# ------------------------------------------------------------------------------
+# Robô de Lances Desktop (worker local do ADMIN, scripts/robo_desktop)
+# O executável roda na máquina do administrador e é quem fala com o portal; aqui ficam a
+# configuração (piso/degrau), o Kill-Switch, o sinal de vida e a auditoria de cada lance.
+# ------------------------------------------------------------------------------
+MAX_RESPOSTA_PORTAL = 500
+
+
+def _lote_do_worker(item_id: str, user: User):
+    item = dispute_monitor._find_item(item_id, owner_id=user.id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Lote de disputa não encontrado para esta conta.")
+    return item
+
+
+def _portal_do_lote(item) -> str:
+    fonte = (item.fonte_portal or "").lower()
+    if "bnc" in fonte:
+        return "bnc"
+    if "compras" in fonte or "siasg" in fonte:
+        return "comprasnet"
+    return "outro"
+
+
+def _config_do_worker(item) -> Dict[str, Any]:
+    return {
+        "item_id": item.item_key,
+        "id_pregao": item.id_pregao,
+        "numero_item": item.numero_item,
+        "objeto": item.descricao,
+        "preco_minimo": round(float(item.valor_minimo_limite or 0), 2),
+        "decremento_minimo": round(float(item.degrau_minimo or 0), 2),
+        "status_robo": "LIGADO" if item.auto_lance_ativo and not item.kill_switch else "DESLIGADO",
+        "kill_switch": bool(item.kill_switch),
+        "portal": _portal_do_lote(item),
+        "fase": item.fase.upper(),
+        "melhor_lance": round(float(item.melhor_lance or 0), 2),
+        "meu_lance": round(float(item.meu_lance or 0), 2),
+    }
+
+
+def _agora_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+
+
+@router.get("/api/disputa/{item_id:path}/worker-config")
+def api_worker_config(item_id: str, request: Request):
+    """Parâmetros do lote para o robô desktop (piso, degrau, estado do robô, Kill-Switch, portal)."""
+    user = exigir_admin(request)
+    return _config_do_worker(_lote_do_worker(item_id, user))
+
+
+@router.post("/api/disputa/{item_id:path}/worker-heartbeat")
+def api_worker_heartbeat(item_id: str, request: Request, payload: Dict[str, Any] = Body(default={})):
+    """Sinal de vida do robô (a cada ~1,5-2 s). Com o Kill-Switch acionado, devolve a ordem de abortar."""
+    user = exigir_admin(request)
+    item = _lote_do_worker(item_id, user)
+    if item.kill_switch:
+        return {"abortar": True, "motivo": "Kill-Switch acionado no painel web.", "config": _config_do_worker(item)}
+    try:
+        latencia = max(0, int(float(payload.get("latencia_ms") or 0)))
+    except (TypeError, ValueError):
+        latencia = 0
+    item.worker_visto_em = time.time()
+    item.worker = {
+        "ultimo_heartbeat": _agora_iso(),
+        "latencia_ms": latencia,
+        "status": str(payload.get("status") or "OPERANDO")[:40],
+        "versao": str(payload.get("versao") or "")[:20],
+    }
+    # Só o indicador do cockpit da própria conta é atualizado (sem redesenhar o lote)
+    dispute_monitor.broadcast_sync({"type": "WORKER_HEARTBEAT", "owner_id": user.id, "item_key": item.item_key,
+                                    "worker": dict(item.worker)})
+    return {"abortar": False, "config": _config_do_worker(item)}
+
+
+@router.post("/api/disputa/{item_id:path}/kill-switch")
+def api_worker_kill_switch(item_id: str, request: Request, payload: Dict[str, Any] = Body(default={})):
+    """Botão de emergência do painel: aciona (padrão) ou libera o Kill-Switch do lote; acionar desliga o robô."""
+    user = exigir_admin(request)
+    item = _lote_do_worker(item_id, user)
+    ativo = bool(payload.get("ativo", True))
+    item.kill_switch = ativo
+    if ativo:
+        item.auto_lance_ativo = False
+        item.status_automacao = "Kill-Switch acionado"
+    dispute_monitor.broadcast_sync({"type": "KILL_SWITCH", "ativo": ativo, "item": item.to_dict(),
+                                    "timestamp": _agora_iso()})
+    return {"status": "success", "kill_switch": ativo, "item": item.to_dict()}
+
+
+@router.post("/api/disputa/{item_id:path}/worker-log", status_code=201)
+def api_worker_log(item_id: str, request: Request, payload: Dict[str, Any] = Body(...),
+                   db: Session = Depends(get_db)):
+    """
+    Auditoria de cada lance disparado pelo robô desktop (horário em ms, valor e resposta do portal).
+    Segunda trava de Stop Loss: um lance abaixo do piso aciona o Kill-Switch e é recusado (422).
+    """
+    user = exigir_admin(request)
+    item = _lote_do_worker(item_id, user)
+    try:
+        valor = estrategia_lances.dinheiro(payload.get("valor"), "valor")
+    except estrategia_lances.EstrategiaInvalidaError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    if valor <= 0:
+        raise HTTPException(status_code=422, detail="O valor do lance deve ser maior que zero.")
+    try:
+        momento_ms = int(payload.get("timestamp_ms") or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="timestamp_ms inválido.")
+    if momento_ms <= 0:
+        momento_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    resposta = str(payload.get("resposta_portal") or "")[:MAX_RESPOSTA_PORTAL]
+    aceito = bool(payload.get("aceito", True))
+    piso = Decimal(str(item.valor_minimo_limite or 0)).quantize(Decimal("0.01"))
+    autor = f"Robô desktop ({user.name})"[:100]
+    detalhes = {"timestamp_ms": momento_ms, "resposta_portal": resposta, "aceito": aceito,
+                "latencia_ms": payload.get("latencia_ms"), "origem": "robo_desktop"}
+
+    if piso <= 0 or valor < piso:
+        # Nunca deveria chegar aqui (o robô trava antes de enviar): trata como incidente e para tudo
+        item.kill_switch = True
+        item.auto_lance_ativo = False
+        item.status_automacao = "Kill-Switch: lance abaixo do piso"
+        db.add(HistoricoDisputa(id_pregao=item.id_pregao, numero_item=item.numero_item, tipo_evento="STOP_LOSS",
+                                valor_ofertado=float(valor), posicao=0, autor=autor,
+                                detalhes={**detalhes, "piso": float(piso)}))
+        db.commit()
+        dispute_monitor.broadcast_sync({"type": "STOP_LOSS_REACHED", "item": item.to_dict(), "piso": float(piso),
+                                        "timestamp": _agora_iso()})
+        raise HTTPException(status_code=422, detail={
+            "mensagem": f"Lance de R$ {valor} abaixo do piso (R$ {piso}): Kill-Switch acionado.", "abortar": True})
+
+    db.add(HistoricoDisputa(id_pregao=item.id_pregao, numero_item=item.numero_item,
+                            tipo_evento="WORKER_BID" if aceito else "WORKER_BID_REJEITADO",
+                            valor_ofertado=float(valor), posicao=1, autor=autor, detalhes=detalhes))
+    lance = None
+    if aceito:
+        lance = AdminBid(tender_id=item.id_pregao[:64], item_id=str(item.numero_item), user_id=user.id,
+                         valor_lance=valor, preco_minimo_limite=piso, colocacao_alvo=item.posicao_alvo or 1,
+                         status=_status_frente_ao_ranking(valor, [r["valor"] for r in item.ranking]),
+                         observacao=f"Robô desktop: {resposta}"[:MAX_OBSERVACAO])
+        db.add(lance)
+    db.commit()
+    if lance is not None:
+        db.refresh(lance)
+        dispute_monitor.registrar_meu_lance(item.item_key, float(valor), owner_id=user.id)
+    dispute_monitor.broadcast_sync({"type": "WORKER_BID", "aceito": aceito, "lance": float(valor),
+                                    "timestamp_ms": momento_ms, "resposta_portal": resposta,
+                                    "item": item.to_dict(), "timestamp": _agora_iso()})
+    return {"status": "success", "abortar": item.kill_switch, "aceito": aceito,
+            "lance": serializar_lance(lance) if lance is not None else None}

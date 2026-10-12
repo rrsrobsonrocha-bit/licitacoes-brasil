@@ -1,0 +1,14 @@
+{
+  "url_backend": "https://seu-app.onrender.com",
+  "item_id": "ID_DO_PREGAO:NUMERO_DO_ITEM",
+  "intervalo_minimo_segundos": 20,
+  "portal": {
+    "modo": "simulacao",
+    "url_lance": "",
+    "metodo": "POST",
+    "headers": {},
+    "cookies": {},
+    "token": "",
+    "payload_modelo": {"valor": "{valor}"}
+  }
+}

@@ -58,7 +58,14 @@ FastAPI + Jinja2 + SQLAlchemy (SQLite em desenvolvimento, PostgreSQL em produç�
 - `server/routes/disputa.py` + `server/services/estrategia_lances.py`: Mesa de Lances do Operador, exclusiva de
   ADMIN (403 para as demais contas), assim como o robô de lances antigo (toggle-global, bid, ligar auto_lance). Cálculo de menor perda (cobre o alvo pelo degrau, nunca joga no piso;
   "melhor colocação viável" do 1º ao 10º) e registro em `admin_bids` (piso obrigatório; abaixo do piso: 422).
-  A plataforma não envia lances ao portal: o operador dá o lance no portal e o registra.
+  O servidor não envia lances ao portal: o operador dá o lance no portal e o registra.
+- `scripts/robo_desktop/` (`main.py` + `build.bat` → `RoboLances_LicitacoesBrasil.exe`): Robô de Lances Desktop,
+  exclusivo de ADMIN, que roda na máquina do operador e é o único componente que envia lances ao portal (modo
+  padrão `simulacao`: não envia nada). Usa `GET /api/disputa/{item}/worker-config`, `POST .../worker-heartbeat`
+  (devolve `abortar` com o Kill-Switch do cockpit, `POST .../kill-switch`) e `POST .../worker-log` (auditoria em
+  `historico_disputas`/`admin_bids`; lance abaixo do piso → 422 e Kill-Switch). Travas: Stop Loss antes de
+  qualquer envio, parada por ESPAÇO/Q, lances suspensos após 6 s sem contato. Com o robô online, o servidor não
+  simula lance automático em memória (`PregaoItem.worker_online`).
 - `server/templates/`: páginas (busca, painel, funil, agenda, disputa, jurídico).
 
 ## Regras do produto

@@ -26,3 +26,10 @@ storage/documents/
 
 # Cofre de documentos de habilitação (uploads locais)
 uploads/
+
+# Robô de Lances Desktop: build do PyInstaller e config local (contém a chave de sessão)
+scripts/robo_desktop/build/
+scripts/robo_desktop/dist/
+scripts/robo_desktop/*.spec
+scripts/robo_desktop/config.json
+scripts/robo_desktop/.venv-build/
