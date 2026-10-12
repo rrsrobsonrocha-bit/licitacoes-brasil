@@ -72,7 +72,7 @@ class SearchFilterParams(BaseModel):
     value_max: Optional[float] = None
     sort_by: str = "relevance" # relevance, pub_desc, pub_asc, deadline_asc, deadline_desc, value_desc, value_asc
     page: int = Field(default=1, ge=1)
-    page_size: int = Field(default=20, ge=1, le=100)
+    page_size: int = Field(default=25, ge=1, le=100)  # o motor limita a PAGE_SIZE_MAXIMO (50)
     limit: Optional[int] = Field(default=None, ge=1, le=100)
 
     @field_validator("page", mode="before")
@@ -90,12 +90,12 @@ class SearchFilterParams(BaseModel):
     @classmethod
     def parse_page_size(cls, v):
         if v is None or v == "":
-            return 20
+            return 25
         try:
             val = int(v)
-            return val if val >= 1 else 20
+            return min(val, 100) if val >= 1 else 25
         except (ValueError, TypeError):
-            return 20
+            return 25
 
     @field_validator("limit", mode="before")
     @classmethod

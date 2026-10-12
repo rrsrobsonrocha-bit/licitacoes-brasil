@@ -23,6 +23,7 @@ Política híbrida (horário de Brasília):
 - Leitura sob demanda: abrir um edital no drawer lê os itens na hora (ver pncp_compras).
 """
 import asyncio
+import gc
 import threading
 import time
 from datetime import date, datetime, timedelta, timezone
@@ -282,6 +283,7 @@ def _executar(modo: str, rotina: Callable[[], Dict[str, Any]]) -> Dict[str, Any]
         estado["progresso"] = None
         estado.pop("itens", None)
         _trava.release()
+        gc.collect()  # devolve na hora a memória dos lotes da coleta (Render: 512 MB)
 
 
 def _rotina_diurna() -> Dict[str, Any]:

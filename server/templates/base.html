@@ -144,8 +144,8 @@
           <button id="auth-btn" onclick="handleAuthAction()" class="shrink-0 bg-sky-500 hover:bg-sky-600 text-white font-medium px-3 py-1.5 rounded-lg text-xs leading-none transition shadow-sm">
             Entrar
           </button>
-          <!-- Menu móvel (abaixo de lg a navegação principal fica no drawer) -->
-          <button id="mobile-menu-toggle" onclick="toggleMobileMenu()" class="lg:hidden shrink-0 p-2 -mr-2 text-slate-300 hover:text-white hover:bg-brand-800 rounded-lg transition focus:outline-none focus:ring-2 focus:ring-sky-400" aria-label="Abrir Menu">
+          <!-- Tablet (md a lg): abre o drawer. No celular o menu fica só na barra inferior ("Menu"). -->
+          <button id="mobile-menu-toggle" onclick="toggleMobileMenu()" class="hidden md:inline-flex lg:hidden shrink-0 p-2 -mr-2 text-slate-300 hover:text-white hover:bg-brand-800 rounded-lg transition focus:outline-none focus:ring-2 focus:ring-sky-400" aria-label="Abrir Menu">
             <i class="fa-solid fa-bars text-xl"></i>
           </button>
         </div>

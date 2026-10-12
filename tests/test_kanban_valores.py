@@ -109,7 +109,7 @@ def test_kanban_compacto_com_colunas_rolaveis_e_rodape_de_acoes(certames, usuari
     # Tabuleiro na altura útil da janela; colunas com cabeçalho fixo e lista própria rolável
     assert "lg:h-[calc(100vh-230px)]" in html
     assert html.count("kanban-col-header shrink-0") == 5
-    assert html.count("cards-container flex-1 min-h-0 overflow-y-auto pr-1 space-y-2.5 custom-scrollbar") == 5
+    assert html.count("cards-container h-[calc(100vh-250px)] lg:h-auto lg:flex-1 min-h-0 overflow-y-auto") == 5
     assert "empty-state h-full min-h-[160px] flex flex-col items-center justify-center" in html
 
     # Cartão em proposta: portal parceiro no topo, modalidade compacta, título em 2 linhas, órgão · UF
@@ -122,7 +122,7 @@ def test_kanban_compacto_com_colunas_rolaveis_e_rodape_de_acoes(certames, usuari
     # Rodapé uniforme: ← Voltar | Jurídico | Avançar → (mesma altura)
     rodape = cartao[cartao.index('class="deal-acoes'):]
     assert [rotulo in rodape for rotulo in (">← Voltar</button>", "</i> Jurídico</a>", ">Avançar →</button>")] == [True] * 3
-    assert rodape.count("flex-1 h-7 ") == 3 and "btn-prev-stage flex-1 h-7 inline-flex" in rodape
+    assert rodape.count("flex-1 h-10 ") == 3 and "btn-prev-stage flex-1 h-10 inline-flex" in rodape
     # Primeira etapa: sem "Voltar"
     primeira = html.split('data-current-stage="oportunidades"', 1)[1]
     assert _re.search(r'btn-prev-stage[^"]*hidden', primeira.split("btn-next-stage", 1)[0])

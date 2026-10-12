@@ -124,7 +124,7 @@
       type="button"
       onclick="event.stopPropagation(); moveDealStage({{ deal.id }}, 'prev')"
       draggable="false"
-      class="btn-prev-stage flex-1 h-7 inline-flex items-center justify-center gap-1 px-1 rounded-md text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/70 transition cursor-pointer {% if deal.stage == 'oportunidades' %}hidden{% endif %}"
+      class="btn-prev-stage flex-1 h-10 inline-flex items-center justify-center gap-1 px-1 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/70 transition cursor-pointer {% if deal.stage == 'oportunidades' %}hidden{% endif %}"
       title="Voltar para a etapa anterior"
     >← Voltar</button>
     <a
@@ -133,14 +133,14 @@
       draggable="false"
       data-juridico-completo="{{ 'true' if juridico_completo else 'false' }}"
       aria-label="Enviar para Jurídico"
-      class="btn-enviar-juridico flex-1 h-7 inline-flex items-center justify-center gap-1 px-1 rounded-md text-[11px] font-semibold bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 hover:text-amber-200 border border-amber-500/30 transition"
+      class="btn-enviar-juridico flex-1 h-10 inline-flex items-center justify-center gap-1 px-1 rounded-lg text-xs font-bold bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 hover:text-amber-200 border border-amber-500/30 transition"
       title="{% if juridico_completo %}Enviar para Jurídico: abre Peças Jurídicas com órgão, número do certame e objeto preenchidos{% else %}Enviar para Jurídico: dados do certame incompletos neste card; complete órgão, número e objeto no formulário{% endif %}"
-    ><i class="fa-solid fa-gavel text-[10px]"></i> Jurídico</a>
+    ><i class="fa-solid fa-gavel text-[11px]"></i> Jurídico</a>
     <button
       type="button"
       onclick="event.stopPropagation(); moveDealStage({{ deal.id }}, 'next')"
       draggable="false"
-      class="btn-next-stage flex-1 h-7 inline-flex items-center justify-center gap-1 px-1 rounded-md text-[11px] font-semibold bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 hover:text-emerald-200 border border-emerald-500/30 transition cursor-pointer {% if deal.stage == 'homologado' %}hidden{% endif %}"
+      class="btn-next-stage flex-1 h-10 inline-flex items-center justify-center gap-1 px-1 rounded-lg text-xs font-bold bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 hover:text-emerald-200 border border-emerald-500/30 transition cursor-pointer {% if deal.stage == 'homologado' %}hidden{% endif %}"
       title="Avançar para a próxima etapa"
     >Avançar →</button>
   </div>

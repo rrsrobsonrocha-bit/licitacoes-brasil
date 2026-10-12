@@ -3,6 +3,7 @@ import re
 import sys
 import json
 import csv
+import gc
 import io
 import asyncio
 import logging
@@ -58,7 +59,8 @@ from server.security import (
 from server.search_engine import (
     filtro_publicacao, filtro_vigentes,
     search_tenders, CATEGORIES, UFS_BRASIL, NATUREZAS_FILTRO, normalizar_natureza, normalizar_uf,
-    ESFERAS_FILTRO, BENEFICIOS_FILTRO, PORTAIS_DISPUTA, lista_param, normalizar_esfera, portal_de_disputa
+    ESFERAS_FILTRO, BENEFICIOS_FILTRO, PORTAIS_DISPUTA, lista_param, normalizar_esfera, portal_de_disputa,
+    PAGE_SIZE_PADRAO, SEM_COLUNAS_PESADAS,
 )
 from server.services import minutas
 from server.services import empresas as empresas_service
@@ -495,7 +497,7 @@ def page_home(
         natureza_sel = ""
 
     # Janela recente classificada lexicamente (MATERIAL / SERVICO / OUTROS)
-    candidatos = db.query(Tender).order_by(Tender.publication_date.desc()).limit(300).all()
+    candidatos = db.query(Tender).options(*SEM_COLUNAS_PESADAS).order_by(Tender.publication_date.desc()).limit(300).all()
     classificados = [
         (t, t.natureza_objeto or classificar_natureza_certame(t.title, t.object_description)) for t in candidatos
     ]
@@ -543,7 +545,7 @@ def page_search(
     limit: Optional[int] = None,
     db: Session = Depends(get_db)
 ):
-    effective_size = limit or page_size or 20
+    effective_size = limit or page_size or PAGE_SIZE_PADRAO
     # Sem período escolhido, a página abre com os editais vigentes (propostas abertas) do catálogo
     # global; vigentes=false mostra também os encerrados.
     if vigentes is None and not date_from and not date_to:
@@ -1716,7 +1718,7 @@ def api_search_tenders(
     request: Request = None,
     db: Session = Depends(get_db)
 ):
-    effective_size = limit or page_size or 20
+    effective_size = limit or page_size or PAGE_SIZE_PADRAO
     params = SearchFilterParams(
         q=q,
         state=normalizar_uf(state) or normalizar_uf(uf),
@@ -1856,6 +1858,7 @@ def api_export_tenders_csv(
             if exported >= max_export_records or current_page >= search_result.total_pages:
                 break
             current_page += 1
+        gc.collect()  # exportação em lote: libera as páginas processadas
 
     filename = f"licitacoes_export_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
     headers = {

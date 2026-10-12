@@ -164,13 +164,13 @@ def test_sync_collector_fetches_at_least_50_opportunities(pncp_simulado):
 
 
 def test_api_tenders_pagination_and_limits():
-    # 1. Padrão deve ser 20 itens por página
+    # 1. Padrão deve ser 25 itens por página (paginação defensiva)
     resp_default = client.get("/api/tenders")
     assert resp_default.status_code == 200
     data_default = resp_default.json()
-    assert data_default["page_size"] == 20
+    assert data_default["page_size"] == 25
     assert data_default["total"] >= 1
-    assert len(data_default["results"]) <= 20
+    assert len(data_default["results"]) <= 25
 
     # 2. Suporte a parâmetro 'limit'
     resp_limit = client.get("/api/tenders?limit=10")

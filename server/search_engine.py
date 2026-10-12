@@ -2,11 +2,21 @@ import unicodedata
 import re
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Tuple
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 from sqlalchemy import or_, and_, desc, asc, func
 from server.models import Tender, TenderItem, Source, Favorite
 from server.schemas import SearchFilterParams, TenderSummaryResponse, SearchResultResponse
 from server.connectors.pncp import build_canonical_pncp_url
+
+# Paginação defensiva (Render: 512 MB). A busca ordena e pagina no banco e só a página pedida vira objeto.
+PAGE_SIZE_PADRAO = 25
+PAGE_SIZE_MAXIMO = 50
+# Ordenação por relevância: pontua apenas as N correspondências mais recentes, com colunas leves
+RELEVANCIA_MAX_CANDIDATOS = 1000
+# Colunas pesadas que a listagem não exibe (resumos da IA e JSON bruto de itens)
+SEM_COLUNAS_PESADAS = (
+    defer(Tender.ai_resumo), defer(Tender.ai_pontos_atencao), defer(Tender.itens_extraidos_json),
+)
 
 # Situações que encerram ou interrompem a disputa (comparação por trecho, sem acento)
 STATUS_NAO_VIGENTES = (
@@ -264,38 +274,72 @@ def parse_search_query(query_str: str) -> Tuple[List[str], List[str]]:
     
     return normalized_exact, terms
 
-def calculate_relevance_score(tender: Tender, exact_phrases: List[str], terms: List[str]) -> float:
+def pontuar_relevancia(title: Optional[str], object_description: Optional[str], contracting_entity: Optional[str],
+                       itens_casados, exact_phrases: List[str], terms: List[str]) -> float:
     """
     Calcula pontuação de relevância de 0.0 a 100.0:
     - Coincidência no título: peso 40
     - Coincidência no objeto: peso 35
     - Coincidência no órgão: peso 15
-    - Coincidência nos itens: peso 10
+    - Coincidência nos itens: peso 10 (`itens_casados`: frases/termos encontrados nos itens do certame)
     """
     if not exact_phrases and not terms:
         return 1.0
 
     score = 0.0
-    norm_title = normalize_text(tender.title)
-    norm_obj = normalize_text(tender.object_description)
-    norm_entity = normalize_text(tender.contracting_entity)
-    
-    # Coletar texto dos itens
-    items_text = " ".join([normalize_text(i.description) for i in (tender.items or [])])
+    norm_title = normalize_text(title)
+    norm_obj = normalize_text(object_description)
+    norm_entity = normalize_text(contracting_entity)
 
     for phrase in exact_phrases:
         if phrase in norm_title: score += 40.0
         if phrase in norm_obj: score += 30.0
         if phrase in norm_entity: score += 15.0
-        if phrase in items_text: score += 15.0
+        if phrase in itens_casados: score += 15.0
 
     for term in terms:
         if term in norm_title: score += 15.0
         if term in norm_obj: score += 10.0
         if term in norm_entity: score += 5.0
-        if term in items_text: score += 5.0
+        if term in itens_casados: score += 5.0
 
     return min(score, 100.0)
+
+
+def calculate_relevance_score(tender: Tender, exact_phrases: List[str], terms: List[str]) -> float:
+    if not exact_phrases and not terms:
+        return 1.0
+    items_text = " ".join([normalize_text(i.description) for i in (tender.items or [])])
+    casados = {p for p in exact_phrases + terms if p in items_text}
+    return pontuar_relevancia(tender.title, tender.object_description, tender.contracting_entity,
+                              casados, exact_phrases, terms)
+
+
+def _itens_que_casam(db: Session, ids: List[str], termos: List[str]) -> dict:
+    """{termo: ids de certames com item que contém o termo}, consultado no banco sem carregar os itens."""
+    casam = {}
+    for termo in dict.fromkeys(termos):
+        encontrados = set()
+        for i in range(0, len(ids), 500):
+            lote = ids[i:i + 500]
+            encontrados.update(r[0] for r in db.query(TenderItem.tender_id).filter(
+                TenderItem.tender_id.in_(lote), TenderItem.description.ilike(f"%{termo}%")).distinct())
+        casam[termo] = encontrados
+    return casam
+
+
+def _ordem_sql(sort_by: str):
+    publicacao = func.coalesce(Tender.publication_date, Tender.created_at)
+    prazo = func.coalesce(Tender.proposal_deadline, Tender.opening_date, Tender.created_at)
+    valor = func.coalesce(Tender.estimated_total_value, 0.0)
+    ordem = {
+        "pub_asc": publicacao.asc(),
+        "deadline_asc": prazo.asc(),
+        "deadline_desc": prazo.desc(),
+        "value_desc": valor.desc(),
+        "value_asc": valor.asc(),
+    }.get(sort_by, publicacao.desc())
+    return ordem, Tender.id.asc()
 
 def search_tenders(db: Session, params: SearchFilterParams, user_id: Optional[str] = None) -> SearchResultResponse:
     """
@@ -424,40 +468,39 @@ def search_tenders(db: Session, params: SearchFilterParams, user_id: Optional[st
         favs = db.query(Favorite.tender_id).filter(Favorite.user_id == user_id).all()
         user_fav_ids = {f[0] for f in favs}
 
-    # Carregar dados
-    all_matched = query.all()
-
-    # 3. Cálculo de Relevância e Ordenação
-    scored_items: List[Tuple[Tender, float]] = []
-    for t in all_matched:
-        score = calculate_relevance_score(t, exact_phrases, terms)
-        scored_items.append((t, score))
-
-    if params.sort_by == "relevance" and (exact_phrases or terms):
-        scored_items.sort(key=lambda x: x[1], reverse=True)
-    elif params.sort_by == "pub_desc":
-        scored_items.sort(key=lambda x: x[0].publication_date or x[0].created_at, reverse=True)
-    elif params.sort_by == "pub_asc":
-        scored_items.sort(key=lambda x: x[0].publication_date or x[0].created_at, reverse=False)
-    elif params.sort_by == "deadline_asc":
-        scored_items.sort(key=lambda x: x[0].proposal_deadline or x[0].opening_date or x[0].created_at, reverse=False)
-    elif params.sort_by == "deadline_desc":
-        scored_items.sort(key=lambda x: x[0].proposal_deadline or x[0].opening_date or x[0].created_at, reverse=True)
-    elif params.sort_by == "value_desc":
-        scored_items.sort(key=lambda x: x[0].estimated_total_value or 0.0, reverse=True)
-    elif params.sort_by == "value_asc":
-        scored_items.sort(key=lambda x: x[0].estimated_total_value or 0.0, reverse=False)
-    else:
-        # Default order by publication date desc
-        scored_items.sort(key=lambda x: x[0].publication_date or x[0].created_at, reverse=True)
-
-    total = len(scored_items)
+    # 3. Ordenação e paginação no banco (LIMIT/OFFSET): nunca carrega o catálogo inteiro em memória
+    total = query.order_by(None).count()
     effective_page_size = params.limit if params.limit is not None else params.page_size
-    effective_page_size = max(1, min(effective_page_size, 100))
+    effective_page_size = max(1, min(effective_page_size, PAGE_SIZE_MAXIMO))
     total_pages = max(1, (total + effective_page_size - 1) // effective_page_size)
     start_idx = (params.page - 1) * effective_page_size
-    end_idx = start_idx + effective_page_size
-    page_slice = scored_items[start_idx:end_idx]
+    termos_busca = exact_phrases + terms
+
+    if params.sort_by == "relevance" and termos_busca:
+        # Pontua só colunas leves das correspondências mais recentes; os itens são conferidos no SQL
+        candidatos = (query.with_entities(Tender.id, Tender.title, Tender.object_description, Tender.contracting_entity)
+                      .order_by(*_ordem_sql("pub_desc")).limit(RELEVANCIA_MAX_CANDIDATOS).all())
+        casam = _itens_que_casam(db, [c.id for c in candidatos], termos_busca)
+        pontuados = [
+            (c.id, pontuar_relevancia(c.title, c.object_description, c.contracting_entity,
+                                      {tm for tm in termos_busca if c.id in casam[tm]}, exact_phrases, terms))
+            for c in candidatos
+        ]
+        del candidatos
+        pontuados.sort(key=lambda x: x[1], reverse=True)  # estável: empates seguem a publicação mais recente
+        pagina = pontuados[start_idx:start_idx + effective_page_size]
+        por_id = {t.id: t for t in db.query(Tender).options(*SEM_COLUNAS_PESADAS)
+                  .filter(Tender.id.in_([i for i, _ in pagina]))}
+        page_slice = [(por_id[i], score) for i, score in pagina if i in por_id]
+    else:
+        pagina = (query.options(*SEM_COLUNAS_PESADAS).order_by(*_ordem_sql(params.sort_by))
+                  .offset(start_idx).limit(effective_page_size).all())
+        casam = _itens_que_casam(db, [t.id for t in pagina], termos_busca) if termos_busca else {}
+        page_slice = [
+            (t, pontuar_relevancia(t.title, t.object_description, t.contracting_entity,
+                                   {tm for tm in termos_busca if t.id in casam[tm]}, exact_phrases, terms))
+            for t in pagina
+        ]
 
     results = []
     for t, score in page_slice:
