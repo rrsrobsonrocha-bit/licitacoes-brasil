@@ -68,7 +68,8 @@ FastAPI + Jinja2 + SQLAlchemy (SQLite em desenvolvimento, PostgreSQL em produç�
   padrão `simulacao`: não envia nada). Usa `GET /api/disputa/{item}/worker-config`, `POST .../worker-heartbeat`
   (devolve `abortar` com o Kill-Switch do cockpit, `POST .../kill-switch`) e `POST .../worker-log` (auditoria em
   `historico_disputas`/`admin_bids`; lance abaixo do piso → 422 e Kill-Switch). Travas: Stop Loss antes de
-  qualquer envio, parada por ESPAÇO/Q, lances suspensos após 6 s sem contato. Com o robô online, o servidor não
+  qualquer envio, parada por ESPAÇO/Q, lances suspensos após 6 s sem contato. Sem `config.json` válido, um
+  assistente no terminal (6 passos, `--configurar` para refazer) grava a configuração. Com o robô online, o servidor não
   simula lance automático em memória (`PregaoItem.worker_online`).
 - `server/templates/`: páginas (busca, painel, funil, agenda, disputa, jurídico).
 

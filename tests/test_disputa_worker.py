@@ -1,5 +1,6 @@
 """Robô de Lances Desktop: API do worker (config, heartbeat, Kill-Switch, auditoria) e travas do motor local."""
 import importlib.util
+import json
 import os
 import uuid
 from decimal import Decimal
@@ -213,3 +214,73 @@ def test_motor_local_para_com_kill_switch_do_painel(lote):
         r.ciclo()
     # Loop com threads: a parada é atendida no próximo tick (~50 ms) e devolve o código de Kill-Switch
     assert r.executar() == robo.SAIDA_KILL
+
+
+# ------------------------------------------------------------------ Assistente de configuração (config.json)
+def _assistente(tmp_path, respostas, login=None):
+    fila, saida, limpou = list(respostas), [], []
+    cfg = robo.carregar_config(str(tmp_path / "config.json"), perguntar=lambda _: fila.pop(0),
+                               perguntar_senha=lambda _: "senha-digitada", saida=saida.append,
+                               limpar=lambda: limpou.append(True), login=login)
+    assert not fila, "o assistente deveria consumir todas as respostas"
+    return cfg, "\n".join(saida), limpou
+
+
+def test_assistente_pede_os_6_passos_valida_e_grava_o_config(tmp_path):
+    cfg, saida, limpou = _assistente(tmp_path, [
+        "licitacoes-brasil.onrender.com",            # inválida: sem https://
+        "https://licitacoes-brasil.onrender.com/",
+        "Bearer eyJ.token.admin",
+        "",                                          # vazio: pede de novo
+        "12345:1",
+        "https://portal.exemplo.gov.br/lances/enviar",
+        "sem cookie",                                # inválido
+        "Cookie: JSESSIONID=abc123; XSRF-TOKEN=k=9",
+        '{"valorLance": 950}',                       # sem o marcador {valor}
+        '{"valorLance": {valor}, "item": "1", "texto": "R$ {valor}"}',
+    ])
+    assert limpou == [True]
+    assert "URL completa" in saida and "não pode ficar vazio" in saida
+    assert "Nenhum cookie reconhecido" in saida and "Inclua o marcador {valor}" in saida
+    gravado = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
+    assert gravado == cfg
+    assert cfg["url_backend"] == "https://licitacoes-brasil.onrender.com" and cfg["token"] == "eyJ.token.admin"
+    assert cfg["item_id"] == "12345:1" and cfg["intervalo_minimo_segundos"] == 20
+    assert cfg["portal"]["modo"] == "portal" and cfg["portal"]["cookies"] == {"JSESSIONID": "abc123", "XSRF-TOKEN": "k=9"}
+    assert robo.problemas_da_config(cfg) == []
+
+    adaptador = robo.criar_adaptador(cfg["portal"], "comprasnet")
+    assert isinstance(adaptador, robo.AdaptadorComprasNet)
+    assert adaptador.montar_payload(Decimal("950.5")) == {"valorLance": 950.5, "item": "1", "texto": "R$ 950.50"}
+
+
+def test_config_valido_pula_o_assistente_e_incompleto_reabre(tmp_path):
+    cfg, _, _ = _assistente(tmp_path, ["https://app.exemplo.com.br", "tok", "LOTE:1", "simulacao"])
+    assert cfg["portal"] == {"modo": "simulacao"}  # simulação dispensa os passos 5 e 6
+
+    def nao_pergunte(_):
+        raise AssertionError("config.json válido não deve abrir o assistente")
+    assert robo.carregar_config(str(tmp_path / "config.json"), perguntar=nao_pergunte) == cfg
+
+    # Incompleto (sem token) ou ilegível: o assistente volta, e o arquivo ilegível vira .bak
+    (tmp_path / "config.json").write_text(json.dumps({**cfg, "token": ""}), encoding="utf-8")
+    assert "token" in robo.problemas_da_config(robo.ler_config(str(tmp_path / "config.json")))
+    (tmp_path / "config.json").write_text("{quebrado", encoding="utf-8")
+    assert robo.ler_config(str(tmp_path / "config.json")) == {} and (tmp_path / "config.json.bak").exists()
+    assert robo.problemas_da_config({}) == ["arquivo vazio"]
+
+
+def test_assistente_entra_com_email_e_senha_sem_gravar_a_senha(tmp_path):
+    chamadas = []
+
+    def login(url, email, senha):
+        chamadas.append((url, email, senha))
+        if len(chamadas) == 1:
+            raise PermissionError("E-mail ou senha inválidos.")
+        return "token-do-login"
+
+    cfg, saida, _ = _assistente(tmp_path, ["https://app.exemplo.com.br", "", "admin@exemplo.com.br",
+                                           "", "admin@exemplo.com.br", "LOTE:1", "simulacao"], login=login)
+    assert cfg["token"] == "token-do-login" and "E-mail ou senha inválidos" in saida
+    assert chamadas[-1] == ("https://app.exemplo.com.br", "admin@exemplo.com.br", "senha-digitada")
+    assert "senha-digitada" not in (tmp_path / "config.json").read_text(encoding="utf-8")

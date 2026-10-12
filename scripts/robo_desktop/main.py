@@ -11,19 +11,21 @@ Travas inegociáveis:
   sinal de vida) ou quando o operador aperta ESPAÇO ou Q no terminal.
 - Sem contato com o servidor por mais de 6 s: os lances ficam suspensos até a conexão voltar.
 
-Uso: RoboLances_LicitacoesBrasil.exe [--config caminho/config.json]
+Uso: RoboLances_LicitacoesBrasil.exe [--config caminho/config.json] [--configurar]
+Sem config.json (ou com ele incompleto), um assistente no terminal pede os dados passo a passo.
 Códigos de saída: 0 encerrado normalmente, 1 erro, 2 Kill-Switch/parada manual, 3 Stop Loss.
 """
 import argparse
 import getpass
 import json
 import os
+import re
 import sys
 import threading
 import time
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 VERSAO = "1.0.0"
 HEARTBEAT_SEGUNDOS = 1.5
@@ -33,6 +35,7 @@ TIMEOUT_HTTP_SEGUNDOS = 3.0
 INTERVALO_MINIMO_PADRAO = 20  # segundos entre lances próprios (confira a regra do portal/edital)
 INTERVALO_MINIMO_ABSOLUTO = 3
 CENTAVO = Decimal("0.01")
+MARCADOR_NUMERICO = "{valor:numero}"  # {valor} sem aspas no payload: o lance vai como número
 
 SAIDA_OK, SAIDA_ERRO, SAIDA_KILL, SAIDA_STOP_LOSS = 0, 1, 2, 3
 
@@ -217,9 +220,18 @@ class AdaptadorHttp(AdaptadorPortal):
         return f"{valor:.2f}".replace(".", self.separador_decimal)
 
     def montar_payload(self, valor: Decimal) -> Dict[str, Any]:
+        """Troca o marcador pelo lance: "{valor}" vira texto ("950.50"); {valor} sem aspas, número (950.5)."""
         texto = self.formatar(valor)
-        return {k: (v.replace("{valor}", texto) if isinstance(v, str) else v)
-                for k, v in self.opcoes["payload_modelo"].items()}
+
+        def preencher(no):
+            if isinstance(no, dict):
+                return {k: preencher(v) for k, v in no.items()}
+            if isinstance(no, list):
+                return [preencher(v) for v in no]
+            if no == MARCADOR_NUMERICO:
+                return float(valor)
+            return no.replace("{valor}", texto) if isinstance(no, str) else no
+        return preencher(self.opcoes["payload_modelo"])
 
     def _enviar(self, valor: Decimal):
         resp = self.sessao.request(self.opcoes.get("metodo", "POST"), self.opcoes["url_lance"],
@@ -243,6 +255,8 @@ def criar_adaptador(opcoes_portal: Dict[str, Any], portal_do_lote: str) -> Adapt
     modo = (opcoes_portal or {}).get("modo", "simulacao")
     if modo == "simulacao":
         return AdaptadorSimulacao(opcoes_portal)
+    if modo == "portal":  # gravado pelo assistente: usa o adaptador do portal do lote
+        modo = portal_do_lote
     if modo != portal_do_lote:
         raise ValueError(f"config.json está em modo '{modo}', mas o lote é do portal '{portal_do_lote}'.")
     if modo not in ADAPTADORES:
@@ -417,34 +431,180 @@ def pasta_do_programa() -> str:
     return os.path.dirname(os.path.abspath(__file__))
 
 
-def carregar_config(caminho: str) -> Dict[str, Any]:
-    """
-    Lê config.json (url_backend, item_id, token, portal, intervalo_minimo_segundos) e pergunta o que
-    faltar. Sem token, faz login com e-mail e senha: a senha nunca é gravada, e a chave de sessão só
-    vai para o arquivo se o operador pedir.
-    """
-    cfg: Dict[str, Any] = {}
-    if os.path.exists(caminho):
+CAMPOS_OBRIGATORIOS = ("url_backend", "token", "item_id")
+
+
+def _validar_url(texto: str) -> str:
+    url = texto.strip().rstrip("/")
+    if not url.lower().startswith(("http://", "https://")) or " " in url or len(url) < 12:
+        raise ValueError("Informe uma URL completa, começando com https://")
+    return url
+
+
+def _validar_texto(texto: str) -> str:
+    if not texto.strip():
+        raise ValueError("Este campo não pode ficar vazio.")
+    return texto.strip()
+
+
+def interpretar_cookies(texto: str) -> Dict[str, str]:
+    """Aceita o cabeçalho copiado do F12 ("Cookie: a=1; b=2") ou um objeto JSON {"a": "1"}."""
+    bruto = texto.strip()
+    if bruto.lower().startswith("cookie:"):
+        bruto = bruto[7:].strip()
+    if bruto.startswith("{"):
+        try:
+            cookies = json.loads(bruto)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"JSON de cookies inválido ({exc.msg}).")
+        if not isinstance(cookies, dict):
+            raise ValueError("Os cookies em JSON devem ser um objeto {\"nome\": \"valor\"}.")
+        cookies = {str(k): str(v) for k, v in cookies.items()}
+    else:
+        cookies = {}
+        for parte in bruto.split(";"):
+            if "=" in parte:
+                nome, valor = parte.split("=", 1)
+                if nome.strip():
+                    cookies[nome.strip()] = valor.strip()
+    if not cookies:
+        raise ValueError("Nenhum cookie reconhecido. Cole no formato nome=valor; nome2=valor2")
+    return cookies
+
+
+def _tem_marcador(no) -> bool:
+    if isinstance(no, dict):
+        return any(_tem_marcador(v) for v in no.values())
+    if isinstance(no, list):
+        return any(_tem_marcador(v) for v in no)
+    return isinstance(no, str) and (no == MARCADOR_NUMERICO or "{valor}" in no)
+
+
+def interpretar_payload(texto: str) -> Dict[str, Any]:
+    """Estrutura do lance com o marcador {valor}: entre aspas vai como texto, sem aspas como número."""
+    bruto = re.sub(r'(?<!")\{valor\}(?!")', '"' + MARCADOR_NUMERICO + '"', texto.strip())
+    try:
+        payload = json.loads(bruto)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Estrutura inválida ({exc.msg}). Exemplo: {{\"valorLance\": {{valor}}}}")
+    if not isinstance(payload, dict):
+        raise ValueError("A estrutura deve ser um objeto JSON, entre chaves { }.")
+    if not _tem_marcador(payload):
+        raise ValueError("Inclua o marcador {valor} no lugar do valor do lance.")
+    return payload
+
+
+def problemas_da_config(cfg: Any) -> List[str]:
+    """Campos ausentes ou inválidos; lista vazia = config.json pronto para uso (o assistente é pulado)."""
+    if not isinstance(cfg, dict) or not cfg:
+        return ["arquivo vazio"]
+    problemas = [c for c in CAMPOS_OBRIGATORIOS if not str(cfg.get(c) or "").strip()]
+    try:
+        _validar_url(str(cfg.get("url_backend") or ""))
+    except ValueError:
+        problemas.append("url_backend inválida")
+    portal = cfg.get("portal")
+    if not isinstance(portal, dict) or not portal.get("modo"):
+        return problemas + ["portal"]
+    if portal["modo"] != "simulacao":
+        try:
+            _validar_url(str(portal.get("url_lance") or ""))
+        except ValueError:
+            problemas.append("portal.url_lance")
+        if not _tem_marcador(portal.get("payload_modelo")):
+            problemas.append("portal.payload_modelo")
+        if not portal.get("cookies") and not portal.get("token"):
+            problemas.append("portal.cookies")
+    return problemas
+
+
+def ler_config(caminho: str) -> Dict[str, Any]:
+    """config.json existente; ilegível vira {} (o assistente refaz e guarda uma cópia .bak do antigo)."""
+    if not os.path.exists(caminho):
+        return {}
+    try:
         with open(caminho, encoding="utf-8") as arq:
             cfg = json.load(arq)
-    gravar = dict(cfg)
-    alterou = False
-    if not cfg.get("url_backend"):
-        cfg["url_backend"] = gravar["url_backend"] = input("URL do Licitações Brasil (ex.: https://seu-app.onrender.com): ").strip()
-        alterou = True
-    if not cfg.get("item_id"):
-        cfg["item_id"] = gravar["item_id"] = input("ID do lote (como no cockpit, ex.: 12345:1): ").strip()
-        alterou = True
-    if not cfg.get("token"):
-        email = input("E-mail do administrador: ").strip()
-        senha = getpass.getpass("Senha (não é gravada): ")
-        cfg["token"] = ClienteBackend.login(cfg["url_backend"], email, senha)
-        if input("Guardar a chave de sessão em config.json? (s/N): ").strip().lower() == "s":
-            gravar["token"] = cfg["token"]
-            alterou = True
-    if alterou:
-        with open(caminho, "w", encoding="utf-8") as arq:
-            json.dump(gravar, arq, ensure_ascii=False, indent=2)
+        return cfg if isinstance(cfg, dict) else {}
+    except (OSError, ValueError):
+        try:
+            os.replace(caminho, caminho + ".bak")
+        except OSError:
+            pass
+        return {}
+
+
+def limpar_tela():
+    os.system("cls" if os.name == "nt" else "clear")
+
+
+def assistente_configuracao(caminho: str, perguntar=input, perguntar_senha=getpass.getpass, saida=print,
+                            limpar=limpar_tela, login=None) -> Dict[str, Any]:
+    """Assistente de configuração no terminal: 6 passos, cada resposta validada antes de seguir."""
+    login = login or ClienteBackend.login
+    limpar()
+    linha = "=" * 64
+    saida("\n".join([linha, f"  ROBÔ DE LANCES - Licitações Brasil  v{VERSAO}", "  Assistente de configuração", linha,
+                      "  Responda os 6 passos; as respostas ficam no config.json desta pasta.",
+                      "  Para refazer depois: rode com --configurar ou apague o config.json.", ""]))
+
+    def pedir(texto: str, validar):
+        while True:
+            try:
+                return validar(perguntar(texto))
+            except ValueError as exc:
+                saida(f"  ! {exc} Tente de novo.")
+
+    url = pedir("Passo 1: Qual a URL do seu sistema web? (ex: https://licitacoes-brasil.onrender.com): ", _validar_url)
+
+    def validar_token(texto: str) -> str:
+        token = texto.strip()
+        if token.lower().startswith("bearer "):
+            token = token[7:].strip()
+        if token:
+            return token
+        # ENTER sem chave: entra com e-mail e senha (a senha nunca é gravada)
+        email = _validar_texto(perguntar("   E-mail do administrador: "))
+        try:
+            return login(url, email, perguntar_senha("   Senha (não é gravada): "))
+        except PermissionError as exc:
+            raise ValueError(str(exc))
+        except Exception as exc:
+            raise ValueError(f"Não foi possível entrar no sistema ({exc}).")
+
+    token = pedir("Passo 2: Insira a sua chave/token de Administrador (ou ENTER para entrar com e-mail e senha): ",
+                  validar_token)
+    item_id = pedir("Passo 3: Qual o ID do Lote/Edital no sistema?: ", _validar_texto)
+
+    def validar_url_lance(texto: str) -> str:
+        if texto.strip().lower() == "simulacao":
+            return "simulacao"
+        return _validar_url(texto)
+
+    url_lance = pedir("Passo 4: Cole a URL de disparo de lances do Portal de Compras (capturada via F12) "
+                      "[ou digite simulacao para testar sem enviar lances]: ", validar_url_lance)
+    if url_lance == "simulacao":
+        portal = {"modo": "simulacao"}
+        saida("  Modo simulação: os passos 5 e 6 não são necessários (nenhum lance sai para o portal).")
+    else:
+        cookies = pedir("Passo 5: Cole os Cookies de sessão do portal (capturados via F12): ", interpretar_cookies)
+        payload = pedir('Passo 6: Cole a estrutura do Payload (ex: {"valorLance": {valor}}): ', interpretar_payload)
+        portal = {"modo": "portal", "url_lance": url_lance, "metodo": "POST", "headers": {},
+                  "cookies": cookies, "payload_modelo": payload}
+
+    cfg = {"url_backend": url, "token": token, "item_id": item_id,
+           "intervalo_minimo_segundos": INTERVALO_MINIMO_PADRAO, "portal": portal}
+    with open(caminho, "w", encoding="utf-8") as arq:
+        json.dump(cfg, arq, ensure_ascii=False, indent=2)
+    saida(f"\n  Configuração guardada em {caminho}\n")
+    return cfg
+
+
+def carregar_config(caminho: str, reconfigurar: bool = False, **assistente) -> Dict[str, Any]:
+    """config.json válido segue direto para a confirmação INICIAR; ausente ou incompleto abre o assistente."""
+    cfg = ler_config(caminho)
+    if reconfigurar or problemas_da_config(cfg):
+        return assistente_configuracao(caminho, **assistente)
     return cfg
 
 
@@ -474,9 +634,10 @@ def main(argv=None) -> int:
         os.system("")  # habilita cores/ANSI no console do Windows
     args = argparse.ArgumentParser(description="Robô de Lances Desktop - Licitações Brasil")
     args.add_argument("--config", default=os.path.join(pasta_do_programa(), "config.json"))
+    args.add_argument("--configurar", action="store_true", help="refaz o assistente de configuração")
     opcoes = args.parse_args(argv)
     try:
-        cfg_local = carregar_config(opcoes.config)
+        cfg_local = carregar_config(opcoes.config, reconfigurar=opcoes.configurar)
         backend = ClienteBackend(cfg_local["url_backend"], cfg_local["token"], cfg_local["item_id"])
         robo_cfg = backend.config()
         adaptador = criar_adaptador(cfg_local.get("portal") or {}, robo_cfg.get("portal"))
@@ -496,8 +657,15 @@ def main(argv=None) -> int:
     except (KeyboardInterrupt, EOFError):
         print("\nInterrompido pelo operador.")
         return SAIDA_KILL
+    except PermissionError as exc:
+        print(f"ERRO: {exc}\nSe a chave expirou, rode de novo com --configurar (ou apague o config.json).")
+        return SAIDA_ERRO
     except Exception as exc:
-        print(f"ERRO: {exc}")
+        if type(exc).__name__ in ("ConnectionError", "ConnectTimeout", "ReadTimeout", "Timeout"):
+            print("ERRO: não foi possível conectar ao sistema web. Confira a internet e a URL "
+                  f"(para corrigir, rode com --configurar).\nDetalhe: {exc}")
+        else:
+            print(f"ERRO: {exc}")
         return SAIDA_ERRO
 
 
